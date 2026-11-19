@@ -9,6 +9,9 @@ import { showToast } from '../ui/toast';
 import { bundleText, type PlayerInfo } from './derive';
 
 function buzz(ms: number): void {
+  // 브라우저는 사용자가 화면을 한 번이라도 누르기 전에는 진동을 막는다.
+  const activation = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
+  if (activation && !activation.hasBeenActive) return;
   try {
     navigator.vibrate?.(ms);
   } catch {

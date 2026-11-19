@@ -11,8 +11,6 @@ import { loadArtLibrary, type ArtLibrary, type ArtReport, type GroundTextureKey,
 import {
   BANK_WIDTH,
   HEX_RADIUS,
-  LOT_SIZE,
-  HOUSE_SLOT,
   PLATFORM_TOP,
   RIVER_WIDTH,
   TILE_THICKNESS,
@@ -388,45 +386,17 @@ export class BoardRenderer {
       this.scene.add(mesh);
     }
 
-    // 거점 터: 생산 칸마다 집이 설 자리를 흙바닥으로 표시한다.
-    const production = this.options.tiles.filter((t) => t.kind !== 'market');
-    if (production.length) {
-      const lotGeo = this.own(scaleUV(new THREE.PlaneGeometry(LOT_SIZE.w, LOT_SIZE.d).rotateX(-Math.PI / 2), 0.5));
-      const lotMat = this.own(
-        new THREE.MeshStandardMaterial({
-          map: this.art?.ground('ground_dirt') ?? null,
-          color: this.art?.ground('ground_dirt') ? '#f6ead2' : '#c9ad84',
-          roughness: 1,
-          transparent: true,
-          opacity: 0.55,
-          depthWrite: false,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-        }),
-      );
-      const lots = new THREE.InstancedMesh(lotGeo, lotMat, production.length);
-      // 터 네 귀퉁이의 말뚝 (빈 터임을 알아보기 쉽게)
-      const stakeGeo = this.own(new THREE.BoxGeometry(0.035, 0.13, 0.035).translate(0, 0.065, 0));
-      const stakeMat = this.own(new THREE.MeshStandardMaterial({ color: '#7a5532', roughness: 0.9 }));
-      const stakes = new THREE.InstancedMesh(stakeGeo, stakeMat, production.length * 4);
-      production.forEach((t, i) => {
-        const c = tileCenter(t, m);
-        const lx = c.x + HOUSE_SLOT.x;
-        const lz = c.z + HOUSE_SLOT.z;
-        lots.setMatrixAt(i, compose(lx, TILE_TOP + 0.002, lz, 0, 1, 1, 1));
-        [
-          [-1, -1],
-          [1, -1],
-          [-1, 1],
-          [1, 1],
-        ].forEach(([sx, sz], k) => {
-          stakes.setMatrixAt(i * 4 + k, compose(lx + (sx * LOT_SIZE.w) / 2, TILE_TOP, lz + (sz * LOT_SIZE.d) / 2, 0, 1, 1, 1));
-        });
-      });
-      lots.computeBoundingSphere();
-      stakes.computeBoundingSphere();
-      this.scene.add(lots, stakes);
-    }
+    // 타일 안쪽 가장자리를 살짝 어둡게 칠해 눌러 찍은 보드게임 타일처럼 보이게 한다 (한 번의 그리기 호출).
+    const edgeGeo = this.own(this.hexEdgeShade(HEX_RADIUS - 0.005, HEX_RADIUS - 0.2, 0.32));
+    const edgeMat = this.own(new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, toneMapped: false }));
+    const edges = new THREE.InstancedMesh(edgeGeo, edgeMat, this.options.tiles.length);
+    this.options.tiles.forEach((t, i) => {
+      const c = tileCenter(t, m);
+      edges.setMatrixAt(i, compose(c.x, TILE_TOP + 0.003, c.z, 0, 1, 1, 1));
+    });
+    edges.computeBoundingSphere();
+    edges.renderOrder = 1;
+    this.scene.add(edges);
 
     // 터치 판정용 투명 타일 상자 (소품이 아니라 타일 단위로 고른다)
     const hitGeo = this.own(new THREE.CylinderGeometry(HEX_RADIUS + 0.06, HEX_RADIUS + 0.06, 0.7, 6));
@@ -439,6 +409,34 @@ export class BoardRenderer {
       box.updateMatrixWorld();
       this.hitBoxes.push(box);
     }
+  }
+
+  /** 바깥 꼭짓점은 검정 반투명, 안쪽은 투명인 육각 띠 (꼭짓점 RGBA 색) */
+  private hexEdgeShade(outer: number, inner: number, alpha: number): THREE.BufferGeometry {
+    const o = hexCorners(outer);
+    const n = hexCorners(inner);
+    const pos: number[] = [];
+    const col: number[] = [];
+    for (let k = 0; k < 6; k++) {
+      pos.push(o[k].x, 0, o[k].z, n[k].x, 0, n[k].z);
+      col.push(0.08, 0.06, 0.03, alpha, 0.08, 0.06, 0.03, 0);
+    }
+    const idx: number[] = [];
+    for (let k = 0; k < 6; k++) {
+      const a = k * 2;
+      const b = ((k + 1) % 6) * 2;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    // 위에서 보이도록 앞면을 위로
+    if (g.attributes.normal.getY(0) < 0) {
+      g.setIndex(idx.map((_, i) => idx[i - (i % 3) + (2 - (i % 3))]));
+    }
+    return g;
   }
 
   private ribbon(curve: THREE.CatmullRomCurve3, width: number, y: number): THREE.BufferGeometry {
@@ -506,7 +504,9 @@ export class BoardRenderer {
       const template = art.prop(key, variant);
       for (const part of template.parts) {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, list.length);
-        list.forEach((p, i) => mesh.setMatrixAt(i, compose(p.x, p.y, p.z, p.rotY, p.scale * (p.stretch ?? 1), p.scale, p.scale)));
+        list.forEach((p, i) =>
+          mesh.setMatrixAt(i, compose(p.x, p.y, p.z, p.rotY, p.scale * (p.stretch ?? 1), p.scale * (p.sy ?? 1), p.scale)),
+        );
         mesh.computeBoundingSphere();
         this.scene.add(mesh);
       }

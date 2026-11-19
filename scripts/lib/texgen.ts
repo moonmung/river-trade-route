@@ -370,42 +370,55 @@ export function groundDirt(size = 512): Img {
   return img;
 }
 
+/** 숲 바닥: 밝은 이끼, 햇빛 얼룩, 낙엽·솔잎 */
 export function groundForest(size = 512): Img {
   const img = new Img(size, size);
   each(size, (u, v, x, y) => {
-    const moss = smooth(0.45, 0.7, fbm(u, v, 4, 4, 4, 121));
+    const moss = fbm(u, v, 4, 4, 4, 121);
+    const sun = smooth(0.55, 0.75, fbm(u, v, 3, 3, 3, 129));
     const needlesA = fbm(u, v, 96, 8, 2, 123);
     const needlesB = fbm(u, v, 8, 96, 2, 125);
     const needle = Math.max(needlesA, needlesB);
-    let c = mix(hex('#6e5a3b'), hex('#5f8a3f'), moss);
-    c = mix(c, hex('#9a7d50'), smooth(0.68, 0.82, needle) * 0.6);
-    c = scale(c, 0.92 + 0.2 * fbm(u, v, 16, 16, 2, 127));
+    let c = mix(hex('#3f6f2e'), hex('#76a843'), moss);
+    c = mix(c, hex('#a7c75c'), sun * 0.45);
+    c = mix(c, hex('#8a6a3e'), smooth(0.7, 0.84, needle) * 0.55);
+    c = scale(c, 0.9 + 0.2 * fbm(u, v, 24, 24, 2, 127));
     img.set(x, y, c);
   });
   return img;
 }
 
 /** 갈아 놓은 밭: 밀 줄과 같은 방향(가로)의 고랑 */
+/** 밭: 밀 고랑 사이로 보이는 황금빛 그루터기와 흙 고랑 (밀 줄과 같은 가로 방향) */
 export function groundField(size = 512): Img {
   const img = new Img(size, size);
   each(size, (u, v, x, y) => {
-    const furrow = Math.sin((v * 10 + (fbm(u, v, 4, 2, 2, 131) - 0.5) * 0.25) * Math.PI * 2) * 0.5 + 0.5;
+    const furrow = Math.sin((v * 12 + (fbm(u, v, 4, 2, 2, 131) - 0.5) * 0.25) * Math.PI * 2) * 0.5 + 0.5;
     const n = fbm(u, v, 24, 24, 3, 133);
-    let c = mix(hex('#8a6738'), hex('#c09a5c'), furrow * 0.7 + n * 0.3);
-    if (hash2(x, y, 135) > 0.996) c = hex('#f0d27a');
+    const straw = fbm(u, v, 64, 6, 2, 137);
+    let c = mix(hex('#a07a3c'), hex('#e2bd5e'), furrow * 0.65 + n * 0.35);
+    c = mix(c, hex('#f3d987'), smooth(0.62, 0.8, straw) * 0.5);
     img.set(x, y, c);
   });
   return img;
 }
 
+/** 채석장: 거친 바위 바닥(큰 바위 덩어리의 밝고 어두운 면)과 군데군데 자갈 */
 export function groundQuarry(size = 512): Img {
   const img = new Img(size, size);
   each(size, (u, v, x, y) => {
-    const gravel = voronoi(u, v, 48, 141, 0.95);
-    const dust = fbm(u, v, 3, 3, 4, 143);
-    const tone = hash2(gravel.id, 2, 145);
-    let c = mix(hex('#a39f96'), hex('#dad6cc'), tone * 0.6 + dust * 0.4);
-    c = scale(c, 1 - (1 - smooth(0, 0.12, gravel.f2 - gravel.f1)) * 0.35);
+    const rock = voronoi(u, v, 4, 141, 0.95);
+    const gravel = voronoi(u, v, 56, 147, 0.95);
+    const rough = fbm(u, v, 16, 16, 4, 143);
+    const patch = smooth(0.55, 0.7, fbm(u, v, 3, 3, 3, 153));
+    // 바위 면마다 밝기를 달리하고, 빛 방향(왼쪽 위)으로 기울어진 면을 밝게 칠한다.
+    const facet = hash2(rock.id, 2, 145);
+    const lit = (-rock.dx - rock.dy) * 0.12;
+    let c = mix(hex('#8f8c85'), hex('#d0ccc2'), clamp01(facet * 0.45 + rough * 0.45 + 0.1 + lit));
+    const seam = 1 - smooth(0.02, 0.09, rock.f2 - rock.f1);
+    c = scale(c, 1 - seam * 0.35);
+    const pebble = mix(hex('#8a857b'), hex('#c8c2b6'), hash2(gravel.id, 5, 149));
+    c = mix(c, scale(pebble, 1 - (1 - smooth(0, 0.14, gravel.f2 - gravel.f1)) * 0.3), patch * 0.85);
     img.set(x, y, c);
   });
   return img;

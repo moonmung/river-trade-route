@@ -29,6 +29,7 @@ export type PropKey =
   | 'crate'
   | 'barrel'
   | 'jug'
+  | 'well'
   | 'boat'
   | 'dock'
   | 'reeds';
@@ -567,6 +568,22 @@ export function buildBarrel(seed = 1): PropPart[] {
   return k.build(0.15, 0.7);
 }
 
+/** 시장 광장 가운데 우물: 돌 테두리, 나무 기둥과 지붕, 도르래와 두레박 */
+export function buildWell(): PropPart[] {
+  const k = new Kit();
+  k.add('stone', cyl(0.16, 0.175, 0.17, 14), { position: [0, 0.085, 0], uv: 'native', uvScale: 1.5 });
+  k.add('stone', new THREE.TorusGeometry(0.158, 0.026, 6, 16), { position: [0, 0.17, 0], rotation: [Math.PI / 2, 0, 0], color: '#e4e0d8' });
+  k.add('dark', new THREE.CircleGeometry(0.13, 14), { position: [0, 0.172, 0], rotation: [-Math.PI / 2, 0, 0], color: '#2c4a5a' });
+  for (const x of [-0.16, 0.16]) k.add('wood', box(0.032, 0.42, 0.032), { position: [x, 0.38, 0], color: '#7a5532' });
+  for (const side of [1, -1]) {
+    k.add('wood', box(0.44, 0.022, 0.2), { position: [0, 0.6, side * 0.075], rotation: [side * 0.62, 0, 0], color: '#8f6238' });
+  }
+  k.add('wood', cyl(0.014, 0.014, 0.36, 6), { position: [0, 0.48, 0], rotation: [0, 0, Math.PI / 2], color: '#6b4a2a' });
+  k.add('wood', cyl(0.042, 0.036, 0.07, 10), { position: [0.06, 0.3, 0], color: '#8a5f36' });
+  k.add('metal', cyl(0.044, 0.044, 0.012, 10, true), { position: [0.06, 0.32, 0] });
+  return k.build(0.25, 0.7);
+}
+
 // ───────────────────────── 강가 ─────────────────────────
 
 export function buildBoat(seed = 1): PropPart[] {
@@ -641,6 +658,7 @@ export const PROP_VARIANTS: Record<PropKey, number> = {
   crate: 2,
   barrel: 1,
   jug: 1,
+  well: 1,
   boat: 1,
   dock: 1,
   reeds: 2,
@@ -681,6 +699,8 @@ export function buildProp(key: PropKey, variant = 0): PropPart[] {
       return buildBarrel(seed);
     case 'jug':
       return buildJug();
+    case 'well':
+      return buildWell();
     case 'boat':
       return buildBoat(seed);
     case 'dock':

@@ -36,6 +36,8 @@ export interface Placement {
   scale: number;
   /** 가로(x) 방향으로만 더 늘이는 배율 (밀 줄 길이 맞추기) */
   stretch?: number;
+  /** 세로(y) 방향으로만 더 늘이는 배율 (바위 언덕을 높게) */
+  sy?: number;
   /** 접촉 그림자 반지름 (0이면 그림자 없음) */
   shadow: number;
   /** 그림자 가로세로 비율 */
@@ -111,88 +113,113 @@ function halfWidthAt(z: number): number {
   return Math.min(HEX_APOTHEM, (HEX_RADIUS - Math.abs(z)) * SQRT3);
 }
 
-type Recipe = Omit<Placement, 'y'> & { y?: number };
+type Local = Omit<Placement, 'x' | 'y' | 'z'> & { x: number; z: number; y?: number };
 
-// 타일 중심 기준 좌표(월드 단위). 큰 소품은 뒤쪽(-z), 앞쪽 오른편은 거점 자리로 비워 둔다.
-const FOREST: Recipe[] = [
-  { key: 'pine', variant: 0, x: -0.5, z: -0.52, rotY: 0.3, scale: 1.02, shadow: 0.32 },
-  { key: 'pine', variant: 1, x: -0.04, z: -0.74, rotY: 1.1, scale: 0.95, shadow: 0.3 },
-  { key: 'pine', variant: 2, x: 0.44, z: -0.5, rotY: 2.0, scale: 1.05, shadow: 0.33 },
-  { key: 'pine', variant: 0, x: -0.74, z: -0.08, rotY: 0.7, scale: 0.84, shadow: 0.28 },
-  { key: 'pine', variant: 1, x: -0.27, z: -0.2, rotY: 2.6, scale: 0.9, shadow: 0.29 },
-  { key: 'pine', variant: 2, x: 0.17, z: -0.22, rotY: 0.2, scale: 0.86, shadow: 0.28 },
-  { key: 'pine', variant: 0, x: 0.68, z: -0.12, rotY: 1.7, scale: 0.78, shadow: 0.26 },
-  { key: 'logpile', variant: 0, x: -0.52, z: 0.38, rotY: 0.12, scale: 0.95, shadow: 0.34, shadowAspect: 1.3 },
-  { key: 'stump', variant: 0, x: 0.06, z: 0.8, rotY: 0.6, scale: 1, shadow: 0.12 },
-  { key: 'bush', variant: 0, x: 0.8, z: 0.0, rotY: 0, scale: 0.85, shadow: 0.14 },
-];
+/** 거점(집·깃발)이 들어설 앞쪽 오른편 빈터. 모든 생산 칸에서 비워 둔다. */
+const CLEARING = { x0: -0.32, x1: 0.64, z0: -0.04, z1: 0.66 };
 
-const FIELD: Recipe[] = [
-  ...[-0.84, -0.66, -0.48, -0.3, -0.12].map((z, i) => {
-    const half = halfWidthAt(Math.abs(z) + 0.08) - 0.07;
-    return { key: 'wheatrow' as const, variant: i % 3, x: 0, z, rotY: 0, scale: 1, stretch: (half * 2) / 1.6, shadow: 0 };
-  }),
-  { key: 'stook', variant: 0, x: -0.58, z: 0.28, rotY: 0.4, scale: 1, shadow: 0.13 },
-  { key: 'stook', variant: 1, x: -0.4, z: 0.5, rotY: 1.4, scale: 0.95, shadow: 0.13 },
-  { key: 'stook', variant: 0, x: -0.7, z: 0.5, rotY: 2.4, scale: 0.88, shadow: 0.12 },
-  { key: 'sack', variant: 0, x: -0.18, z: 0.76, rotY: 0.3, scale: 1, shadow: 0.12 },
-  { key: 'sack', variant: 1, x: -0.36, z: 0.72, rotY: 1.2, scale: 0.95, shadow: 0.12 },
-];
+function inClearing(x: number, z: number, pad: number): boolean {
+  return x > CLEARING.x0 - pad && x < CLEARING.x1 + pad && z > CLEARING.z0 - pad && z < CLEARING.z1 + pad;
+}
 
-const QUARRY: Recipe[] = [
-  { key: 'boulder', variant: 0, x: -0.46, z: -0.5, rotY: 0.2, scale: 1.3, shadow: 0.35 },
-  { key: 'boulder', variant: 1, x: 0.04, z: -0.72, rotY: 1.3, scale: 1.0, shadow: 0.3 },
-  { key: 'boulder', variant: 2, x: 0.5, z: -0.44, rotY: 2.2, scale: 1.35, shadow: 0.37 },
-  { key: 'boulder', variant: 3, x: -0.32, z: -0.12, rotY: 0.8, scale: 0.8, shadow: 0.24 },
-  { key: 'boulder', variant: 1, x: 0.3, z: -0.14, rotY: 2.9, scale: 0.85, shadow: 0.25 },
-  { key: 'boulder', variant: 3, x: 0.8, z: 0.04, rotY: 1.9, scale: 0.6, shadow: 0.18 },
-  { key: 'blocks', variant: 0, x: -0.48, z: 0.36, rotY: 0.08, scale: 0.95, shadow: 0.3, shadowAspect: 1.4 },
-  { key: 'boulder', variant: 2, x: -0.6, z: 0.62, rotY: 0.5, scale: 0.42, shadow: 0.11 },
-  { key: 'boulder', variant: 0, x: 0.04, z: 0.8, rotY: 1.5, scale: 0.36, shadow: 0.1 },
-];
+/** 타일 육각형 안쪽인지 (margin 만큼 안으로 들여서 판정) */
+function insideHex(x: number, z: number, margin: number): boolean {
+  const R = HEX_RADIUS - margin;
+  return Math.abs(x) <= (R * SQRT3) / 2 && Math.abs(z) <= R - Math.abs(x) / SQRT3;
+}
 
-const MARKET: Recipe[] = [
-  { key: 'tent', variant: 0, x: -0.4, z: -0.3, rotY: 0.08, scale: 1.0, shadow: 0.42, shadowAspect: 1.3 },
-  { key: 'tent', variant: 1, x: 0.4, z: -0.32, rotY: -0.08, scale: 1.0, shadow: 0.42, shadowAspect: 1.3 },
-  { key: 'barrel', variant: 0, x: 0.0, z: -0.82, rotY: 0.4, scale: 1, shadow: 0.13 },
-  { key: 'crate', variant: 0, x: -0.62, z: 0.3, rotY: 0.2, scale: 1, shadow: 0.13 },
-  { key: 'crate', variant: 1, x: -0.46, z: 0.46, rotY: -0.3, scale: 1, shadow: 0.13 },
-  { key: 'crate', variant: 0, x: -0.6, z: 0.32, rotY: 0.5, scale: 0.9, shadow: 0, y: 0.16 },
-  { key: 'barrel', variant: 0, x: 0.56, z: 0.3, rotY: 0, scale: 1, shadow: 0.13 },
-  { key: 'barrel', variant: 0, x: 0.72, z: 0.12, rotY: 1, scale: 1, shadow: 0.13 },
-  { key: 'barrel', variant: 0, x: 0.42, z: 0.5, rotY: 2, scale: 1, shadow: 0.13 },
-  { key: 'sack', variant: 0, x: -0.12, z: 0.56, rotY: 0.4, scale: 1, shadow: 0.12 },
-  { key: 'sack', variant: 1, x: 0.08, z: 0.66, rotY: 2.1, scale: 1, shadow: 0.12 },
-  { key: 'jug', variant: 0, x: -0.02, z: 0.28, rotY: 0.6, scale: 1.4, shadow: 0.07 },
-  { key: 'jug', variant: 0, x: 0.18, z: 0.32, rotY: 2.2, scale: 1.2, shadow: 0.06 },
-];
+/** 숲: 뒤쪽 절반을 소나무와 참나무가 빽빽하게 채운다. 앞 왼쪽은 통나무 더미, 앞 오른쪽은 거점 빈터. */
+function forest(rand: () => number): Local[] {
+  const out: Local[] = [
+    { key: 'logpile', variant: 0, x: -0.5, z: 0.42, rotY: 0.12, scale: 0.9, shadow: 0.36, shadowAspect: 1.3 },
+    { key: 'stump', variant: 0, x: 0.02, z: 0.84, rotY: 0.6, scale: 1, shadow: 0.12 },
+  ];
+  const step = 0.31;
+  for (let j = -4; j <= 2; j++) {
+    for (let i = -4; i <= 4; i++) {
+      const x = (i + (j & 1 ? 0.5 : 0)) * step + (rand() - 0.5) * 0.09;
+      const z = j * step * 0.86 + (rand() - 0.5) * 0.09;
+      const oak = rand() < 0.3;
+      const s = (oak ? 0.6 : 0.7) + rand() * 0.24;
+      const reach = (oak ? 0.34 : 0.29) * s;
+      if (!insideHex(x, z, reach * 0.85)) continue;
+      if (z > 0.6 || inClearing(x, z, reach * 0.8)) continue;
+      if (x < -0.12 && z > 0.14) continue; // 통나무 더미 자리
+      out.push({ key: oak ? 'oak' : 'pine', variant: Math.floor(rand() * 3), x, z, rotY: rand() * 6.28, scale: s, shadow: oak ? 0.38 : 0.31 });
+    }
+  }
+  return out;
+}
 
-const RECIPES: Record<TileKind, Recipe[]> = { wood: FOREST, grain: FIELD, stone: QUARRY, market: MARKET };
+/** 밭: 육각형을 가득 채우는 밀 고랑. 거점 빈터와 앞 꼭짓점만 비우고 짚단·포대를 둔다. */
+function field(rand: () => number): Local[] {
+  const out: Local[] = [];
+  for (let z = -0.93; z <= 0.62; z += 0.155) {
+    const half = halfWidthAt(Math.abs(z) + 0.09) - 0.06;
+    if (half < 0.14) continue;
+    const x0 = -half;
+    let x1 = half;
+    if (z > CLEARING.z0 - 0.08 && z < CLEARING.z1 + 0.08) x1 = Math.min(x1, CLEARING.x0 - 0.05);
+    const len = x1 - x0;
+    if (len < 0.2) continue;
+    out.push({ key: 'wheatrow', variant: Math.floor(rand() * 3), x: (x0 + x1) / 2, z, rotY: 0, scale: 1, stretch: len / 1.6, shadow: 0 });
+  }
+  out.push({ key: 'stook', variant: 0, x: -0.14, z: 0.8, rotY: rand() * 3, scale: 0.92, shadow: 0.13 });
+  out.push({ key: 'sack', variant: 0, x: 0.12, z: 0.8, rotY: rand() * 3, scale: 0.95, shadow: 0.12 });
+  out.push({ key: 'sack', variant: 1, x: 0.27, z: 0.74, rotY: rand() * 3, scale: 0.9, shadow: 0.11 });
+  return out;
+}
 
-/** 타일 위 소품 배치. 타일마다 좌우를 뒤집거나 살짝 흔들어 같은 종류도 똑같아 보이지 않게 한다. */
+/** 채석장: 뒤쪽에 높이 솟은 바위 언덕, 앞쪽에 잘라 낸 돌덩이와 자갈 */
+function quarry(rand: () => number): Local[] {
+  const r = () => rand() * 6.28;
+  return [
+    { key: 'boulder', variant: 0, x: -0.42, z: -0.5, rotY: r(), scale: 1.65, sy: 1.5, shadow: 0.24 },
+    { key: 'boulder', variant: 2, x: 0.08, z: -0.66, rotY: r(), scale: 1.85, sy: 1.75, shadow: 0.24 },
+    { key: 'boulder', variant: 1, x: 0.5, z: -0.38, rotY: r(), scale: 1.5, sy: 1.4, shadow: 0.24 },
+    { key: 'boulder', variant: 3, x: -0.7, z: -0.08, rotY: r(), scale: 1.1, sy: 1.2, shadow: 0.24 },
+    { key: 'boulder', variant: 0, x: -0.2, z: -0.18, rotY: r(), scale: 1.0, shadow: 0.24 },
+    { key: 'boulder', variant: 2, x: 0.3, z: -0.1, rotY: r(), scale: 0.8, shadow: 0.24 },
+    { key: 'boulder', variant: 1, x: 0.78, z: 0.0, rotY: r(), scale: 0.6, shadow: 0.24 },
+    { key: 'blocks', variant: 0, x: -0.5, z: 0.38, rotY: 0.08, scale: 0.95, shadow: 0.3, shadowAspect: 1.4 },
+    { key: 'boulder', variant: 3, x: -0.62, z: 0.66, rotY: r(), scale: 0.4, shadow: 0.24 },
+    { key: 'boulder', variant: 1, x: -0.22, z: 0.78, rotY: r(), scale: 0.32, shadow: 0.24 },
+    { key: 'boulder', variant: 2, x: 0.06, z: 0.86, rotY: r(), scale: 0.36, shadow: 0.24 },
+  ];
+}
+
+/** 시장: 포석 광장 가운데 우물, 뒤쪽에 줄무늬 천막, 앞쪽에 상자·통·포대 */
+function market(): Local[] {
+  return [
+    { key: 'tent', variant: 0, x: -0.42, z: -0.36, rotY: 0.1, scale: 1.0, shadow: 0.42, shadowAspect: 1.3 },
+    { key: 'tent', variant: 1, x: 0.42, z: -0.4, rotY: -0.1, scale: 1.0, shadow: 0.42, shadowAspect: 1.3 },
+    { key: 'well', variant: 0, x: 0.0, z: 0.12, rotY: 0.3, scale: 1.1, shadow: 0.22 },
+    { key: 'barrel', variant: 0, x: 0.0, z: -0.84, rotY: 0.4, scale: 1, shadow: 0.13 },
+    { key: 'crate', variant: 0, x: -0.62, z: 0.32, rotY: 0.2, scale: 1, shadow: 0.13 },
+    { key: 'crate', variant: 1, x: -0.46, z: 0.48, rotY: -0.3, scale: 1, shadow: 0.13 },
+    { key: 'crate', variant: 0, x: -0.6, z: 0.34, rotY: 0.5, scale: 0.9, shadow: 0, y: 0.16 },
+    { key: 'barrel', variant: 0, x: 0.58, z: 0.3, rotY: 0, scale: 1, shadow: 0.13 },
+    { key: 'barrel', variant: 0, x: 0.74, z: 0.1, rotY: 1, scale: 1, shadow: 0.13 },
+    { key: 'barrel', variant: 0, x: 0.44, z: 0.5, rotY: 2, scale: 1, shadow: 0.13 },
+    { key: 'sack', variant: 0, x: -0.16, z: 0.62, rotY: 0.4, scale: 1, shadow: 0.12 },
+    { key: 'sack', variant: 1, x: 0.1, z: 0.7, rotY: 2.1, scale: 1, shadow: 0.12 },
+    { key: 'jug', variant: 0, x: 0.26, z: 0.38, rotY: 0.6, scale: 1.4, shadow: 0.07 },
+    { key: 'jug', variant: 0, x: -0.28, z: 0.36, rotY: 2.2, scale: 1.2, shadow: 0.06 },
+  ];
+}
+
+/** 타일 위 소품 배치. 타일 ID 를 시드로 써서 같은 종류도 칸마다 조금씩 다르게 보인다. */
 export function tilePlacements(tile: TileDef, m: BoardMetrics): Placement[] {
   const center = tileCenter(tile, m);
   const rand = mulberry32(hashString(tile.id));
-  const mirror = tile.kind !== 'market' && tile.kind !== 'grain' && rand() < 0.5 ? -1 : 1;
-  return RECIPES[tile.kind].map((r) => {
-    const jitter = r.key === 'wheatrow' ? 0 : 0.035;
-    let lx = r.x * mirror + (rand() - 0.5) * jitter * 2;
-    // 뒤집힌 타일에서도 앞쪽 오른편 거점 자리는 비워 둔다.
-    if (mirror < 0 && lx > 0.0 && r.z > 0.1 && r.key !== 'bush') lx = -lx;
-    const lz = r.z + (rand() - 0.5) * jitter * 2;
-    return {
-      key: r.key,
-      variant: r.variant,
-      x: center.x + lx,
-      y: TILE_TOP + (r.y ?? 0),
-      z: center.z + lz,
-      rotY: r.rotY * mirror + (r.key === 'wheatrow' ? 0 : (rand() - 0.5) * 0.3),
-      scale: r.scale * (r.key === 'wheatrow' ? 1 : 0.95 + rand() * 0.1),
-      stretch: r.stretch,
-      shadow: r.shadow,
-      shadowAspect: r.shadowAspect,
-    };
-  });
+  const local =
+    tile.kind === 'wood' ? forest(rand) : tile.kind === 'grain' ? field(rand) : tile.kind === 'stone' ? quarry(rand) : market();
+  return local.map((p) => ({
+    ...p,
+    x: center.x + p.x,
+    y: TILE_TOP + (p.y ?? 0),
+    z: center.z + p.z,
+  }));
 }
 
 export function houseTransform(tile: TileDef, m: BoardMetrics): { house: THREE.Vector3; banner: THREE.Vector3 } {
