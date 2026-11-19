@@ -1,0 +1,49 @@
+{
+  "name": "river-trade-route",
+  "private": true,
+  "version": "0.1.0",
+  "description": "강줄기 교역로 — 같은 와이파이에서 3~4명이 함께하는 웹 보드게임",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "node scripts/copy-vendor.mjs && tsx src/server/index.ts --dev",
+    "build": "node scripts/copy-vendor.mjs && vite build && npm run build:server",
+    "build:server": "esbuild src/server/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist/server/index.js --log-level=warning",
+    "start": "node dist/server/index.js",
+    "host": "npm run build && npm start",
+    "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json && tsc -p tsconfig.tools.json",
+    "test": "vitest run",
+    "assets": "tsx scripts/generate-assets.ts"
+  },
+  "dependencies": {
+    "compression": "^1.8.1",
+    "express": "^5.3.0",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "@types/compression": "^1.8.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.0.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "esbuild": "^0.28.2",
+    "ktx2-encoder": "^0.6.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "socket.io-client": "^4.8.4",
+    "three": "^0.187.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  }
+}

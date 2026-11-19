@@ -1,0 +1,265 @@
+{
+  "version": 1,
+  "generatedBy": "scripts/generate-assets.ts",
+  "generatedAt": "2026-11-19T22:18:29.874Z",
+  "note": "temporary: true 인 항목은 코드로 만든 임시 에셋입니다. 최종 모델·텍스처로 바꾸면 false 로 고치세요.",
+  "models": {
+    "house": {
+      "url": "models/village_kit.glb",
+      "node": "house",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "banner": {
+      "url": "models/village_kit.glb",
+      "node": "banner",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "pine_0": {
+      "url": "models/village_kit.glb",
+      "node": "pine_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "pine_1": {
+      "url": "models/village_kit.glb",
+      "node": "pine_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "pine_2": {
+      "url": "models/village_kit.glb",
+      "node": "pine_2",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "oak_0": {
+      "url": "models/village_kit.glb",
+      "node": "oak_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "oak_1": {
+      "url": "models/village_kit.glb",
+      "node": "oak_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "oak_2": {
+      "url": "models/village_kit.glb",
+      "node": "oak_2",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "bush_0": {
+      "url": "models/village_kit.glb",
+      "node": "bush_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "bush_1": {
+      "url": "models/village_kit.glb",
+      "node": "bush_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "logpile_0": {
+      "url": "models/village_kit.glb",
+      "node": "logpile_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "logpile_1": {
+      "url": "models/village_kit.glb",
+      "node": "logpile_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "stump": {
+      "url": "models/village_kit.glb",
+      "node": "stump",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "wheatrow_0": {
+      "url": "models/village_kit.glb",
+      "node": "wheatrow_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "wheatrow_1": {
+      "url": "models/village_kit.glb",
+      "node": "wheatrow_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "wheatrow_2": {
+      "url": "models/village_kit.glb",
+      "node": "wheatrow_2",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "stook_0": {
+      "url": "models/village_kit.glb",
+      "node": "stook_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "stook_1": {
+      "url": "models/village_kit.glb",
+      "node": "stook_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "sack_0": {
+      "url": "models/village_kit.glb",
+      "node": "sack_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "sack_1": {
+      "url": "models/village_kit.glb",
+      "node": "sack_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "boulder_0": {
+      "url": "models/village_kit.glb",
+      "node": "boulder_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "boulder_1": {
+      "url": "models/village_kit.glb",
+      "node": "boulder_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "boulder_2": {
+      "url": "models/village_kit.glb",
+      "node": "boulder_2",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "boulder_3": {
+      "url": "models/village_kit.glb",
+      "node": "boulder_3",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "blocks": {
+      "url": "models/village_kit.glb",
+      "node": "blocks",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "tent_0": {
+      "url": "models/village_kit.glb",
+      "node": "tent_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "tent_1": {
+      "url": "models/village_kit.glb",
+      "node": "tent_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "crate_0": {
+      "url": "models/village_kit.glb",
+      "node": "crate_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "crate_1": {
+      "url": "models/village_kit.glb",
+      "node": "crate_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "barrel": {
+      "url": "models/village_kit.glb",
+      "node": "barrel",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "jug": {
+      "url": "models/village_kit.glb",
+      "node": "jug",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "boat": {
+      "url": "models/village_kit.glb",
+      "node": "boat",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "dock": {
+      "url": "models/village_kit.glb",
+      "node": "dock",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "reeds_0": {
+      "url": "models/village_kit.glb",
+      "node": "reeds_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "reeds_1": {
+      "url": "models/village_kit.glb",
+      "node": "reeds_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    }
+  },
+  "textures": {
+    "ground_grass": {
+      "url": "textures/ground_grass.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    },
+    "ground_dirt": {
+      "url": "textures/ground_dirt.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    },
+    "ground_forest": {
+      "url": "textures/ground_forest.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    },
+    "ground_field": {
+      "url": "textures/ground_field.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    },
+    "ground_quarry": {
+      "url": "textures/ground_quarry.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    },
+    "ground_cobble": {
+      "url": "textures/ground_cobble.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    },
+    "ground_sand": {
+      "url": "textures/ground_sand.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    },
+    "water_normal": {
+      "url": "textures/water_normal.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    },
+    "contact_shadow": {
+      "url": "textures/contact_shadow.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    }
+  }
+}
