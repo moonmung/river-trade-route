@@ -3,29 +3,26 @@
 // - 타일 단위 터치 판정 (장식이 아니라 타일 상자에 광선을 쏜다)
 // - 반복 소품은 InstancedMesh, 건물 아래 그림자는 미리 구운 텍스처
 // - 카메라 조작, 크기 변경, 상태 변경, 짧은 연출 중에만 다시 그린다 (정지 화면은 마지막 프레임 유지)
+// - 만화 음영 재질과 수채화 후처리(먹선·종이 결·물감 얼룩)로 손으로 그린 삽화처럼 보이게 한다 (paint.ts)
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import type { Resource, TileDef, TileKind } from '../../shared/types';
 import type { PropKey } from './art/builders';
 import { loadArtLibrary, type ArtLibrary, type ArtReport, type GroundTextureKey, type LoadProgress } from './assets';
 import {
-  BANK_WIDTH,
   HEX_RADIUS,
   PLATFORM_TOP,
-  RIVER_WIDTH,
   TILE_THICKNESS,
   TILE_TOP,
-  WATER_Y,
   boardMetrics,
   hexCorners,
   houseTransform,
-  riverCurve,
-  sceneryPlacements,
   tileCenter,
   tilePlacements,
   type BoardMetrics,
   type Placement,
 } from './layout';
+import { PaintedRenderer, paintMaterial } from './paint';
 import { PerfMeter, type PerfRecording, type PerfStats } from './perf';
 
 export type HighlightKind = 'buildable' | 'placeable';
@@ -62,7 +59,6 @@ export interface BoardOptions {
   onPerf?: (s: PerfStats) => void;
   showTileLabels?: boolean;
   quality?: QualityMode;
-  scenery?: boolean;
 }
 
 const ELEVATION_DEG = 54;
@@ -77,14 +73,15 @@ const HIGHLIGHT_COLOR: Record<HighlightKind | 'selected' | 'hover', string> = {
   selected: '#ffffff',
   hover: '#fff6cf',
 };
-const GROUND_FALLBACK: Record<TileKind | 'grass' | 'dirt' | 'sand', string> = {
+/** 보드 바깥을 채우는 물 색. 물결 무늬 없이 장면 배경색으로만 칠하고, 종이 결과 물감 농담은 후처리가 입힌다.
+ *  styles.css·game.css 의 보드 배경도 같은 색이다. */
+const WATER_COLOR = '#589eb5';
+const GROUND_FALLBACK: Record<TileKind | 'dirt', string> = {
   wood: '#5f8a3f',
   grain: '#b8924f',
   stone: '#bdb9ae',
   market: '#cfc0a2',
-  grass: '#7aa04b',
   dirt: '#b99e72',
-  sand: '#c8b184',
 };
 const TILE_GROUND: Record<TileKind, GroundTextureKey> = {
   wood: 'ground_forest',
@@ -149,6 +146,7 @@ function easeInOut(t: number): number {
 export class BoardRenderer {
   readonly canvas: HTMLCanvasElement;
   private readonly renderer: THREE.WebGLRenderer;
+  private readonly painter: PaintedRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.OrthographicCamera;
   private readonly controls: MapControls;
@@ -202,13 +200,16 @@ export class BoardRenderer {
     this.quality = options.quality ?? 'auto';
     this.tileLabelsVisible = options.showTileLabels ?? true;
 
-    const dpr = window.devicePixelRatio || 1;
     // WebGL 2 컨텍스트를 만든다 (three.js r163 이후 WebGL 1 은 지원하지 않는다).
-    this.renderer = new THREE.WebGLRenderer({ antialias: dpr < 2, alpha: false, powerPreference: 'default' });
+    // 장면은 화면 밖 버퍼에 그린 뒤 후처리로 옮기므로 캔버스 자체의 계단 현상 줄이기는 쓰지 않는다.
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'default' });
     if (!this.renderer.capabilities.isWebGL2) throw new Error('WebGL 2를 사용할 수 없습니다.');
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
+    this.renderer.toneMappingExposure = 1.1;
+    // 장면 그리기와 후처리 두 번을 한 프레임으로 세도록 통계는 프레임마다 직접 비운다.
+    this.renderer.info.autoReset = false;
+    this.painter = new PaintedRenderer(this.renderer, this.quality === 'low' ? 0 : 4);
     this.canvas = this.renderer.domElement;
     this.canvas.className = 'board-canvas';
     this.canvas.setAttribute('aria-label', '3D 보드. 타일을 눌러 선택합니다.');
@@ -219,7 +220,7 @@ export class BoardRenderer {
     this.overlay.className = 'board-overlay';
     container.appendChild(this.overlay);
 
-    this.scene.background = new THREE.Color('#5d7a45');
+    this.scene.background = new THREE.Color(WATER_COLOR);
 
     this.camera = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 120);
     const el = THREE.MathUtils.degToRad(ELEVATION_DEG);
@@ -251,9 +252,10 @@ export class BoardRenderer {
     this.canvas.addEventListener('pointermove', this.onPointerMove);
     this.canvas.addEventListener('pointerleave', this.onPointerLeave);
 
-    // 조명: 하늘·땅 반사광 + 왼쪽 앞에서 비치는 햇빛. 미리 구운 그림자 방향과 맞춘다.
-    const hemi = new THREE.HemisphereLight('#fff6e2', '#5d6a40', 1.7);
-    const sun = new THREE.DirectionalLight('#fff1d8', 2.35);
+    // 조명: 왼쪽 앞에서 비치는 따뜻한 햇빛 + 서늘한 하늘빛. 미리 구운 그림자 방향과 맞춘다.
+    // 만화 음영이라 햇빛은 단계로 끊기고, 그늘진 면은 하늘빛(푸른 기)만 받아 수채화처럼 서늘해진다.
+    const hemi = new THREE.HemisphereLight('#c9d3e6', '#8c7a5c', 1.35);
+    const sun = new THREE.DirectionalLight('#ffe8c2', 1.9);
     sun.position.copy(LIGHT_DIR).multiplyScalar(30);
     this.scene.add(hemi, sun, sun.target);
 
@@ -294,10 +296,7 @@ export class BoardRenderer {
   }
 
   private allStaticPlacements(): Placement[] {
-    const list: Placement[] = [];
-    for (const t of this.options.tiles) list.push(...tilePlacements(t, this.metrics));
-    if (this.options.scenery !== false) list.push(...sceneryPlacements(this.metrics));
-    return list;
+    return this.options.tiles.flatMap((t) => tilePlacements(t, this.metrics));
   }
 
   private own<T extends THREE.BufferGeometry | THREE.Material>(x: T): T {
@@ -306,50 +305,19 @@ export class BoardRenderer {
     return x;
   }
 
-  private groundMaterial(key: GroundTextureKey, fallback: string, roughness = 1): THREE.MeshStandardMaterial {
+  private groundMaterial(key: GroundTextureKey, fallback: string, wash = 1): THREE.MeshToonMaterial {
     const map = this.art?.ground(key) ?? null;
-    return this.own(
-      new THREE.MeshStandardMaterial({ map, color: map ? '#ffffff' : fallback, roughness, metalness: 0 }),
-    );
+    return this.own(paintMaterial({ map, color: map ? '#ffffff' : fallback, wash }));
   }
 
   private buildGround(): void {
     const m = this.metrics;
-    // 넓은 풀밭
-    const terrain = new THREE.Mesh(
-      this.own(scaleUV(new THREE.PlaneGeometry(90, 90).rotateX(-Math.PI / 2), 36)),
-      this.groundMaterial('ground_grass', GROUND_FALLBACK.grass),
-    );
-    terrain.renderOrder = -2;
-    this.scene.add(terrain);
-
-    // 강둑(모래)과 강물: 곡선을 따라 띠 모양 도형을 만든다.
-    const curve = riverCurve(m);
-    const bank = new THREE.Mesh(
-      this.own(this.ribbon(curve, RIVER_WIDTH + BANK_WIDTH * 2, 0.012)),
-      this.groundMaterial('ground_sand', GROUND_FALLBACK.sand),
-    );
-    const waterNormal = this.art?.ground('water_normal') ?? null;
-    const water = new THREE.Mesh(
-      this.own(this.ribbon(curve, RIVER_WIDTH, WATER_Y)),
-      this.own(
-        new THREE.MeshStandardMaterial({
-          color: '#3f7f9e',
-          roughness: 0.22,
-          metalness: 0.05,
-          normalMap: waterNormal,
-          normalScale: new THREE.Vector2(0.6, 0.6),
-          transparent: true,
-          opacity: 0.93,
-        }),
-      ),
-    );
-    this.scene.add(bank, water);
+    // 보드 바깥은 무늬 없는 물이다. 장면 배경색(WATER_COLOR)이 그 역할을 하므로 따로 그리지 않는다.
 
     // 흙으로 된 육각 받침 (꼭짓점이 좌우를 향하고 위아래 변이 평평하다). 타일 사이 틈이 흙길이 된다.
     const R = m.plinthRadius;
     const dirtTop = this.groundMaterial('ground_dirt', GROUND_FALLBACK.dirt);
-    const dirtSide = this.own(new THREE.MeshStandardMaterial({ color: '#7a5a3a', roughness: 1, map: this.art?.ground('ground_dirt') ?? null }));
+    const dirtSide = this.own(paintMaterial({ color: '#9a7752', map: this.art?.ground('ground_dirt') ?? null }));
     const platformGeo = this.own(new THREE.CylinderGeometry(R, R + 0.2, PLATFORM_TOP, 6, 1, false, Math.PI / 6));
     scaleUV(platformGeo, R);
     const platform = new THREE.Mesh(platformGeo, [dirtSide, dirtTop, dirtSide]);
@@ -364,14 +332,14 @@ export class BoardRenderer {
     rimShape.setFromPoints(flatCorners(rimOuter));
     rimShape.holes.push(new THREE.Path().setFromPoints(flatCorners(rimInner)));
     const rimGeo = this.own(new THREE.ExtrudeGeometry(rimShape, { depth: 0.07, bevelEnabled: false }).rotateX(-Math.PI / 2));
-    const rimMat = this.own(new THREE.MeshStandardMaterial({ color: '#8a5f36', roughness: 0.85 }));
+    const rimMat = this.own(paintMaterial({ color: '#8a5f36' }));
     const rim = new THREE.Mesh(rimGeo, rimMat);
     rim.position.y = PLATFORM_TOP - 0.01;
     this.scene.add(rim);
 
     // 육각 타일 판 (종류별로 하나의 InstancedMesh). 옆면은 밝은 색이라 위에서 보면 타일 테두리처럼 보인다.
     const slabGeo = this.own(new THREE.CylinderGeometry(HEX_RADIUS, HEX_RADIUS + 0.035, TILE_THICKNESS, 6));
-    const sideMat = this.own(new THREE.MeshStandardMaterial({ color: '#ecdfbc', roughness: 0.9 }));
+    const sideMat = this.own(paintMaterial({ color: '#efe2c2', wash: 0.6 }));
     const kinds: TileKind[] = ['wood', 'grain', 'stone', 'market'];
     for (const kind of kinds) {
       const tiles = this.options.tiles.filter((t) => t.kind === kind);
@@ -439,46 +407,11 @@ export class BoardRenderer {
     return g;
   }
 
-  private ribbon(curve: THREE.CatmullRomCurve3, width: number, y: number): THREE.BufferGeometry {
-    const steps = 160;
-    const pts = curve.getSpacedPoints(steps);
-    const length = curve.getLength();
-    const pos: number[] = [];
-    const uv: number[] = [];
-    const idx: number[] = [];
-    for (let i = 0; i <= steps; i++) {
-      const p = pts[i];
-      const t = curve.getTangentAt(i / steps);
-      const nx = -t.z;
-      const nz = t.x;
-      const len = Math.hypot(nx, nz) || 1;
-      const w = width / 2;
-      pos.push(p.x + (nx / len) * w, y, p.z + (nz / len) * w, p.x - (nx / len) * w, y, p.z - (nz / len) * w);
-      const v = ((i / steps) * length) / 2;
-      uv.push(0, v, width / 2, v);
-      if (i < steps) {
-        const a = i * 2;
-        idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-      }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    // 띠가 아래를 향하면 위로 뒤집는다.
-    const n = g.attributes.normal;
-    if (n.getY(0) < 0) {
-      g.setIndex(idx.map((_, i) => idx[i - (i % 3) + (2 - (i % 3))]));
-      g.computeVertexNormals();
-    }
-    return g;
-  }
-
   private shadowMaterial(opacity: number): THREE.MeshBasicMaterial {
     return this.own(
       new THREE.MeshBasicMaterial({
-        color: '#000000',
+        // 그림자는 검정 대신 서늘한 보라빛 물감으로 칠한다.
+        color: '#2c2747',
         alphaMap: this.art?.ground('contact_shadow') ?? null,
         transparent: true,
         opacity,
@@ -576,7 +509,7 @@ export class BoardRenderer {
 
   private buildTokens(): void {
     const geo = this.own(new THREE.CylinderGeometry(0.1, 0.1, 0.04, 18));
-    const mat = this.own(new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.25 }));
+    const mat = this.own(paintMaterial({ wash: 0.4 }));
     this.tokenMesh = new THREE.InstancedMesh(geo, mat, 96);
     for (let i = 0; i < 96; i++) this.tokenMesh.setColorAt(i, new THREE.Color('#ffffff'));
     this.tokenMesh.count = 0;
@@ -862,6 +795,7 @@ export class BoardRenderer {
 
   setQuality(mode: QualityMode): void {
     this.quality = mode;
+    this.painter.setSamples(mode === 'low' ? 0 : 4);
     this.pixelStep = 0;
     this.perf.resetRecent();
     this.applyPixelRatio();
@@ -896,6 +830,7 @@ export class BoardRenderer {
     if (Math.abs(this.renderer.getPixelRatio() - ratio) > 0.01) {
       this.renderer.setPixelRatio(ratio);
       this.renderer.setSize(this.width, this.height, false);
+      this.painter.setSize(this.width, this.height, ratio);
     }
   }
 
@@ -906,6 +841,7 @@ export class BoardRenderer {
     this.height = h;
     this.renderer.setPixelRatio(this.pixelRatioTarget());
     this.renderer.setSize(w, h, false);
+    this.painter.setSize(w, h, this.renderer.getPixelRatio());
     this.fitCamera();
     this.requestRender();
   }
@@ -1042,7 +978,8 @@ export class BoardRenderer {
     if (this.updateTokens(now)) animating = true;
     const moving = this.controls.update();
     const t0 = performance.now();
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.info.reset();
+    this.painter.render(this.scene, this.camera);
     this.perf.renderMs = performance.now() - t0;
     this.updateOverlay();
     const continuous = this.interacting || moving || animating;
@@ -1130,6 +1067,7 @@ export class BoardRenderer {
       if ((o as THREE.InstancedMesh).isInstancedMesh) (o as THREE.InstancedMesh).dispose();
     });
     this.art?.dispose();
+    this.painter.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
     this.canvas.remove();

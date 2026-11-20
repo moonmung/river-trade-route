@@ -652,7 +652,7 @@ h2 {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background: #5d7a45;
+  background: #589eb5; /* 보드 밖 물 색 (BoardRenderer 의 WATER_COLOR 와 같다) */
 }
 
 .board-canvas {
@@ -677,13 +677,16 @@ h2 {
   will-change: transform;
 }
 
+/* 칸 이름: 수채화 보드와 어울리게 양피지 조각에 먹으로 쓴 글씨처럼 */
 .tile-label {
-  font: 700 11px/1 ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  color: #fff;
-  background: rgba(30, 24, 16, 0.62);
-  padding: 2px 4px;
-  border-radius: 4px;
-  letter-spacing: 0.04em;
+  font: 700 11px/1 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, var(--font-title);
+  color: #3a2a1f;
+  background: rgba(242, 230, 204, 0.88);
+  border: 1px solid rgba(58, 42, 31, 0.55);
+  padding: 2px 4px 1px;
+  border-radius: 3px 5px 3px 6px;
+  letter-spacing: 0.06em;
+  box-shadow: 1px 1px 0 rgba(58, 42, 31, 0.25);
 }
 
 .owner-badge {

@@ -1,5 +1,7 @@
 // 소품 재질 목록. GLB 안의 재질 이름은 `M_<키>` 규칙을 따른다 (예: M_roof).
 // Blender 로 최종 모델을 만들 때도 같은 재질 이름을 쓰면 플레이어 색 입히기(tint)가 그대로 동작한다.
+// 수채화·만화풍이라 소품은 텍스처 없이 아래 색(중세 필사본의 흙빛 물감: 황토, 시에나, 녹청, 대청 남색) × 꼭짓점 색으로 칠한다.
+// 화면에서는 이름이 M_<키> 인 재질을 이 목록의 색으로 다시 만든다 (assets.ts).
 
 export type MaterialKey =
   | 'wood'
@@ -16,7 +18,8 @@ export type MaterialKey =
   | 'stone'
   | 'metal'
   | 'clay'
-  | 'dark';
+  | 'dark'
+  | 'paint';
 
 /** 소품 재질이 쓰는 KTX2 텍스처 키 (public/art/textures/<키>.ktx2) */
 export type PropTextureKey =
@@ -51,21 +54,23 @@ export interface MaterialSpec {
 }
 
 export const MATERIALS: Record<MaterialKey, MaterialSpec> = {
-  wood: { color: '#9a6a3c', roughness: 0.82, map: 'wood_color', normalMap: 'wood_normal', roughnessMap: 'wood_rough' },
-  bark: { color: '#6d4a2c', roughness: 0.92, map: 'bark_color', normalMap: 'bark_normal' },
-  endgrain: { color: '#d8b07a', roughness: 0.85 },
-  foliage: { color: '#3f6e37', roughness: 0.9, map: 'foliage_color' },
-  leaf: { color: '#5f8d3e', roughness: 0.88, map: 'leaf_color' },
-  wheat: { color: '#e2b746', roughness: 0.8 },
-  cloth: { color: '#dccaa1', roughness: 0.95, map: 'cloth_color', normalMap: 'cloth_normal' },
-  stripe: { color: '#ffffff', roughness: 0.9, normalMap: 'cloth_normal' },
-  plaster: { color: '#efe5cf', roughness: 0.95, map: 'plaster_color' },
-  roof: { color: '#ffffff', roughness: 0.85, tint: true, map: 'roof_color', normalMap: 'roof_normal' },
-  banner: { color: '#ffffff', roughness: 0.75, tint: true, doubleSided: true, normalMap: 'cloth_normal' },
-  stone: { color: '#a3a7ab', roughness: 0.9, map: 'stone_color', normalMap: 'stone_normal', roughnessMap: 'stone_rough' },
-  metal: { color: '#5b5650', roughness: 0.45, metalness: 0.7 },
-  clay: { color: '#a98f6c', roughness: 0.55 },
+  wood: { color: '#a5774c', roughness: 0.82 },
+  bark: { color: '#74533a', roughness: 0.92 },
+  endgrain: { color: '#e8c993', roughness: 0.85 },
+  foliage: { color: '#4f7a4a', roughness: 0.9 },
+  leaf: { color: '#83a957', roughness: 0.88 },
+  wheat: { color: '#e8bd5a', roughness: 0.8 },
+  cloth: { color: '#e9dab5', roughness: 0.95 },
+  stripe: { color: '#ffffff', roughness: 0.9 },
+  plaster: { color: '#f4ead2', roughness: 0.95 },
+  roof: { color: '#ffffff', roughness: 0.85, tint: true },
+  banner: { color: '#ffffff', roughness: 0.75, tint: true, doubleSided: true },
+  stone: { color: '#bbb09c', roughness: 0.9 },
+  metal: { color: '#66625e', roughness: 0.45, metalness: 0.7 },
+  clay: { color: '#c4a47c', roughness: 0.55 },
   dark: { color: '#3a2d22', roughness: 0.9 },
+  /** 흰 바탕이라 꼭짓점 색이 그대로 보인다. 사과·양배추·들꽃·창문 불빛처럼 작은 색 소품에 쓴다. */
+  paint: { color: '#ffffff', roughness: 0.7 },
 };
 
 export const MATERIAL_KEYS = Object.keys(MATERIALS) as MaterialKey[];

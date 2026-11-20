@@ -2,8 +2,9 @@
 //
 // 만드는 파일
 //   public/art/models/village_kit.glb   소품 전체 (노드 이름 = 소품 이름, 재질 이름 = M_<키>)
-//                                      텍스처는 KHR_texture_basisu(KTX2)로 GLB 안에 한 번씩만 들어간다.
-//   public/art/textures/*.ktx2          바닥·강물·접촉 그림자 텍스처
+//                                      수채화풍 재질은 색과 꼭짓점 색만 쓴다. 재질 목록에 텍스처를 지정하면
+//                                      KHR_texture_basisu(KTX2)로 GLB 안에 한 번씩만 들어간다.
+//   public/art/textures/*.ktx2          수채화 붓질로 칠한 바닥 텍스처와 접촉 그림자
 //   public/art/manifest.json            위 파일 목록. temporary: true 는 최종 모델로 바꿔야 할 임시 에셋 표시
 //
 // Blender 에서 최종 모델을 만들면 같은 노드 이름으로 GLB 를 내보낸 뒤 manifest.json 의 url/node 를 바꾸고
@@ -70,31 +71,24 @@ async function encode(name: string, job: TexJob): Promise<Uint8Array> {
   }
 }
 
-function propTextureJobs(): Record<PropTextureKey, TexJob> {
-  const wood = T.woodPlanks(256);
-  const bark = T.bark(256);
-  const stone = T.stone(256);
-  const cloth = T.cloth(256);
-  const plaster = T.plaster(256);
-  const roof = T.shingles(256);
-  const foliage = T.foliage(256, '#356a33', '#6aa04e', 91);
-  const leaf = T.foliage(256, '#5a9038', '#b2d470', 95);
+/** 소품 텍스처 만드는 법. 재질 목록(materials.ts)이 실제로 가리키는 것만 만든다. */
+function propTextureJobs(): Record<PropTextureKey, () => TexJob> {
   return {
-    wood_color: { img: wood.color, kind: 'color' },
-    wood_normal: { img: T.heightToNormal(wood.height, 256, 3), kind: 'normal' },
-    wood_rough: { img: T.roughToImg(wood.rough, 256), kind: 'linear' },
-    bark_color: { img: bark.color, kind: 'color' },
-    bark_normal: { img: T.heightToNormal(bark.height, 256, 3), kind: 'normal' },
-    stone_color: { img: stone.color, kind: 'color' },
-    stone_normal: { img: T.heightToNormal(stone.height, 256, 4), kind: 'normal' },
-    stone_rough: { img: T.roughToImg(stone.rough, 256), kind: 'linear' },
-    cloth_color: { img: cloth.color, kind: 'color' },
-    cloth_normal: { img: T.heightToNormal(cloth.height, 256, 2.5), kind: 'normal' },
-    plaster_color: { img: plaster.color, kind: 'color' },
-    roof_color: { img: roof.color, kind: 'color' },
-    roof_normal: { img: T.heightToNormal(roof.height, 256, 3), kind: 'normal' },
-    foliage_color: { img: foliage.color, kind: 'color' },
-    leaf_color: { img: leaf.color, kind: 'color' },
+    wood_color: () => ({ img: T.woodPlanks(256).color, kind: 'color' }),
+    wood_normal: () => ({ img: T.heightToNormal(T.woodPlanks(256).height, 256, 3), kind: 'normal' }),
+    wood_rough: () => ({ img: T.roughToImg(T.woodPlanks(256).rough, 256), kind: 'linear' }),
+    bark_color: () => ({ img: T.bark(256).color, kind: 'color' }),
+    bark_normal: () => ({ img: T.heightToNormal(T.bark(256).height, 256, 3), kind: 'normal' }),
+    stone_color: () => ({ img: T.stone(256).color, kind: 'color' }),
+    stone_normal: () => ({ img: T.heightToNormal(T.stone(256).height, 256, 4), kind: 'normal' }),
+    stone_rough: () => ({ img: T.roughToImg(T.stone(256).rough, 256), kind: 'linear' }),
+    cloth_color: () => ({ img: T.cloth(256).color, kind: 'color' }),
+    cloth_normal: () => ({ img: T.heightToNormal(T.cloth(256).height, 256, 2.5), kind: 'normal' }),
+    plaster_color: () => ({ img: T.plaster(256).color, kind: 'color' }),
+    roof_color: () => ({ img: T.shingles(256).color, kind: 'color' }),
+    roof_normal: () => ({ img: T.heightToNormal(T.shingles(256).height, 256, 3), kind: 'normal' }),
+    foliage_color: () => ({ img: T.foliage(256, '#356a33', '#6aa04e', 91).color, kind: 'color' }),
+    leaf_color: () => ({ img: T.foliage(256, '#5a9038', '#b2d470', 95).color, kind: 'color' }),
   };
 }
 
@@ -131,17 +125,21 @@ async function main(): Promise<void> {
     groundSizes[name] = bytes.length;
   }
 
-  // 2) 소품 텍스처 (GLB 안에 넣는다)
+  // 2) 소품 텍스처 (GLB 안에 넣는다). 수채화풍 재질은 텍스처 없이 색만 쓰므로 지금은 만들 것이 없다.
   const propJobs = propTextureJobs();
+  const usedProp = new Set<PropTextureKey>();
+  for (const spec of Object.values(MATERIALS)) {
+    for (const key of [spec.map, spec.normalMap, spec.roughnessMap]) if (key) usedProp.add(key);
+  }
   const propBytes = new Map<PropTextureKey, Uint8Array>();
-  for (const [name, job] of Object.entries(propJobs) as [PropTextureKey, TexJob][]) propBytes.set(name, await encode(name, job));
+  for (const name of usedProp) propBytes.set(name, await encode(name, propJobs[name]()));
 
   // 3) 소품 키트 GLB
   const doc = new Document();
   doc.getRoot().getAsset().generator = 'river-trade-route scripts/generate-assets.ts (임시 에셋)';
   doc.getRoot().setExtras({ temporary: true, note: '코드로 만든 임시 모델입니다. Blender 최종 모델로 교체하세요.' });
   const buffer = doc.createBuffer('village_kit');
-  doc.createExtension(KHRTextureBasisu).setRequired(true);
+  if (usedProp.size) doc.createExtension(KHRTextureBasisu).setRequired(true);
   const scene = doc.createScene('village_kit');
   doc.getRoot().setDefaultScene(scene);
 
