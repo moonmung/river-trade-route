@@ -1,13 +1,15 @@
 // 각 브라우저에 보낼 화면 정보를 만든다.
 // 공개 정보와 "그 참가자 자신의" 비공개 자원만 넣는다. 다른 사람의 종류별 자원은 절대 넣지 않는다.
-import { CONTRACTS, FORECAST, MAX_PLAYERS, MIN_PLAYERS, TOTAL_ROUNDS, bundleTotal, emptyBundle } from '../shared/constants';
+import { MAX_PLAYERS, MIN_PLAYERS, bundleTotal, emptyBundle } from '../shared/constants';
 import type { GameView, RoomView } from '../shared/protocol';
 import {
   currentPlayer,
-  firstPlayer,
+  longestRoadLength,
+  pieceCount,
   placementOrder,
   placementPlayer,
-  settlementsOf,
+  tradeRatios,
+  victoryPoints,
   type GameState,
 } from '../shared/rules';
 import type { GameEvent } from '../shared/types';
@@ -18,12 +20,18 @@ const EVENT_WINDOW = 80;
 
 export function filterEventFor(e: GameEvent, viewer: string): GameEvent {
   switch (e.kind) {
-    case 'round_start': {
+    case 'roll': {
       const { detail, ...rest } = e;
       return detail && detail[viewer] ? { ...rest, detail: { [viewer]: { ...detail[viewer] } } } : rest;
     }
-    case 'market': {
+    case 'discard':
+    case 'buy_dev': {
       if (e.player === viewer) return e;
+      const { detail: _hidden, ...rest } = e;
+      return rest;
+    }
+    case 'steal': {
+      if (e.player === viewer || e.from === viewer) return e;
       const { detail: _hidden, ...rest } = e;
       return rest;
     }
@@ -41,27 +49,44 @@ export function filterEventFor(e: GameEvent, viewer: string): GameEvent {
 export function buildGameView(g: GameState, viewer: string): GameView {
   const t = g.trade;
   const isParty = !!t && (t.from === viewer || t.to === viewer);
+  const me = g.players[viewer];
   return {
     phase: g.phase,
-    round: g.round,
-    totalRounds: TOTAL_ROUNDS,
-    forecast: [...FORECAST],
+    turn: g.turn,
     order: [...g.order],
     placementOrder: placementOrder(g),
     placementPlayerId: placementPlayer(g),
-    firstPlayerId: firstPlayer(g),
     currentPlayerId: currentPlayer(g),
-    actionsLeft: g.actionsLeft,
-    settlements: g.settlements.map((s) => ({ ...s })),
-    contracts: CONTRACTS.map((c) => ({ id: c.id, completedBy: g.contractsDone[c.id] ?? null })),
+    step: g.step,
+    dice: g.dice ? [g.dice[0], g.dice[1]] : null,
+    discards: { ...g.discards },
+    stealFrom: [...g.stealFrom],
+    robber: g.robber,
+    numbers: { ...g.numbers },
+    harbors: g.harbors.map((h) => ({ ...h })),
+    buildings: g.buildings.map((b) => ({ ...b })),
+    roads: g.roads.map((r) => ({ ...r })),
+    devDeckCount: g.devDeck.length,
+    devPlayedThisTurn: g.devPlayedThisTurn,
+    freeRoads: g.freeRoads,
+    longestRoad: { ...g.longestRoad },
+    largestArmy: { ...g.largestArmy },
     players: g.order.map((id, seat) => ({
       id,
       seat,
-      score: g.players[id].score,
+      score: victoryPoints(g, id, g.phase === 'finished'),
       resourceTotal: bundleTotal(g.players[id].resources),
-      settlementCount: settlementsOf(g.settlements, id).length,
+      devCardCount: g.players[id].devCards.length,
+      knightsPlayed: g.players[id].knightsPlayed,
+      roadLength: longestRoadLength(g.roads, g.buildings, id),
+      villages: pieceCount(g.buildings, g.roads, id, 'village'),
+      cities: pieceCount(g.buildings, g.roads, id, 'city'),
+      roads: pieceCount(g.buildings, g.roads, id, 'road'),
     })),
-    myResources: g.players[viewer] ? { ...g.players[viewer].resources } : emptyBundle(),
+    myResources: me ? { ...me.resources } : emptyBundle(),
+    myDevCards: me ? me.devCards.map((c) => ({ ...c })) : [],
+    myTradeRatios: tradeRatios(g, viewer),
+    myPoints: me ? victoryPoints(g, viewer, true) : 0,
     trade: t
       ? isParty
         ? { id: t.id, from: t.from, to: t.to, give: { ...t.give }, get: { ...t.get } }

@@ -467,6 +467,43 @@ export function groundCobble(size = 512): Img {
   return img;
 }
 
+/** 목초지: 숲보다 밝고 노르스름한 풀색 물감, 세로·사선 풀 붓 자국, 흰 토끼풀과 노란 들꽃 점 */
+export function groundPasture(size = 512): Img {
+  const img = new Img(size, size);
+  each(size, (u, v, x, y) => {
+    let c = mix(hex('#a3c96e'), hex('#c9df96'), fbm(u, v, 3, 3, 4, 191));
+    const b = bloom(u, v, 4, 193, 0.58);
+    c = mix(c, hex('#8cba5c'), b.inside * 0.4);
+    c = scale(c, 1 - b.rim * 0.15);
+    const grass = Math.max(strokes(u, v, 1, 0.08, 195), strokes(u, v, 2, 0.06, 197));
+    c = mix(c, hex('#6f9e48'), grass * 0.35);
+    const dot = voronoi(u, v, 22, 199, 0.9);
+    const h = hash2(dot.id, 3, 201);
+    if (h > 0.8) c = mix(c, h > 0.9 ? hex('#f6f1dc') : hex('#f2d25e'), (1 - smooth(0.08, 0.17, dot.f1)) * 0.85);
+    img.set(x, y, granulate(c, u, v, 203, 0.1));
+  });
+  return img;
+}
+
+/** 점토 구덩이: 황토빛 점토 물감, 물기 먹은 짙은 웅덩이, 마르며 갈라진 먹선, 삽으로 떠낸 밝은 자국 */
+export function groundClay(size = 512): Img {
+  const img = new Img(size, size);
+  each(size, (u, v, x, y) => {
+    let c = mix(hex('#d09062'), hex('#e6b083'), fbm(u, v, 3, 3, 4, 211));
+    const b = bloom(u, v, 4, 213, 0.56);
+    c = mix(c, hex('#bf7f52'), b.inside * 0.42);
+    c = scale(c, 1 - b.rim * 0.18);
+    const wet = smooth(0.62, 0.7, fbm(u, v, 3, 3, 3, 215));
+    c = mix(c, hex('#9a5a3a'), wet * 0.38);
+    const cell = voronoi(u, v, 7, 217, 0.85);
+    const crack = 1 - smooth(0.0, 0.025, cell.f2 - cell.f1);
+    c = mix(c, hex('#6b3d28'), crack * (fbm(u, v, 6, 6, 2, 219) > 0.5 ? 0.45 : 0.08));
+    c = mix(c, hex('#ebbd90'), strokes(u, v, 3, 0.07, 221) * 0.35);
+    img.set(x, y, granulate(c, u, v, 223, 0.16));
+  });
+  return img;
+}
+
 export function groundSand(size = 512): Img {
   const img = new Img(size, size);
   each(size, (u, v, x, y) => {

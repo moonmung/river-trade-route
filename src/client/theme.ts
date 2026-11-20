@@ -40,10 +40,12 @@ export function emblemSvgMarkup(colorIndex: number, size = 18): string {
 export const RESOURCE_COLOR: Record<Resource, string> = {
   wood: '#8a5a2b',
   grain: '#d9a521',
+  wool: '#e6dcc2',
+  brick: '#b85c3c',
   stone: '#7d8794',
 };
 
 export const TILE_COLOR: Record<TileKind, string> = {
   ...RESOURCE_COLOR,
-  market: '#b0533c',
+  plaza: '#b0533c',
 };

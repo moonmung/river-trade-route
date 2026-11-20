@@ -1,60 +1,97 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { CONTRACTS, RESOURCES, RESOURCE_LABEL } from '../../shared/constants';
+import { MiniHand } from './hand';
+import { useEffect, useState } from 'react';
+import { DEV_LABEL, PIECE_COST, PIECE_LABEL, PIECE_LIMIT, PIECE_POINTS, RESOURCES, RESOURCE_LABEL, WIN_POINTS } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
-import type { ContractId } from '../../shared/types';
+import { pieceCount } from '../../shared/rules';
+import type { PieceKind } from '../../shared/types';
 import { playerColor } from '../theme';
 import { Emblem, ResourceIcon } from '../ui/icons';
 import { josa } from '../ui/josa';
-import {
-  buildBlocker,
-  bundleText,
-  deliverBlocker,
-  isMyTurn,
-  marketBlocker,
-  tradeBlocker,
-  type PlayerInfo,
-} from './derive';
+import { showToast } from '../ui/toast';
+import { bankBlocker, buildBlocker, bundleText, isMyTurn, playDevBlocker, tradeBlocker, turnBlocker, type PlayerInfo } from './derive';
 import { ActionButton, ResourceAmount, sendAction } from './ui';
 
 type Players = Map<string, PlayerInfo>;
+
+/** 주사위 한 개 (점 무늬) */
+export function DieFace({ value, size = 26 }: { value: number; size?: number }) {
+  const pips: Record<number, [number, number][]> = {
+    1: [[12, 12]],
+    2: [[7, 7], [17, 17]],
+    3: [[7, 7], [12, 12], [17, 17]],
+    4: [[7, 7], [17, 7], [7, 17], [17, 17]],
+    5: [[7, 7], [17, 7], [12, 12], [7, 17], [17, 17]],
+    6: [[7, 7], [17, 7], [7, 12], [17, 12], [7, 17], [17, 17]],
+  };
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-label={`주사위 ${value}`} className="die">
+      <rect x="1.5" y="1.5" width="21" height="21" rx="5" fill="#faf3e2" stroke="#3a2a1f" strokeWidth="1.6" />
+      {(pips[value] ?? []).map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="2.1" fill={value === 1 ? '#a8402c' : '#3a2a1f'} />
+      ))}
+    </svg>
+  );
+}
 
 export function TopBar({ view, players, onMenu }: { view: RoomView; players: Players; onMenu: () => void }) {
   const g = view.game!;
   const current = g.currentPlayerId ? players.get(g.currentPlayerId) : null;
   const placing = g.placementPlayerId ? players.get(g.placementPlayerId) : null;
   const mine = isMyTurn(view);
-  let status: ReactNode;
-  if (g.phase === 'placement' && placing) {
-    status =
-      g.placementPlayerId === view.you ? (
-        <b className="turn-me">내가 시작 거점을 놓을 차례</b>
-      ) : (
-        <span>
-          <Emblem colorIndex={placing.colorIndex} size={14} /> {josa(placing.nickname, '이/가')} 시작 거점을 고르는 중
-        </span>
-      );
-  } else if (g.phase === 'playing' && current) {
-    status = mine ? (
-      <b className="turn-me">
-        내 차례 · 행동 {g.actionsLeft}/{2} 남음
-      </b>
-    ) : (
-      <span>
-        <Emblem colorIndex={current.colorIndex} size={14} /> {current.nickname}의 차례 · 행동 {g.actionsLeft}회 남음
-        {!current.connected && <em className="warn-text"> (연결 끊김 — 다시 접속할 때까지 기다립니다)</em>}
-      </span>
-    );
+  const who = (p: PlayerInfo | null | undefined) => (
+    <>
+      <Emblem colorIndex={p?.colorIndex ?? 0} size={14} /> {p?.nickname}
+    </>
+  );
+  let status: React.ReactNode;
+  if (g.phase === 'placement') {
+    status = g.placementPlayerId === view.you ? <b className="turn-me">내가 시작 마을과 길을 놓을 차례</b> : <span>{who(placing)}이(가) 시작 마을과 길을 고르는 중</span>;
   } else if (g.phase === 'finished') {
     status = <b>게임 종료</b>;
+  } else if (g.step === 'discard') {
+    const mineDiscard = g.discards[view.you];
+    status = mineDiscard ? <b className="turn-me">7! 자원 {mineDiscard}장을 버리세요</b> : <span>7! 자원이 많은 사람들이 절반을 버리는 중</span>;
+  } else if (mine) {
+    const text: Record<string, string> = {
+      roll: '내 차례 · 주사위를 굴리세요',
+      robber: '기사단 동상을 옮길 칸을 고르세요',
+      steal: '자원을 빼앗을 사람을 고르세요',
+      main: '내 차례 · 교환하고 지으세요',
+      road_building: `공짜 길 ${g.freeRoads}개를 놓으세요`,
+    };
+    status = <b className="turn-me">{text[g.step] ?? '내 차례'}</b>;
+  } else {
+    const text: Record<string, string> = {
+      roll: '주사위를 굴리는 중',
+      robber: '기사단 동상을 옮기는 중',
+      steal: '빼앗을 사람을 고르는 중',
+      main: '교환·건설 중',
+      road_building: '공짜 길을 놓는 중',
+    };
+    status = (
+      <span>
+        {who(current)}의 차례 · {text[g.step] ?? ''}
+        {current && !current.connected && <em className="warn-text"> (연결 끊김 — 다시 접속할 때까지 기다립니다)</em>}
+      </span>
+    );
   }
 
   return (
     <div className="topbar">
       <div className="topbar-row">
-        <div className="round-chip" aria-label={g.phase === 'placement' ? '시작 배치' : `${g.round}/${g.totalRounds} 라운드`}>
-          {g.phase === 'placement' ? '시작 배치' : `${g.round}/${g.totalRounds}R`}
+        <div className="round-chip">{g.phase === 'placement' ? '시작 배치' : `${g.turn}턴`}</div>
+        <div className="dice-now" aria-label="마지막 주사위">
+          {g.dice ? (
+            <>
+              <DieFace value={g.dice[0]} />
+              <DieFace value={g.dice[1]} />
+              <b className={g.dice[0] + g.dice[1] === 7 ? 'dice-seven' : ''}>= {g.dice[0] + g.dice[1]}</b>
+            </>
+          ) : (
+            <span className="muted small">아직 굴리지 않음</span>
+          )}
         </div>
-        <ForecastStrip view={view} />
+        <div className="goal small muted">{WIN_POINTS}점 먼저 내면 승리</div>
         <button className="icon-btn menu-btn" onClick={onMenu} aria-label="메뉴 열기">
           ☰
         </button>
@@ -64,23 +101,22 @@ export function TopBar({ view, players, onMenu }: { view: RoomView; players: Pla
   );
 }
 
-function ForecastStrip({ view }: { view: RoomView }) {
-  const g = view.game!;
+/** 최장 교역로·최강 기사단 표식 */
+export function AwardIcon({ kind, size = 14 }: { kind: 'longest_road' | 'largest_army'; size?: number }) {
   return (
-    <ol className="forecast" aria-label="라운드별 예보">
-      {g.forecast.map((r, i) => {
-        const round = i + 1;
-        const state = round === g.round ? 'now' : round === g.round + 1 || (g.phase === 'placement' && round === 1) ? 'next' : round < g.round ? 'past' : '';
-        return (
-          <li key={i} className={`fc fc-${state}`} title={`${round}라운드 예보: ${RESOURCE_LABEL[r]}`}>
-            <ResourceIcon kind={r} size={18} />
-            <span className="fc-n">{round}</span>
-            {state === 'now' && <span className="fc-tag">이번</span>}
-            {state === 'next' && <span className="fc-tag">다음</span>}
-          </li>
-        );
-      })}
-    </ol>
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="award-icon">
+      {kind === 'longest_road' ? (
+        <g>
+          <path d="M3 19 C8 15 9 9 21 5" stroke="#6b4a2a" strokeWidth="5" fill="none" strokeLinecap="round" />
+          <path d="M3 19 C8 15 9 9 21 5" stroke="#e8c27a" strokeWidth="2.6" fill="none" strokeLinecap="round" strokeDasharray="3 2" />
+        </g>
+      ) : (
+        <g stroke="#3a2a1f" strokeWidth="1.3" strokeLinejoin="round">
+          <path d="M12 2 L20 5 V12 C20 17 16 20.5 12 22 C8 20.5 4 17 4 12 V5 Z" fill="#a8402c" />
+          <path d="M12 6 V17 M8 10 H16" stroke="#f3e2c4" strokeWidth="2" />
+        </g>
+      )}
+    </svg>
   );
 }
 
@@ -94,6 +130,7 @@ export function PlayersPanel({ view, players }: { view: RoomView; players: Playe
         if (!p) return null;
         const isCurrent = g.currentPlayerId === id || g.placementPlayerId === id;
         const color = playerColor(p.colorIndex);
+        const points = id === view.you ? g.myPoints : info.score;
         return (
           <li
             key={id}
@@ -104,12 +141,30 @@ export function PlayersPanel({ view, players }: { view: RoomView; players: Playe
             <span className="player-name">
               {p.nickname}
               {id === view.you && <span className="tag">나</span>}
-              {g.firstPlayerId === id && <span className="tag tag-first" title="이번 라운드 선 플레이어">선</span>}
+              {g.longestRoad.holder === id && (
+                <span className="tag tag-award" title={`최장 교역로 (길 ${g.longestRoad.length}칸, 2점)`}>
+                  <AwardIcon kind="longest_road" />
+                </span>
+              )}
+              {g.largestArmy.holder === id && (
+                <span className="tag tag-award" title={`최강 기사단 (기사 ${g.largestArmy.size}장, 2점)`}>
+                  <AwardIcon kind="largest_army" />
+                </span>
+              )}
             </span>
             <span className="player-stats">
-              <span title="납품 점수" className="stat-score">★{info.score}</span>
-              <span title="보유 자원 총량 (종류별 수량은 비공개)">자원 {info.resourceTotal}</span>
-              <span title="거점 수">거점 {info.settlementCount}</span>
+              <span
+                title={id === view.you ? '내 승점 (숨긴 승점 카드 포함)' : '공개된 승점 (숨긴 승점 카드는 보이지 않음)'}
+                className="stat-score"
+              >
+                ★{points}
+              </span>
+              <MiniHand count={info.resourceTotal} kind="res" title={`자원 카드 ${info.resourceTotal}장 (종류는 본인만 봅니다)`} />
+              <MiniHand count={info.devCardCount} kind="dev" title={`발전 카드 ${info.devCardCount}장`} />
+              <span title={`쓴 기사 ${info.knightsPlayed}장 · 가장 긴 길 ${info.roadLength}칸`} className="stat-pieces">
+                ⚔{info.knightsPlayed} <PieceIcon kind="road" size={13} />
+                {info.roadLength}
+              </span>
             </span>
             {!p.connected && <span className="off-dot" title="연결 끊김" aria-label="연결 끊김" />}
           </li>
@@ -119,57 +174,20 @@ export function PlayersPanel({ view, players }: { view: RoomView; players: Playe
   );
 }
 
-export function ContractsPanel({ view, players, compact }: { view: RoomView; players: Players; compact: boolean }) {
-  const g = view.game!;
-  return (
-    <div className={`contracts ${compact ? 'contracts-compact' : ''}`} aria-label="공개 계약">
-      {CONTRACTS.map((c) => {
-        const status = g.contracts.find((x) => x.id === c.id);
-        const doneBy = status?.completedBy ? players.get(status.completedBy) : null;
-        const blocker = deliverBlocker(view, c.id as ContractId);
-        const canDeliver = !blocker;
-        return (
-          <div key={c.id} className={`contract ${doneBy ? 'contract-done' : ''} ${canDeliver ? 'contract-ready' : ''}`}>
-            <div className="contract-head">
-              <span className="contract-name">{c.name}</span>
-              <span className="contract-pts">{c.points}점</span>
-            </div>
-            <div className="contract-cost" aria-label={`필요: ${bundleText(c.cost)}`}>
-              {RESOURCES.filter((r) => c.cost[r] > 0).map((r) => (
-                <ResourceAmount key={r} resource={r} amount={c.cost[r]} size={compact ? 16 : 18} />
-              ))}
-            </div>
-            {doneBy ? (
-              <div className="contract-status">
-                <Emblem colorIndex={doneBy.colorIndex} size={12} /> {doneBy.id === view.you ? '내가' : doneBy.nickname} 완료
-              </div>
-            ) : g.phase === 'playing' && g.currentPlayerId === view.you ? (
-              <ActionButton
-                className="btn btn-small btn-deliver"
-                label="납품"
-                blocker={blocker}
-                onClick={() => sendAction({ type: 'deliver', contractId: c.id })}
-              />
-            ) : (
-              <div className="contract-status open">열림</div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 export function MyResources({ view }: { view: RoomView }) {
-  const r = view.game!.myResources;
+  const g = view.game!;
+  const r = g.myResources;
   return (
     <div className="my-res" aria-label="내 자원">
       {RESOURCES.map((k) => (
         <div key={k} className={`my-res-item res-${k}`}>
-          <ResourceIcon kind={k} size={26} />
+          <ResourceIcon kind={k} size={22} />
           <div>
             <b>{r[k]}</b>
-            <span>{RESOURCE_LABEL[k]}</span>
+            <span>
+              {RESOURCE_LABEL[k]}
+              {g.myTradeRatios[k] < 4 && <em className="ratio-tag"> {g.myTradeRatios[k]}:1</em>}
+            </span>
           </div>
         </div>
       ))}
@@ -177,55 +195,159 @@ export function MyResources({ view }: { view: RoomView }) {
   );
 }
 
+/** 길·마을·도시 아이콘 (작은 선화) */
+export function PieceIcon({ kind, size = 22 }: { kind: PieceKind; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="piece-icon">
+      {kind === 'road' && (
+        <g>
+          <path d="M3 17 L21 7" stroke="#6b4a2a" strokeWidth="5.5" strokeLinecap="round" />
+          <path d="M3 17 L21 7" stroke="#d9b07a" strokeWidth="3.2" strokeLinecap="round" />
+          <path d="M8 14.2 L9.4 16.6 M12.5 11.7 L13.9 14.1 M17 9.2 L18.4 11.6" stroke="#6b4a2a" strokeWidth="0.9" />
+        </g>
+      )}
+      {kind === 'village' && (
+        <g stroke="#3a2a1f" strokeWidth="1.3" strokeLinejoin="round">
+          <path d="M5 11 L12 5 L19 11 Z" fill="#a8402c" />
+          <rect x="6.5" y="11" width="11" height="8" fill="#f2e6cc" />
+          <rect x="10.5" y="14" width="3" height="5" fill="#6b4a2a" />
+        </g>
+      )}
+      {kind === 'city' && (
+        <g stroke="#3a2a1f" strokeWidth="1.2" strokeLinejoin="round">
+          <rect x="3" y="12" width="12" height="8" fill="#bbb09c" />
+          <path d="M2.5 12 L9 7 L15.5 12 Z" fill="#a8402c" />
+          <rect x="15" y="8" width="6" height="12" fill="#c9c0ad" />
+          <path d="M14.5 8 L18 3 L21.5 8 Z" fill="#a8402c" />
+          <rect x="7.5" y="15" width="3" height="5" fill="#6b4a2a" />
+        </g>
+      )}
+    </svg>
+  );
+}
+
+/** 건설 메뉴: 길·마을·도시 중 무엇을 지을지 고른다. 비용과 가진 개수, 못 짓는 이유를 함께 보여 준다. */
+export function BuildMenu({ view, onPick, onClose }: { view: RoomView; onPick: (kind: PieceKind) => void; onClose: () => void }) {
+  const g = view.game!;
+  return (
+    <div className="tile-card build-menu" role="dialog" aria-label="건설">
+      <div className="tile-card-head">
+        <b>무엇을 지을까요?</b>
+        <button className="icon-btn" onClick={onClose} aria-label="닫기">
+          ✕
+        </button>
+      </div>
+      <div className="pick-row">
+        {(['road', 'village', 'city'] as const).map((kind) => {
+          const blocker = buildBlocker(view, kind);
+          const have = pieceCount(g.buildings, g.roads, view.you, kind);
+          return (
+            <button
+              key={kind}
+              className={`pick build-pick ${blocker ? 'is-blocked' : ''}`}
+              aria-disabled={!!blocker}
+              title={blocker ?? undefined}
+              onClick={() => (blocker ? showToast(blocker, 'warn') : onPick(kind))}
+            >
+              <PieceIcon kind={kind} size={28} />
+              {PIECE_LABEL[kind]}
+              <span className="build-cost">
+                {RESOURCES.filter((r) => PIECE_COST[kind][r] > 0).map((r) => (
+                  <ResourceAmount key={r} resource={r} amount={PIECE_COST[kind][r]} size={15} />
+                ))}
+              </span>
+              <small>
+                {have}/{PIECE_LIMIT[kind]} · {PIECE_POINTS[kind] ? `${PIECE_POINTS[kind]}점` : '점수 없음'}
+              </small>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function ActionBar({
   view,
   buildMode,
+  menuOpen,
   onToggleBuild,
-  onMarket,
   onTrade,
+  onDev,
 }: {
   view: RoomView;
-  buildMode: boolean;
+  buildMode: PieceKind | null;
+  menuOpen: boolean;
   onToggleBuild: () => void;
-  onMarket: () => void;
   onTrade: () => void;
+  onDev: () => void;
 }) {
   const g = view.game!;
   const mine = isMyTurn(view);
-  const [confirmEnd, setConfirmEnd] = useState(false);
-  useEffect(() => {
-    if (!confirmEnd) return;
-    const t = window.setTimeout(() => setConfirmEnd(false), 3500);
-    return () => window.clearTimeout(t);
-  }, [confirmEnd]);
-  useEffect(() => setConfirmEnd(false), [g.currentPlayerId, g.round]);
+  const [rolling, setRolling] = useState(false);
+  useEffect(() => setRolling(false), [g.turn, g.dice?.[0], g.dice?.[1]]);
 
   if (g.phase !== 'playing') return null;
-  const endBlocker = mine ? null : '내 차례가 아닙니다.';
+  const devCount = g.myDevCards.length;
+  const devPlayable = (['knight', 'road_building', 'year_of_plenty', 'monopoly'] as const).some((k) => !playDevBlocker(view, k));
+  if (mine && g.step === 'roll') {
+    return (
+      <div className="actions actions-roll">
+        <ActionButton
+          className="btn btn-primary act act-roll"
+          label={rolling ? '굴리는 중…' : '주사위 굴리기'}
+          blocker={null}
+          onClick={async () => {
+            setRolling(true);
+            if (!(await sendAction({ type: 'roll' }))) setRolling(false);
+          }}
+          icon={
+            <span className="act-ico dice-ico">
+              <DieFace value={5} size={20} />
+              <DieFace value={2} size={20} />
+            </span>
+          }
+        />
+        <ActionButton
+          className={`btn act ${devPlayable ? 'pulse-soft' : ''}`}
+          label={`발전 카드 ${devCount}`}
+          blocker={mine ? null : '내 차례가 아닙니다.'}
+          onClick={onDev}
+          icon={<span className="act-ico">🂠</span>}
+        />
+      </div>
+    );
+  }
+  const endBlocker = turnBlocker(view);
   return (
     <div className="actions">
       <ActionButton
         className="btn act"
-        label={buildMode ? '건설 취소' : '거점 건설'}
-        active={buildMode}
-        blocker={buildMode ? null : buildBlocker(view)}
+        label={buildMode ? `${PIECE_LABEL[buildMode]} 취소` : '건설'}
+        active={!!buildMode || menuOpen}
+        blocker={buildMode || menuOpen ? null : turnBlocker(view)}
         onClick={onToggleBuild}
-        icon={<span className="act-ico">⌂</span>}
+        icon={<PieceIcon kind={buildMode ?? 'village'} size={20} />}
       />
-      <ActionButton className="btn act" label="시장 교환" blocker={marketBlocker(view)} onClick={onMarket} icon={<ResourceIcon kind="market" size={18} />} />
-      <ActionButton className="btn act" label="교환 제안" blocker={tradeBlocker(view)} onClick={onTrade} icon={<span className="act-ico">⇄</span>} />
       <ActionButton
-        className={`btn act act-end ${mine && g.actionsLeft === 0 ? 'pulse' : ''} ${confirmEnd ? 'act-confirm' : ''}`}
-        label={confirmEnd ? `정말 끝내기 (행동 ${g.actionsLeft}회 남음)` : '턴 종료'}
+        className="btn act"
+        label="교환"
+        blocker={bankBlocker(view) && tradeBlocker(view) ? turnBlocker(view) ?? null : null}
+        onClick={onTrade}
+        icon={<span className="act-ico">⇄</span>}
+      />
+      <ActionButton
+        className={`btn act ${devPlayable ? 'pulse-soft' : ''}`}
+        label={`발전 카드 ${devCount}`}
+        blocker={g.currentPlayerId === view.you ? null : '내 차례가 아닙니다.'}
+        onClick={onDev}
+        icon={<span className="act-ico">🂠</span>}
+      />
+      <ActionButton
+        className="btn act act-end"
+        label="턴 종료"
         blocker={endBlocker}
-        onClick={async () => {
-          if (g.actionsLeft > 0 && !confirmEnd) {
-            setConfirmEnd(true);
-            return;
-          }
-          setConfirmEnd(false);
-          await sendAction({ type: 'end_turn' });
-        }}
+        onClick={() => sendAction({ type: 'end_turn' })}
         icon={<span className="act-ico">⏭</span>}
       />
     </div>
@@ -291,7 +413,9 @@ export function TradeBanner({ view, players }: { view: RoomView; players: Player
   }
   return (
     <div className="trade-banner trade-other">
-      {from?.nickname} → {to?.nickname} 교환 제안 중 (내용은 두 사람에게만 보입니다)
+      {josa(from?.nickname ?? '?', '이/가')} {to?.nickname}에게 교환을 제안하는 중 (내용은 두 사람에게만 보입니다)
     </div>
   );
 }
+
+export { DEV_LABEL };

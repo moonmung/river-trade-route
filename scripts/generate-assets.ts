@@ -98,6 +98,8 @@ const GROUND_JOBS: Record<string, () => TexJob> = {
   ground_forest: () => ({ img: T.groundForest(512), kind: 'color' }),
   ground_field: () => ({ img: T.groundField(512), kind: 'color' }),
   ground_quarry: () => ({ img: T.groundQuarry(512), kind: 'color' }),
+  ground_pasture: () => ({ img: T.groundPasture(512), kind: 'color' }),
+  ground_clay: () => ({ img: T.groundClay(512), kind: 'color' }),
   ground_cobble: () => ({ img: T.groundCobble(512), kind: 'color' }),
   ground_sand: () => ({ img: T.groundSand(512), kind: 'color' }),
   water_normal: () => ({ img: T.waterNormal(256), kind: 'normal' }),

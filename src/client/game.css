@@ -9,9 +9,7 @@
 }
 
 /* 공통: 패널 안의 작은 종이 쪽지 */
-.fc,
 .player,
-.contract,
 .my-res-item,
 .tile-card,
 .pick,
@@ -119,68 +117,6 @@
   padding: 4px 8px;
   font-size: 0.85rem;
   white-space: nowrap;
-}
-
-.forecast {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  gap: 3px;
-  flex: 1;
-  min-width: 0;
-}
-
-.fc {
-  position: relative;
-  flex: 1;
-  max-width: 54px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  padding: 3px 0 2px;
-}
-
-.fc-n {
-  font-family: var(--font-title);
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--ink-soft);
-}
-
-.fc-past {
-  opacity: 0.38;
-}
-
-.fc-now {
-  background-color: #f5dea2;
-  border-color: var(--gold);
-  box-shadow: 0 0 0 2px rgba(185, 131, 42, 0.4);
-}
-
-.fc-next {
-  border-style: dashed;
-  border-color: rgba(58, 42, 31, 0.6);
-}
-
-.fc-tag {
-  position: absolute;
-  top: -8px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.58rem;
-  font-weight: 700;
-  background: var(--ink);
-  color: #f5e6c2;
-  border-radius: 3px 4px 2px 4px;
-  padding: 0 3px;
-  line-height: 1.35;
-  white-space: nowrap;
-}
-
-.fc-next .fc-tag {
-  background: var(--ink-soft);
 }
 
 .icon-btn {
@@ -420,91 +356,6 @@
   min-width: 32px;
 }
 
-.contracts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.contracts-compact {
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-}
-
-.contract {
-  padding: 5px 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.contracts-compact .contract-head {
-  flex-direction: column;
-  gap: 0;
-}
-
-.contracts-compact .contract-name {
-  white-space: normal;
-  line-height: 1.15;
-}
-
-.contracts-compact .contract-pts {
-  font-size: 0.68rem;
-}
-
-.contract-ready {
-  border-color: var(--river);
-  box-shadow: 0 0 0 1px var(--river) inset;
-  background-color: #e6eee9;
-}
-
-.contract-done {
-  opacity: 0.5;
-  background-color: #e6dbc4;
-}
-
-.contract-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 2px;
-  font-family: var(--font-title);
-  font-size: 0.8rem;
-  font-weight: 700;
-}
-
-.contract-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.contract-pts {
-  color: #8a5a12;
-  white-space: nowrap;
-}
-
-.contract-cost {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.contract-status {
-  font-size: 0.72rem;
-  color: var(--ink-soft);
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  min-height: 26px;
-}
-
-.btn-deliver {
-  min-height: 28px;
-  padding: 2px 6px;
-  font-size: 0.8rem;
-}
-
 .res-amount {
   display: inline-flex;
   align-items: center;
@@ -522,18 +373,28 @@
   flex-direction: column;
 }
 
+/* 자원 다섯 칸: 휴대폰 폭(390px)에서도 한 줄에 들어가도록 칸 최소 폭을 두지 않는다 */
 .my-res {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.game-wide .my-res {
   display: flex;
-  gap: 6px;
 }
 
 .my-res-item {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  min-width: 74px;
+  gap: 5px;
+  padding: 4px 6px;
+  min-width: 0;
+}
+
+.game-wide .my-res-item {
+  min-width: 64px;
 }
 
 .my-res-item div {
@@ -548,8 +409,9 @@
 }
 
 .my-res-item span {
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   color: var(--ink-soft);
+  white-space: nowrap;
 }
 
 .actions {
@@ -569,6 +431,16 @@
   font-size: 0.84rem;
   line-height: 1.2;
   min-height: 52px;
+}
+
+/* 넓은 화면: 버튼 네 개가 줄바꿈 없이 들어갈 폭을 먼저 잡고, 남은 폭을 손에 든 카드가 쓴다 */
+.game-wide .actions {
+  flex: 0 0 auto;
+  width: min(470px, 58%);
+}
+
+.act {
+  white-space: nowrap;
 }
 
 .act-ico {
@@ -968,4 +840,738 @@
 
 .game-wide .perf-hud {
   right: calc(var(--side-w) + 8px);
+}
+
+/* 건설 메뉴 (길·마을·도시) */
+.build-menu .pick-row {
+  flex-wrap: nowrap;
+}
+
+.build-pick {
+  min-width: 0;
+  gap: 3px;
+  padding: 8px 4px 6px;
+  font-family: var(--font-title);
+}
+
+.build-pick.is-blocked {
+  opacity: 0.5;
+}
+
+.build-cost {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1px 5px;
+}
+
+.piece-icon {
+  flex: none;
+  vertical-align: middle;
+}
+
+.stat-pieces {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.stat-pieces .piece-icon + .piece-icon,
+.stat-pieces .piece-icon {
+  margin-left: 3px;
+}
+
+/* 자리 카드에서 꼭짓점이 닿은 칸 목록 */
+.touched {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  vertical-align: middle;
+}
+
+/* ───────── 주사위·달성 (카탄 기본 규칙) ───────── */
+
+/* 윗줄의 마지막 주사위 */
+.dice-now {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-title);
+  white-space: nowrap;
+}
+
+.dice-now b {
+  font-size: 1rem;
+  margin-left: 2px;
+}
+
+.die {
+  flex: none;
+  filter: drop-shadow(0 1px 1px rgba(30, 20, 10, 0.35));
+}
+
+.dice-seven {
+  color: var(--danger);
+}
+
+.goal {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 최장 교역로·최강 기사단 꼬리표 */
+.tag-award {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  background: rgba(201, 150, 50, 0.32);
+  border-color: rgba(168, 112, 28, 0.55);
+}
+
+.award-icon {
+  flex: none;
+  vertical-align: middle;
+}
+
+/* 내 자원 칸의 교역로 비율 */
+.ratio-tag {
+  font-style: normal;
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--river);
+}
+
+/* 굴리기 단계의 아래 버튼: 주사위 굴리기를 크게, 발전 카드(기사)를 옆에 */
+.actions-roll {
+  grid-template-columns: 2fr 1fr;
+}
+
+.act-roll {
+  font-size: 1rem;
+  font-family: var(--font-title);
+  font-weight: 700;
+}
+
+.dice-ico {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.pulse-soft {
+  animation: pulse-soft 2.2s ease-in-out infinite;
+}
+
+@keyframes pulse-soft {
+  50% {
+    box-shadow: 0 0 0 4px rgba(185, 131, 42, 0.32);
+  }
+}
+
+/* 주사위 굴림 연출: 화면 가운데에서 주사위 두 개가 굴러 와 멈추고 합이 뜬다 */
+.dice-show {
+  position: fixed;
+  left: 50%;
+  top: 40%;
+  transform: translate(-50%, -50%);
+  z-index: 40;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  animation: dice-fade 1.7s ease-out forwards;
+}
+
+.dice-pair {
+  display: flex;
+  gap: 14px;
+}
+
+.dice-roll {
+  display: block;
+  filter: drop-shadow(0 6px 8px rgba(20, 14, 8, 0.45));
+}
+
+.dice-roll.d1 {
+  animation: dice-tumble-l 0.9s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+.dice-roll.d2 {
+  animation: dice-tumble-r 0.95s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+.dice-total {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--parchment-hi) var(--tex-grain);
+  border: 1px solid rgba(58, 42, 31, 0.5);
+  border-radius: var(--wobble-sm);
+  padding: 4px 12px;
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  animation: dice-total-in 0.4s 0.75s ease-out both;
+}
+
+.dice-total small {
+  font-size: 0.78rem;
+  color: var(--danger);
+}
+
+.dice-total.dice-seven {
+  border-color: var(--danger);
+}
+
+@keyframes dice-tumble-l {
+  0% {
+    transform: translate(-120px, -60px) rotate(-260deg) scale(0.6);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  70% {
+    transform: translate(6px, 4px) rotate(14deg) scale(1.05);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes dice-tumble-r {
+  0% {
+    transform: translate(120px, -70px) rotate(300deg) scale(0.6);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  72% {
+    transform: translate(-6px, 5px) rotate(-12deg) scale(1.05);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes dice-total-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dice-fade {
+  0%,
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* 달성 두루마리: 위에서 펼쳐졌다가 말려 올라간다 */
+.award-show {
+  position: fixed;
+  left: 50%;
+  top: 22%;
+  transform: translateX(-50%);
+  z-index: 41;
+  pointer-events: none;
+  animation: award-life 3.2s ease-in-out forwards;
+}
+
+.award-scroll {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px 12px 16px;
+  background: var(--tex-grain), linear-gradient(90deg, #d8bf8a, #f6ead0 12%, #f6ead0 88%, #d8bf8a);
+  border: 1.5px solid rgba(58, 42, 31, 0.6);
+  border-radius: 6px;
+  box-shadow: var(--shadow), 0 0 0 4px rgba(201, 150, 50, 0.35);
+  transform-origin: top center;
+  animation: award-unroll 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.award-title {
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 1.3rem;
+  color: #7a4b0c;
+  letter-spacing: 0.04em;
+}
+
+.award-who {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+}
+
+.award-who b {
+  color: var(--gold);
+}
+
+.award-detail {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+
+@keyframes award-unroll {
+  from {
+    transform: scaleY(0.05) scaleX(0.7);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes award-life {
+  0%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-14px);
+  }
+}
+
+/* 자리 카드의 숫자 꼬리표, 막힘 꼬리표, 교역로 안내 */
+.num-tag {
+  font-family: var(--font-title);
+  background: var(--parchment-hi);
+  border-color: rgba(58, 42, 31, 0.5);
+  color: var(--ink);
+}
+
+.num-tag.num-hot {
+  color: #b3261e;
+}
+
+.tag-lock {
+  background: rgba(36, 27, 60, 0.15);
+  border-color: rgba(36, 27, 60, 0.4);
+  color: #3a2d4a;
+}
+
+/* 길 위에 마우스를 올리면 뜨는 작은 창: 그 주인의 가장 긴 교역로 길이 */
+.road-tip {
+  position: absolute;
+  z-index: 6;
+  transform: translate(-50%, calc(-100% - 14px));
+  pointer-events: none;
+  background: var(--parchment-hi) var(--tex-grain);
+  border: 1px solid rgba(58, 42, 31, 0.55);
+  border-radius: var(--wobble-sm);
+  box-shadow: 0 4px 12px rgba(24, 38, 46, 0.35);
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  max-width: 230px;
+}
+
+.road-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-title);
+  font-weight: 700;
+}
+
+.road-tip b {
+  color: #8a5a12;
+}
+
+.road-tip-note {
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+}
+
+.num-hot-text {
+  color: #b3261e;
+}
+
+.harbor-note {
+  color: var(--river);
+}
+
+/* 발전 카드 대화 상자 */
+.dev-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.dev-card {
+  background: var(--parchment-hi) var(--tex-grain);
+  border: 1px solid rgba(58, 42, 31, 0.32);
+  border-left: 5px solid var(--parchment-edge);
+  border-radius: var(--wobble-sm);
+  padding: 8px 10px;
+}
+
+.dev-card p {
+  margin: 4px 0 6px;
+}
+
+.dev-knight {
+  border-left-color: #6f757e;
+}
+
+.dev-victory {
+  border-left-color: var(--gold);
+}
+
+.dev-road_building {
+  border-left-color: #8a5a2b;
+}
+
+.dev-year_of_plenty {
+  border-left-color: var(--good);
+}
+
+.dev-monopoly {
+  border-left-color: var(--vermilion);
+}
+
+.dev-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-title);
+}
+
+.pick-row.compact {
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.pick-row.compact select {
+  font: inherit;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(58, 42, 31, 0.4);
+  background: var(--parchment-hi);
+}
+
+/* 빼앗을 사람 고르기 */
+.pick-player {
+  flex-direction: row;
+  gap: 8px;
+  font-weight: 700;
+}
+
+/* ───────── 손에 든 카드 (하스스톤처럼 아래에서 부채꼴로) ───────── */
+.hand {
+  --cw: 52px;
+  --ch: 74px;
+  --ov: -6px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  min-height: var(--ch);
+  /* 카드 윗부분이 양피지 띠 위 보드 쪽으로 살짝 솟아 손에 쥔 모습이 된다 */
+  margin-top: -22px;
+  /* 기울어진 양 끝 카드의 모서리가 화면 밖으로 나가지 않을 만큼 아래를 비운다 */
+  padding: 0 10px 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.game-wide .hand {
+  --cw: 60px;
+  --ch: 86px;
+  margin-top: -30px;
+}
+
+.hand-empty {
+  align-self: center;
+  margin-top: 22px;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.hcard {
+  --frame: #7a5532;
+  --tint: #efe0c0;
+  position: relative;
+  flex: none;
+  width: var(--cw);
+  height: var(--ch);
+  margin: 0 0 0 var(--ov);
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  isolation: isolate;
+  transform-origin: 50% 130%;
+  transform: translateY(var(--lift, 0px)) rotate(var(--rot, 0deg));
+  transition: transform 0.18s ease-out, filter 0.18s;
+  font: inherit;
+}
+
+.hcard:first-child {
+  margin-left: 0;
+}
+
+.hcard:hover,
+.hcard:focus-visible {
+  transform: translateY(-16px) rotate(0deg) scale(1.12);
+  z-index: 50 !important;
+  outline: none;
+}
+
+.hcard-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: radial-gradient(circle at 50% 36%, #fffaf0 0, var(--tint) 72%);
+  border: 2px solid var(--frame);
+  box-shadow: 0 3px 7px rgba(20, 14, 8, 0.38), inset 0 0 0 2px rgba(255, 255, 255, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: calc(var(--ch) * 0.09);
+  gap: 3px;
+}
+
+/* 같은 자원이 여러 장이면 뒤에 카드가 겹쳐 보인다 (두께) */
+.hcard::before,
+.hcard::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: var(--tint);
+  border: 2px solid var(--frame);
+  z-index: -1;
+  opacity: 0;
+}
+
+.hcard[data-depth='1']::before,
+.hcard[data-depth='2']::before {
+  opacity: 1;
+  transform: translate(3px, -3px);
+}
+
+.hcard[data-depth='2']::after {
+  opacity: 1;
+  transform: translate(6px, -6px);
+  filter: brightness(0.92);
+}
+
+.hcard-name {
+  font-family: var(--font-title);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--frame);
+  white-space: nowrap;
+}
+
+.game-wide .hcard-name {
+  font-size: 11px;
+}
+
+/* 장수는 왼쪽 위: 오른쪽 카드가 겹쳐도 가리지 않는다 */
+.hcard-count {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  z-index: 2;
+  min-width: 21px;
+  height: 21px;
+  padding: 0 4px;
+  border-radius: 11px;
+  background: var(--ink);
+  border: 1.5px solid #f5e6c2;
+  color: #f5e6c2;
+  font: 700 12px/18px 'Palatino Linotype', Palatino, Georgia, var(--font-title);
+  text-align: center;
+}
+
+.hcard-ratio {
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--river);
+  border-radius: 6px;
+  padding: 0 4px;
+}
+
+.hcard-wood {
+  --frame: #7a4f26;
+  --tint: #ecd3ae;
+}
+
+.hcard-grain {
+  --frame: #a57a12;
+  --tint: #f6e3a4;
+}
+
+.hcard-wool {
+  --frame: #5d7f3a;
+  --tint: #e2efc9;
+}
+
+.hcard-brick {
+  --frame: #9a4329;
+  --tint: #f1cdb8;
+}
+
+.hcard-stone {
+  --frame: #5d6773;
+  --tint: #dfe3e8;
+}
+
+/* 발전 카드: 짙은 남색 바탕에 금테 */
+.hcard-dev {
+  --frame: #d0a83c;
+  --tint: #2c4170;
+}
+
+.hcard-dev .hcard-face {
+  background: radial-gradient(circle at 50% 34%, #4a63a0 0, #2c4170 60%, #1d2b4f);
+  box-shadow: 0 3px 7px rgba(20, 14, 8, 0.45), inset 0 0 0 2px rgba(240, 210, 122, 0.35);
+}
+
+.hcard-dev .hcard-name {
+  color: #f3e2b4;
+  font-size: 9px;
+}
+
+/* 지금 쓸 수 있는 카드는 하스스톤처럼 테두리가 빛난다 */
+.hcard-playable .hcard-face {
+  animation: hcard-ready 1.6s ease-in-out infinite;
+}
+
+@keyframes hcard-ready {
+  50% {
+    box-shadow: 0 0 0 2px #7fe08a, 0 0 14px 4px rgba(127, 224, 138, 0.75), inset 0 0 0 2px rgba(240, 210, 122, 0.35);
+  }
+}
+
+.hcard-fresh {
+  filter: saturate(0.7) brightness(0.9);
+}
+
+.hcard-new {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  font-style: normal;
+  font-size: 8px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: #2c2018;
+  background: #f0d27a;
+  border-radius: 4px;
+  padding: 0 3px;
+}
+
+/* 새로 받은 카드: 위에서 내려와 반짝인다. 쓴 카드: 살짝 가라앉는다. */
+.hcard-gain .hcard-face {
+  animation: hcard-gain 0.9s ease-out;
+}
+
+.hcard-gain .hcard-count {
+  animation: hcard-count 0.9s ease-out;
+}
+
+.hcard-spend .hcard-face {
+  animation: hcard-spend 0.5s ease-out;
+}
+
+@keyframes hcard-gain {
+  0% {
+    transform: translateY(-46px) rotate(-8deg);
+    opacity: 0;
+  }
+  35% {
+    transform: translateY(4px);
+    opacity: 1;
+    box-shadow: 0 0 0 3px #ffd34d, 0 0 16px 6px rgba(255, 211, 77, 0.8);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes hcard-count {
+  30% {
+    transform: scale(1.5);
+    background: #b9832a;
+  }
+}
+
+@keyframes hcard-spend {
+  40% {
+    transform: translateY(8px) scale(0.94);
+    filter: brightness(0.85);
+  }
+}
+
+/* 다른 사람의 손: 뒷면 카드를 작게 펼친다 */
+.mini-hand {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.mini-fan {
+  position: relative;
+  display: inline-block;
+  width: 18px;
+  height: 15px;
+}
+
+.mini-fan i {
+  position: absolute;
+  left: 5px;
+  bottom: 0;
+  width: 8px;
+  height: 12px;
+  border-radius: 2px;
+  transform-origin: 50% 100%;
+  transform: rotate(var(--r));
+  background: repeating-linear-gradient(45deg, #b07a42 0 2px, #c99a5e 2px 4px);
+  border: 1px solid #5e3f22;
+}
+
+.mini-dev .mini-fan i {
+  background: repeating-linear-gradient(45deg, #2c4170 0 2px, #3d5590 2px 4px);
+  border-color: #d0a83c;
+}
+
+.mini-empty .mini-fan {
+  opacity: 0.3;
+}
+
+.mini-hand b {
+  font-family: var(--font-title);
+  font-size: 0.8rem;
 }

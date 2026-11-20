@@ -1,12 +1,14 @@
-// 새로 들어온 게임 기록에 맞춰 짧은 연출과 알림을 낸다.
+// 새로 들어온 게임 기록에 맞춰 연출과 알림을 낸다: 주사위, 칸 생산, 기사단 동상, 빼앗기, 달성 두루마리.
 import { useEffect, useRef } from 'react';
-import { CONTRACT_MAP, RESOURCES, TILE_MAP } from '../../shared/constants';
+import { VERTEX_MAP } from '../../shared/board';
+import { DEV_LABEL, RESOURCE_LABEL, TILE_MAP } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
 import type { Resource } from '../../shared/types';
 import type { BoardRenderer } from '../board/BoardRenderer';
 import { josa } from '../ui/josa';
+import { showAward, showDice } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
-import { bundleText, type PlayerInfo } from './derive';
+import { bundleText, tileName, type PlayerInfo } from './derive';
 
 function buzz(ms: number): void {
   // 브라우저는 사용자가 화면을 한 번이라도 누르기 전에는 진동을 막는다.
@@ -31,6 +33,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
     if (!g) return;
     const me = view.you;
     const name = (id: string) => players.get(id)?.nickname ?? '?';
+    const color = (id: string) => players.get(id)?.colorIndex ?? 0;
     const maxSeq = g.events.length ? g.events[g.events.length - 1].seq : 0;
 
     if (lastSeq.current === null || lastGame.current !== view.gameNumber) {
@@ -46,37 +49,58 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
 
     for (const e of fresh) {
       switch (e.kind) {
-        case 'round_start': {
+        case 'roll': {
+          const total = e.dice[0] + e.dice[1];
+          if (animate) showDice(e.dice, e.player === me ? '나' : name(e.player), color(e.player));
+          if (total === 7) {
+            if (g.discards[me]) {
+              showToast(`7! 자원 ${g.discards[me]}장을 버려야 합니다.`, 'warn', 4200);
+              buzz(160);
+            }
+            break;
+          }
           const mine = e.detail?.[me];
-          showToast(`${e.round}라운드 시작 · 내 생산 ${mine ? bundleText(mine) : '없음'}`, 'good', 3600);
+          if (mine && Object.values(mine).some((n) => n > 0)) showToast(`${total} · 내 생산 ${bundleText(mine)}`, 'good', 3200);
+          if (e.blocked.length) showToast(`${e.blocked.map((t) => tileName(g.numbers, t)).join(', ')} 칸은 기사단 동상에 막혀 생산하지 않았습니다.`, 'warn', 3200);
           if (animate) {
-            const items = g.settlements
-              .map((s) => {
-                const kind = TILE_MAP[s.tileId]?.kind;
-                if (!kind || kind === 'market') return null;
-                return {
-                  tileId: s.tileId,
-                  resource: kind as Resource,
-                  amount: 1 + (kind === e.forecast ? 1 : 0),
-                  colorIndex: players.get(s.owner)?.colorIndex ?? 0,
-                };
-              })
-              .filter((x): x is NonNullable<typeof x> => !!x);
-            rendererRef.current?.playProduction(items);
+            // 숫자가 나온 칸에서 그 칸에 닿은 마을·도시로 자원이 솟아 날아간다 (공개 정보로 계산).
+            const items: { tileId: string; vertexId: string; resource: Resource; amount: number }[] = [];
+            for (const tileId of e.tiles) {
+              const kind = TILE_MAP[tileId]?.kind;
+              if (!kind || kind === 'plaza') continue;
+              for (const b of g.buildings) {
+                if (!VERTEX_MAP[b.vertexId]?.tiles.includes(tileId)) continue;
+                items.push({ tileId, vertexId: b.vertexId, resource: kind, amount: b.kind === 'city' ? 2 : 1 });
+              }
+            }
+            window.setTimeout(() => rendererRef.current?.playRoll(e.tiles, e.blocked, items), 1100);
           }
           break;
         }
-        case 'deliver': {
-          const c = CONTRACT_MAP[e.contractId];
-          if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} ${c.name}을(를) 납품했습니다 (+${e.points}점).`);
-          else showToast(`${c.name} 납품 완료 · +${e.points}점`, 'good');
-          if (animate) {
-            const from = g.settlements.filter((s) => s.owner === e.player).map((s) => s.tileId);
-            const tokens: Resource[] = RESOURCES.flatMap((r) => Array<Resource>(c.cost[r]).fill(r));
-            rendererRef.current?.playDelivery(from, tokens, e.points);
+        case 'robber':
+          if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} 기사단 동상을 ${tileName(g.numbers, e.tileId)} 칸으로 옮겼습니다.`, 'warn');
+          break;
+        case 'steal':
+          if (e.from === me) {
+            showToast(`${josa(name(e.player), '이/가')} ${e.detail ? RESOURCE_LABEL[e.detail] : '자원'} 1장을 빼앗아 갔습니다.`, 'error', 4000);
+            buzz(120);
+          } else if (e.player === me && e.detail) showToast(`${name(e.from)}에게서 ${RESOURCE_LABEL[e.detail]} 1장을 빼앗았습니다.`, 'good');
+          break;
+        case 'buy_dev':
+          if (e.player === me && e.detail) showToast(`발전 카드: ${DEV_LABEL[e.detail]}`, 'good');
+          break;
+        case 'play_dev':
+          if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} ${DEV_LABEL[e.card]} 카드를 썼습니다.`);
+          break;
+        case 'award':
+          if (e.player) {
+            const unit = e.award === 'longest_road' ? `이어진 길 ${e.size}칸` : `기사 ${e.size}장`;
+            const from = e.previous ? ` · ${name(e.previous)}에게서 가져옴` : '';
+            showAward(e.award, e.player === me ? '나' : name(e.player), color(e.player), `${unit}${from}`);
+            rendererRef.current?.playAward(e.award, color(e.player), e.player);
+            buzz(180);
           }
           break;
-        }
         case 'trade_proposed':
           if (e.to === me) {
             showToast(`${name(e.from)}의 교환 제안이 도착했습니다.`, 'warn', 4000);
@@ -103,7 +127,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
     if (turn !== lastTurn.current) {
       lastTurn.current = turn;
       if (turn === me) {
-        showToast(g.phase === 'placement' ? '시작 거점을 놓을 차례입니다.' : '내 차례입니다 · 행동 2회', 'good', 3000);
+        showToast(g.phase === 'placement' ? '시작 마을과 길을 놓을 차례입니다.' : '내 차례입니다 · 주사위를 굴리세요', 'good', 3000);
         buzz(80);
       }
     }

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { RESOURCES, TOTAL_ROUNDS, bundleTotal } from '../src/shared/constants';
+import { VERTICES } from '../src/shared/board';
+import { RESOURCES, WIN_POINTS, bundleTotal, emptyBundle } from '../src/shared/constants';
 import type { RoomView, SessionInfo } from '../src/shared/protocol';
 import type { Bundle, GameEvent } from '../src/shared/types';
 import { startServer, type RunningServer } from '../src/server/app';
@@ -17,31 +18,31 @@ afterAll(async () => {
   await server.close();
 });
 
-/** 한 판을 끝까지 진행한다. 짝수 라운드에는 첫 행동으로 다음 사람에게 교환을 제안해 교환 흐름도 함께 확인한다. */
-async function playToEnd(clients: TestClient[]): Promise<{ trades: number; rejects: number; actions: number }> {
+/** 한 판을 끝까지(누군가 10점) 진행한다. 세 턴에 한 번은 주사위를 굴린 뒤 다음 사람에게 교환을 제안해 교환 흐름도 함께 확인한다. */
+async function playToEnd(clients: TestClient[]): Promise<{ trades: number; rejects: number; actions: number; turns: number }> {
   let trades = 0;
   let rejects = 0;
   let actions = 0;
-  const tradedTurn = new Set<string>();
-  for (let step = 0; step < 800; step++) {
+  const tradedTurn = new Set<number>();
+  for (let step = 0; step < 20000; step++) {
     const g = clients[0].latest!.game!;
-    if (g.phase === 'finished') return { trades, rejects, actions };
-    const turnId = g.phase === 'placement' ? g.placementPlayerId : g.currentPlayerId;
+    if (g.phase === 'finished') return { trades, rejects, actions, turns: g.turn };
+    const turnId =
+      g.phase === 'placement' ? g.placementPlayerId : g.step === 'discard' ? (Object.keys(g.discards)[0] ?? g.currentPlayerId) : g.currentPlayerId;
     const actor = byId(clients, turnId);
     const v = actor.latest!;
     const ag = v.game!;
     const seat = ag.order.indexOf(actor.id);
-    const turnKey = `${ag.round}:${ag.currentPlayerId}`;
 
-    if (ag.phase === 'playing' && ag.round % 2 === 0 && ag.actionsLeft === 2 && !ag.trade && !tradedTurn.has(turnKey)) {
-      tradedTurn.add(turnKey);
+    if (ag.phase === 'playing' && ag.step === 'main' && ag.turn % 3 === 0 && !ag.trade && !tradedTurn.has(ag.turn) && ag.currentPlayerId === actor.id) {
+      tradedTurn.add(ag.turn);
       const r = ag.myResources;
       const give = RESOURCES.find((x) => r[x] > 0);
       if (give) {
         const want = RESOURCES.find((x) => x !== give)!;
         const target = byId(clients, ag.order[(seat + 1) % ag.order.length]);
-        const giveB: Bundle = { wood: 0, grain: 0, stone: 0, [give]: 1 };
-        const getB: Bundle = { wood: 0, grain: 0, stone: 0, [want]: 1 };
+        const giveB: Bundle = { ...emptyBundle(), [give]: 1 };
+        const getB: Bundle = { ...emptyBundle(), [want]: 1 };
         const res = await actor.act({ type: 'trade_propose', to: target.id, give: giveB, get: getB });
         expect(res).toEqual({ ok: true });
         await sync(clients, actor.latest!.game!.version);
@@ -67,7 +68,7 @@ async function playToEnd(clients: TestClient[]): Promise<{ trades: number; rejec
 
     const action = chooseAction(v, seat);
     const res = await actor.act(action);
-    expect(res, `${action.type} by ${actor.session!.nickname}`).toEqual({ ok: true });
+    expect(res, `${action.type} by ${actor.session!.nickname} (${ag.step})`).toEqual({ ok: true });
     actions++;
     await sync(clients, actor.latest!.game!.version);
   }
@@ -87,15 +88,17 @@ function assertPrivacy(clients: TestClient[]): void {
       expect(view.you).toBe(me);
       const g = view.game;
       if (!g) continue;
-      for (const p of g.players) expect(Object.keys(p).sort()).toEqual(['id', 'resourceTotal', 'score', 'seat', 'settlementCount']);
+      for (const p of g.players)
+        expect(Object.keys(p).sort()).toEqual(['cities', 'devCardCount', 'id', 'knightsPlayed', 'resourceTotal', 'roadLength', 'roads', 'score', 'seat', 'villages']);
       if (g.trade && g.trade.from !== me && g.trade.to !== me) {
         expect(g.trade.give).toBeUndefined();
         expect(g.trade.get).toBeUndefined();
       }
       for (const e of g.events as GameEvent[]) {
-        if (e.kind === 'market' && e.player !== me) expect(e.detail).toBeUndefined();
+        if ((e.kind === 'discard' || e.kind === 'buy_dev') && e.player !== me) expect(e.detail).toBeUndefined();
+        if (e.kind === 'steal' && e.player !== me && e.from !== me) expect(e.detail).toBeUndefined();
         if ((e.kind === 'trade_proposed' || e.kind === 'trade_accepted') && e.from !== me && e.to !== me) expect(e.detail).toBeUndefined();
-        if (e.kind === 'round_start' && e.detail) expect(Object.keys(e.detail)).toEqual([me]);
+        if (e.kind === 'roll' && e.detail) expect(Object.keys(e.detail)).toEqual([me]);
       }
     }
   }
@@ -106,15 +109,16 @@ function assertSameResult(clients: TestClient[]): void {
   expect(new Set(results).size).toBe(1);
   const g = clients[0].latest!.game!;
   expect(g.phase).toBe('finished');
-  expect(g.round).toBe(TOTAL_ROUNDS);
   const result = g.result!;
-  // 순위는 점수 → 남은 자원 순이며, 보드의 공개 정보와 맞아야 한다.
+  // 이긴 사람은 10점 이상이고, 순위는 (이긴 사람 다음으로) 점수 → 남은 자원 순이며, 게임이 끝나면 공개된 점수와 맞아야 한다.
+  expect(result.ranking[0].score).toBeGreaterThanOrEqual(WIN_POINTS);
+  expect(result.winners).toEqual([result.ranking[0].playerId]);
   for (const e of result.ranking) {
     const p = g.players.find((x) => x.id === e.playerId)!;
     expect(e.score).toBe(p.score);
     expect(e.resourceTotal).toBe(p.resourceTotal);
   }
-  for (let i = 1; i < result.ranking.length; i++) {
+  for (let i = 2; i < result.ranking.length; i++) {
     const a = result.ranking[i - 1];
     const b = result.ranking[i];
     expect(a.score > b.score || (a.score === b.score && a.resourceTotal >= b.resourceTotal)).toBe(true);
@@ -136,33 +140,31 @@ function allEvents(c: TestClient): GameEvent[] {
   return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
 }
 
-function assertRounds(clients: TestClient[]): void {
+function assertTurns(clients: TestClient[]): void {
   const g = clients[0].latest!.game!;
   const n = g.order.length;
   const events = allEvents(clients[0]);
-  const starts = events.filter((e): e is Extract<GameEvent, { kind: 'round_start' }> => e.kind === 'round_start');
-  expect(starts.map((e) => e.round)).toEqual([1, 2, 3, 4, 5, 6]);
-  // 선 플레이어가 라운드마다 한 자리씩 넘어간다.
-  starts.forEach((e, i) => expect(e.firstPlayer).toBe(g.order[i % n]));
-  // 시작 배치는 마지막 자리부터 역순
+  // 턴마다 주사위를 한 번 굴리고, 차례는 자리 순서대로 돈다.
+  const rolls = events.filter((e): e is Extract<GameEvent, { kind: 'roll' }> => e.kind === 'roll');
+  rolls.forEach((e, i) => expect(e.player).toBe(g.order[i % n]));
+  expect(rolls.length).toBe(g.turn);
+  // 시작 배치는 자리 순서대로 한 바퀴, 거꾸로 한 바퀴
   const placements = events.filter((e) => e.kind === 'placement').map((e) => (e as { player: string }).player);
-  expect(placements).toEqual([...g.order].reverse());
+  expect(placements).toEqual([...g.order, ...[...g.order].reverse()]);
 }
 
 describe('한 판 완주', () => {
   for (const n of [3, 4]) {
-    it(`${n}인: 시작 배치부터 6라운드 종료·순위까지 모든 화면이 일치한다`, async () => {
+    it(`${n}인: 시작 배치부터 10점 승리·순위까지 모든 화면이 일치한다`, async () => {
       const { clients } = await startedRoom(url, n);
       const stats = await playToEnd(clients);
       assertSameResult(clients);
-      assertRounds(clients);
+      assertTurns(clients);
       assertPrivacy(clients);
       const g = clients[0].latest!.game!;
-      const delivered = allEvents(clients[0]).filter((e) => e.kind === 'deliver').length;
-      expect(g.players.reduce((s, p) => s + p.score, 0)).toBe(delivered * 2);
       expect(stats.trades + stats.rejects).toBeGreaterThan(0);
       console.log(
-        `[${n}인] 행동 ${stats.actions}회, 교환 성사 ${stats.trades}·거절 ${stats.rejects}, 납품 ${delivered}건, 결과: ${g.result!.ranking
+        `[${n}인] ${stats.turns}턴, 행동 ${stats.actions}회, 교환 성사 ${stats.trades}·거절 ${stats.rejects}, 결과: ${g.result!.ranking
           .map((e) => `${e.rank}위 ${clients.find((c) => c.id === e.playerId)!.session!.nickname} ${e.score}점/${e.resourceTotal}개`)
           .join(', ')} (${g.result!.decidedBy})`,
       );
@@ -181,9 +183,9 @@ describe('한 판 완주', () => {
   }
 });
 
-/** 시작 배치를 끝내고 1라운드 첫 턴 상태로 만든다. */
+/** 시작 배치를 끝내고 첫 턴(주사위 굴리기 전) 상태로 만든다. */
 async function toFirstTurn(clients: TestClient[]): Promise<void> {
-  for (let i = 0; i < clients.length; i++) {
+  for (let i = 0; i < clients.length * 2; i++) {
     const g = clients[0].latest!.game!;
     const actor = byId(clients, g.placementPlayerId);
     const res = await actor.act(chooseAction(actor.latest!, g.order.indexOf(actor.id)));
@@ -193,19 +195,38 @@ async function toFirstTurn(clients: TestClient[]): Promise<void> {
   expect(clients[0].latest!.game!.phase).toBe('playing');
 }
 
+/** 첫 턴 사람이 주사위를 굴리고 (7이면 버리기·동상까지 처리해) 교환·건설 단계로 만든다. */
+async function toMainStep(clients: TestClient[]): Promise<void> {
+  await toFirstTurn(clients);
+  for (let i = 0; i < 20; i++) {
+    const g = clients[0].latest!.game!;
+    if (g.step === 'main') return;
+    const who = g.step === 'discard' ? Object.keys(g.discards)[0] : g.currentPlayerId;
+    const actor = byId(clients, who);
+    expect(await actor.act(chooseAction(actor.latest!, g.order.indexOf(actor.id)))).toEqual({ ok: true });
+    await sync(clients, actor.latest!.game!.version);
+  }
+  throw new Error('교환·건설 단계로 가지 못했습니다.');
+}
+
 describe('교환 수락은 한 번만 반영', () => {
   it('같은 제안을 동시에 두 번 수락해도 자원은 한 번만 옮겨진다', async () => {
     const { clients } = await startedRoom(url, 3);
-    await toFirstTurn(clients);
+    await toMainStep(clients);
     const g = clients[0].latest!.game!;
     const actor = byId(clients, g.currentPlayerId);
     const target = byId(clients, g.order[(g.order.indexOf(actor.id) + 1) % 3]);
     const a0 = { ...actor.latest!.game!.myResources };
     const t0 = { ...target.latest!.game!.myResources };
-    const give = RESOURCES.find((r) => a0[r] > 0)!;
-    const want = RESOURCES.find((r) => r !== give && t0[r] > 0)!;
-    const giveB: Bundle = { wood: 0, grain: 0, stone: 0, [give]: 1 };
-    const getB: Bundle = { wood: 0, grain: 0, stone: 0, [want]: 1 };
+    // 시작 마을로 받은 자원이 있으므로 두 사람 모두 낼 자원이 있다. 없으면 이 판에서는 확인할 수 없어 건너뛴다.
+    const give = RESOURCES.find((r) => a0[r] > 0);
+    const want = RESOURCES.find((r) => r !== give && t0[r] > 0 && a0[r] === 0) ?? RESOURCES.find((r) => r !== give && t0[r] > 0);
+    if (!give || !want) {
+      clients.forEach((c) => c.close());
+      return;
+    }
+    const giveB: Bundle = { ...emptyBundle(), [give]: 1 };
+    const getB: Bundle = { ...emptyBundle(), [want]: 1 };
     expect(await actor.act({ type: 'trade_propose', to: target.id, give: giveB, get: getB })).toEqual({ ok: true });
     const tv = await target.waitFor((v) => !!v.game!.trade);
     const tradeId = tv.game!.trade!.id;
@@ -232,7 +253,6 @@ describe('교환 수락은 한 번만 반영', () => {
     expect(a1[want]).toBe(a0[want] + 1);
     expect(t1[give]).toBe(t0[give] + 1);
     expect(t1[want]).toBe(t0[want] - 1);
-    expect(actor.latest!.game!.actionsLeft).toBe(1);
     const accepted = actor.latest!.game!.events.filter((e) => e.kind === 'trade_accepted');
     expect(accepted).toHaveLength(1);
     assertPrivacy(clients);
@@ -241,10 +261,9 @@ describe('교환 수락은 한 번만 반영', () => {
 
   it('같은 요청 ID로 다시 보낸 행동은 한 번만 처리된다', async () => {
     const { clients } = await startedRoom(url, 3);
-    await toFirstTurn(clients);
+    await toMainStep(clients);
     const g = clients[0].latest!.game!;
     const actor = byId(clients, g.currentPlayerId);
-    const before = actor.latest!.game!.actionsLeft;
     const r1 = await actor.act({ type: 'end_turn' }, 'dup-end-turn');
     const r2 = await actor.act({ type: 'end_turn' }, 'dup-end-turn');
     expect(r1).toEqual({ ok: true });
@@ -254,7 +273,6 @@ describe('교환 수락은 한 번만 반영', () => {
     // 턴은 한 번만 넘어간다.
     expect(after.currentPlayerId).toBe(g.order[(g.order.indexOf(actor.id) + 1) % 3]);
     expect(after.events.filter((e) => e.kind === 'turn_end')).toHaveLength(1);
-    expect(before).toBe(2);
     clients.forEach((c) => c.close());
   });
 });
@@ -265,20 +283,22 @@ describe('서버 판정', () => {
     // 시작 배치 순서가 아닌 사람
     const g0 = clients[0].latest!.game!;
     const notPlacer = clients.find((c) => c.id !== g0.placementPlayerId)!;
-    expect(await notPlacer.act({ type: 'place', tileId: 'A1' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
+    expect(await notPlacer.act({ type: 'place', vertexId: 'v13', edgeId: 'e12' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
     await toFirstTurn(clients);
     const g = clients[0].latest!.game!;
     const version = g.version;
     const actor = byId(clients, g.currentPlayerId);
     const other = clients.find((c) => c !== actor)!;
     expect(await other.act({ type: 'end_turn' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
-    expect(await other.act({ type: 'market', give: 'wood', get: 'stone' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
-    expect(await other.act({ type: 'deliver', contractId: 'general' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
-    // 차례인 사람이라도 비용이 부족하면 거절
-    expect(await actor.act({ type: 'deliver', contractId: 'levee' })).toMatchObject({ ok: false });
-    expect(await actor.act({ type: 'build', tileId: 'C3' })).toMatchObject({ ok: false, code: 'TILE_INVALID' }); // 가운데 시장
+    expect(await other.act({ type: 'bank_trade', give: 'wood', get: 'stone' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
+    expect(await other.act({ type: 'roll' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
+    // 차례인 사람이라도 주사위를 굴리기 전에는 건설·턴 종료를 할 수 없다
+    expect(await actor.act({ type: 'end_turn' })).toMatchObject({ ok: false, code: 'WRONG_STEP' });
+    const empty = VERTICES.find((vx) => !g.buildings.some((b) => b.vertexId === vx.id))!.id;
+    expect(await actor.act({ type: 'build_city', vertexId: empty })).toMatchObject({ ok: false, code: 'WRONG_STEP' });
+    expect(await actor.act({ type: 'move_robber', tileId: 'A1' })).toMatchObject({ ok: false, code: 'WRONG_STEP' });
     // 형식이 잘못된 요청
-    expect(await actor.emit('game:action', { requestId: 'bad-1', action: { type: 'build', tileId: 'Z9' } })).toMatchObject({ ok: false, code: 'BAD_REQUEST' });
+    expect(await actor.emit('game:action', { requestId: 'bad-1', action: { type: 'build_road', edgeId: 'Z9' } })).toMatchObject({ ok: false, code: 'BAD_REQUEST' });
     expect(await actor.emit('game:action', { requestId: 'bad-2', action: { type: 'trade_propose', to: other.id, give: { wood: -1 }, get: { grain: 1 } } })).toMatchObject({
       ok: false,
       code: 'BAD_REQUEST',
@@ -412,8 +432,8 @@ describe('재접속', () => {
     await watcher.waitFor((v) => v.players.find((p) => p.id === session.playerId)?.connected === true);
 
     // 이어서 진행
-    expect(await again.act({ type: 'end_turn' })).toEqual({ ok: true });
-    await watcher.waitFor((v) => v.game!.currentPlayerId !== session.playerId);
+    expect(await again.act({ type: 'roll' })).toEqual({ ok: true });
+    await watcher.waitFor((v) => v.game!.events.some((e) => e.kind === 'roll' && e.player === session.playerId));
     clients[clients.indexOf(actor)] = again;
     assertPrivacy(clients.filter((c) => c !== actor));
     clients.forEach((c) => c.close());
