@@ -5,12 +5,14 @@ export function Brand({ small = false }: { small?: boolean }) {
   return (
     <div className={small ? 'brand brand-small' : 'brand'}>
       <svg className="brand-mark" viewBox="0 0 48 48" aria-hidden>
-        <path d="M4 34 C14 28 18 40 28 34 S40 28 44 31 L44 44 L4 44 Z" fill="#3f7fa3" />
-        <path d="M4 34 C14 28 18 40 28 34 S40 28 44 31" stroke="#cfe6f2" strokeWidth="2" fill="none" />
-        <path d="M12 26 L20 16 L28 26 Z" fill="#b8473a" stroke="#4b1b13" strokeWidth="1.5" strokeLinejoin="round" />
-        <rect x="13.5" y="26" width="13" height="7" fill="#efe3c6" stroke="#4b1b13" strokeWidth="1.5" />
-        <path d="M33 30 L33 10" stroke="#4b3220" strokeWidth="2" />
-        <path d="M33 11 L42 14 L33 18 Z" fill="#e3b23c" stroke="#6b4b0b" strokeWidth="1.2" />
+        {/* 수채화 삽화 색: 물(보드 밖 물 색), 주홍 지붕, 황토 깃발, 세피아 먹선 */}
+        <path d="M4 34 C14 28 18 40 28 34 S40 28 44 31 L44 44 L4 44 Z" fill="#589eb5" stroke="#3a2a1f" strokeWidth="1.3" strokeLinejoin="round" />
+        <path d="M7 38.5 C13 35.5 17 41 24 38" stroke="#e6f0ee" strokeWidth="1.6" strokeLinecap="round" fill="none" />
+        <path d="M12 26 L20 16 L28 26 Z" fill="#a8402c" stroke="#3a2a1f" strokeWidth="1.5" strokeLinejoin="round" />
+        <rect x="13.5" y="26" width="13" height="7" fill="#f2e6cc" stroke="#3a2a1f" strokeWidth="1.5" />
+        <rect x="18.3" y="28.2" width="3.4" height="4.8" fill="#6b4a2a" />
+        <path d="M33 30 L33 10" stroke="#3a2a1f" strokeWidth="2" strokeLinecap="round" />
+        <path d="M33 11 L42 13.5 L38.5 15 L42 16.5 L33 18 Z" fill="#c9962f" stroke="#3a2a1f" strokeWidth="1.2" strokeLinejoin="round" />
       </svg>
       <div>
         <div className="brand-title">강줄기 교역로</div>
