@@ -74,7 +74,7 @@ const HIGHLIGHT_COLOR: Record<HighlightKind | 'selected' | 'hover', string> = {
   hover: '#fff6cf',
 };
 /** 보드 바깥을 채우는 물 색. 물결 무늬 없이 장면 배경색으로만 칠하고, 종이 결과 물감 농담은 후처리가 입힌다.
- *  styles.css·game.css 의 보드 배경도 같은 색이다. */
+ *  styles.css 의 --water(보드 배경과 처음 화면·대기실 배경)도 같은 색이다. */
 const WATER_COLOR = '#589eb5';
 const GROUND_FALLBACK: Record<TileKind | 'dirt', string> = {
   wood: '#5f8a3f',
