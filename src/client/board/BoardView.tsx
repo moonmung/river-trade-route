@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TileDef } from '../../shared/types';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { Resource } from '../../shared/types';
 import { PLAYER_COLORS, emblemSvgMarkup } from '../theme';
+import { AnyResourceIcon, ResourceIcon } from '../ui/icons';
 import type { ArtReport, LoadProgress } from './assets';
-import { BoardRenderer, type BoardState, type Insets, type QualityMode } from './BoardRenderer';
+import { BoardRenderer, type BoardSelection, type BoardState, type Insets, type QualityMode } from './BoardRenderer';
 import type { PerfStats } from './perf';
 
 export interface BoardViewProps {
@@ -11,7 +14,11 @@ export interface BoardViewProps {
   insets?: Insets;
   quality?: QualityMode;
   showTileLabels?: boolean;
-  onTileTap?: (tileId: string) => void;
+  /** 바람·양·연기 움직임 */
+  motion?: boolean;
+  onTap?: (sel: BoardSelection) => void;
+  /** 마우스가 올라간 자리 (캔버스 좌표) */
+  onHover?: (sel: BoardSelection | null, x: number, y: number) => void;
   onPerf?: (s: PerfStats) => void;
   onLoaded?: (report: ArtReport) => void;
   onError?: (message: string) => void;
@@ -20,6 +27,18 @@ export interface BoardViewProps {
 }
 
 const ZERO: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
+
+/** 교역로 표지 아이콘 (자원 아이콘, 3:1 은 물음표). 보드 위 HTML 표지에 넣을 SVG 문자열로 한 번만 만든다. */
+const harborIcons = new Map<string, string>();
+function harborIcon(resource: Resource | null): string {
+  const key = resource ?? 'any';
+  let html = harborIcons.get(key);
+  if (html === undefined) {
+    html = renderToStaticMarkup(resource ? <ResourceIcon kind={resource} size={18} /> : <AnyResourceIcon size={18} />);
+    harborIcons.set(key, html);
+  }
+  return html;
+}
 
 export default function BoardView(props: BoardViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -38,10 +57,13 @@ export default function BoardView(props: BoardViewProps) {
       renderer = new BoardRenderer(host, {
         tiles: props.tiles,
         playerColors: PLAYER_COLORS.map((c) => c.hex),
-        emblemMarkup: (i) => emblemSvgMarkup(i, 20),
+        emblemMarkup: (i) => emblemSvgMarkup(i, 15),
+        harborIcon,
         quality: propsRef.current.quality,
         showTileLabels: propsRef.current.showTileLabels,
-        onTileTap: (id) => propsRef.current.onTileTap?.(id),
+        motion: propsRef.current.motion ?? true,
+        onTap: (sel) => propsRef.current.onTap?.(sel),
+        onHover: (sel, x, y) => propsRef.current.onHover?.(sel, x, y),
         onPerf: (s) => propsRef.current.onPerf?.(s),
         onLoadProgress: (p) => setProgress(p),
         onLoaded: (report) => {
@@ -87,6 +109,10 @@ export default function BoardView(props: BoardViewProps) {
   useEffect(() => {
     rendererRef.current?.setTileLabelsVisible(props.showTileLabels ?? true);
   }, [props.showTileLabels]);
+
+  useEffect(() => {
+    rendererRef.current?.setMotion(props.motion ?? true);
+  }, [props.motion]);
 
   return (
     <div className="board-host" ref={hostRef}>

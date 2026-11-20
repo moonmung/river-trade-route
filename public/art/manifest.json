@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generatedBy": "scripts/generate-assets.ts",
-  "generatedAt": "2026-11-20T05:55:24.673Z",
+  "generatedAt": "2026-11-20T16:52:59.875Z",
   "note": "temporary: true 인 항목은 코드로 만든 임시 에셋입니다. 최종 모델·텍스처로 바꾸면 false 로 고치세요.",
   "models": {
     "house": {
@@ -243,6 +243,126 @@
       "node": "reeds_1",
       "temporary": true,
       "note": "코드로 만든 임시 모델"
+    },
+    "sheep_0": {
+      "url": "models/village_kit.glb",
+      "node": "sheep_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "sheep_1": {
+      "url": "models/village_kit.glb",
+      "node": "sheep_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "sheep_2": {
+      "url": "models/village_kit.glb",
+      "node": "sheep_2",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "fence_0": {
+      "url": "models/village_kit.glb",
+      "node": "fence_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "fence_1": {
+      "url": "models/village_kit.glb",
+      "node": "fence_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "trough": {
+      "url": "models/village_kit.glb",
+      "node": "trough",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "kiln": {
+      "url": "models/village_kit.glb",
+      "node": "kiln",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "bricks_0": {
+      "url": "models/village_kit.glb",
+      "node": "bricks_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "bricks_1": {
+      "url": "models/village_kit.glb",
+      "node": "bricks_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "bricks_2": {
+      "url": "models/village_kit.glb",
+      "node": "bricks_2",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "claymound_0": {
+      "url": "models/village_kit.glb",
+      "node": "claymound_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "claymound_1": {
+      "url": "models/village_kit.glb",
+      "node": "claymound_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "road": {
+      "url": "models/village_kit.glb",
+      "node": "road",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "city": {
+      "url": "models/village_kit.glb",
+      "node": "city",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "statue": {
+      "url": "models/village_kit.glb",
+      "node": "statue",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "dais": {
+      "url": "models/village_kit.glb",
+      "node": "dais",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "chain": {
+      "url": "models/village_kit.glb",
+      "node": "chain",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "padlock": {
+      "url": "models/village_kit.glb",
+      "node": "padlock",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "pier": {
+      "url": "models/village_kit.glb",
+      "node": "pier",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "brickrows": {
+      "url": "models/village_kit.glb",
+      "node": "brickrows",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
     }
   },
   "textures": {
@@ -268,6 +388,16 @@
     },
     "ground_quarry": {
       "url": "textures/ground_quarry.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    },
+    "ground_pasture": {
+      "url": "textures/ground_pasture.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    },
+    "ground_clay": {
+      "url": "textures/ground_clay.ktx2",
       "temporary": true,
       "note": "절차적으로 만든 임시 텍스처"
     },

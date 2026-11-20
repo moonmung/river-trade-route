@@ -43,8 +43,10 @@ describe('입력 형식 검사', () => {
   });
 
   it('행동 요청의 형식이 틀리면 null', () => {
-    expect(parseAction({ type: 'build', tileId: 'A1' })).toEqual({ type: 'build', tileId: 'A1' });
-    expect(parseAction({ type: 'build', tileId: 'constructor' })).toBeNull();
+    expect(parseAction({ type: 'build_village', vertexId: 'v1' })).toEqual({ type: 'build_village', vertexId: 'v1' });
+    expect(parseAction({ type: 'build_road', edgeId: 'e1', extra: 1 })).toEqual({ type: 'build_road', edgeId: 'e1' });
+    expect(parseAction({ type: 'place', vertexId: 'v1' })).toBeNull(); // 시작 배치는 마을과 길을 함께 보낸다
+    expect(parseAction({ type: 'build_city', vertexId: 'constructor' })).toBeNull();
     expect(parseAction({ type: 'deliver', contractId: '__proto__' })).toBeNull();
     expect(parseAction({ type: 'market', give: 'gold', get: 'wood' })).toBeNull();
     expect(parseAction({ type: 'trade_propose', to: 'x', give: { wood: 1.5 }, get: { grain: 1 } })).toBeNull();

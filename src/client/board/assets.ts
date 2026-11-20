@@ -11,14 +11,17 @@ import { buildProp, propAssetName, type PropKey } from './art/builders';
 import { MATERIALS, materialKeyFromName, type MaterialKey } from './art/materials';
 import { paintMaterial } from './paint';
 
-// 보드 밖이 무늬 없는 물로 바뀌면서 풀밭(ground_grass)·강둑(ground_sand)·물결(water_normal) 텍스처는 불러오지 않는다.
-// 파일과 manifest 항목은 남아 있다.
+// 보드 밖은 무늬 없는 물이라 풀밭(ground_grass)·물결(water_normal) 텍스처는 불러오지 않는다. 파일과 manifest 항목은 남아 있다.
+// 모래(ground_sand)는 바닷가 모래밭에 쓴다.
 export type GroundTextureKey =
   | 'ground_dirt'
   | 'ground_forest'
   | 'ground_field'
   | 'ground_quarry'
+  | 'ground_pasture'
+  | 'ground_clay'
   | 'ground_cobble'
+  | 'ground_sand'
   | 'contact_shadow';
 
 export interface ManifestEntry {
@@ -70,6 +73,9 @@ const TRANSCODER_PATH = '/vendor/basis/';
 
 const fallbackMaterials = new Map<MaterialKey, THREE.Material>();
 
+/** 바람에 흔들리는 재질과 세기: 나뭇잎·덤불, 밀 이삭, 깃발. 눈에 겨우 띌 만큼만 흔들린다. */
+const SWAY: Partial<Record<MaterialKey, number>> = { foliage: 0.025, leaf: 0.035, wheat: 0.22, banner: 0.2 };
+
 /** 재질 키에 맞는 만화 음영 재질. 텍스처 없이 재질 색 × 꼭짓점 색으로 칠한다. */
 function fallbackMaterial(key: MaterialKey): THREE.Material {
   let m = fallbackMaterials.get(key);
@@ -80,6 +86,7 @@ function fallbackMaterial(key: MaterialKey): THREE.Material {
       color: spec.color,
       vertexColors: true,
       side: spec.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+      sway: SWAY[key] ?? 0,
     });
     fallbackMaterials.set(key, m);
   }
@@ -210,7 +217,10 @@ export async function loadArtLibrary(
     'ground_forest',
     'ground_field',
     'ground_quarry',
+    'ground_pasture',
+    'ground_clay',
     'ground_cobble',
+    'ground_sand',
     'contact_shadow',
   ];
   const uniqueProps = [...new Map(propList.map((p) => [propAssetName(p.key, p.variant), p])).values()];

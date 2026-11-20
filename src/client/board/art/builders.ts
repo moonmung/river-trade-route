@@ -36,7 +36,21 @@ export type PropKey =
   | 'well'
   | 'boat'
   | 'dock'
-  | 'reeds';
+  | 'reeds'
+  | 'sheep'
+  | 'fence'
+  | 'trough'
+  | 'kiln'
+  | 'bricks'
+  | 'claymound'
+  | 'road'
+  | 'city'
+  | 'statue'
+  | 'dais'
+  | 'chain'
+  | 'padlock'
+  | 'pier'
+  | 'brickrows';
 
 type Vec3 = [number, number, number];
 /** 밝기 배율. 숫자 하나는 밝기만 바꾸고, 세 값은 색조까지 바꾼다 (이끼 낀 돌처럼). */
@@ -284,7 +298,7 @@ function addLogEnd(k: Kit, r: number, at: Vec3, rotation: Vec3, brightness = 1):
   });
 }
 
-// ───────────────────────── 거점 ─────────────────────────
+// ───────────────────────── 마을(집) ─────────────────────────
 
 const TIMBER = '#7a5532';
 
@@ -775,10 +789,11 @@ export function buildWheatRow(seed = 1): PropPart[] {
   const rand = mulberry32(seed);
   const k = new Kit();
   const len = 1.6;
+  const ridgeH = 0.17;
   const tri = new THREE.Shape();
   tri.moveTo(-0.07, 0);
   tri.lineTo(0.07, 0);
-  tri.lineTo(0.0, 0.17);
+  tri.lineTo(0.0, ridgeH);
   tri.closePath();
   const ridge = new THREE.ExtrudeGeometry(tri, { depth: len, steps: 16, bevelEnabled: false });
   const pos = ridge.attributes.position;
@@ -795,8 +810,8 @@ export function buildWheatRow(seed = 1): PropPart[] {
   k.add('wheat', ridge, {
     position: [-len / 2, 0, 0],
     rotation: [0, Math.PI / 2, 0],
-    color: new THREE.Color('#ffffff').multiplyScalar(0.88 + rand() * 0.12),
-    shade: (p) => 0.6 + 0.42 * smoothstep(0.0, 0.17, p.y),
+    color: new THREE.Color('#ffffff').multiplyScalar(0.92 + rand() * 0.06),
+    shade: (p) => 0.6 + 0.42 * smoothstep(0.0, ridgeH, p.y),
   });
   // 이삭: 고랑 꼭대기를 따라 가늘고 긴 낟알 뭉치를 촘촘히 세우고, 바람 방향(+x)으로 조금씩 눕힌다.
   const ears = 46;
@@ -1274,6 +1289,444 @@ export function buildReeds(seed = 1): PropPart[] {
   return k.build(0.2, 0.6);
 }
 
+// ───────────────────────── 양모 (목초지) ─────────────────────────
+
+/** 양: 0 = 고개 숙여 풀 뜯는 양, 1 = 고개 든 양, 2 = 엎드린 양. 머리는 +x 쪽을 본다. */
+export function buildSheep(variant = 0): PropPart[] {
+  const k = new Kit();
+  const lying = variant === 2;
+  const grazing = variant === 0;
+  const bodyY = lying ? 0.07 : 0.118;
+  const fluffy = (_p: THREE.Vector3, n: THREE.Vector3) => skyShade(n, 0.74, 1.06);
+  // 털: 울퉁불퉁한 덩어리를 앞뒤로 길게 늘인 몸통과 엉덩이 쪽 털뭉치
+  k.add('fleece', blob(0.085, 2, 30 + variant, 0.3), { position: [0, bodyY, 0], scale: [1.38, lying ? 0.78 : 0.95, 0.98], shade: fluffy });
+  k.add('fleece', blob(0.05, 1, 40 + variant, 0.3), { position: [-0.1, bodyY + 0.025, 0], shade: fluffy });
+  // 짙은 얼굴, 귀, 이마 털
+  const head: Vec3 = grazing ? [0.142, 0.058, 0] : lying ? [0.13, 0.112, 0.012] : [0.15, 0.168, 0];
+  const tilt = grazing ? -0.75 : 0.28;
+  k.add('dark', new THREE.SphereGeometry(0.036, 10, 8), { position: head, scale: [1.4, 0.92, 0.84], rotation: [0, 0, tilt], shade: (_p, n) => skyShade(n, 0.7, 1.15) });
+  for (const side of [1, -1]) {
+    k.add('dark', new THREE.SphereGeometry(0.016, 6, 5), { position: [head[0] - 0.022, head[1] + 0.018, side * 0.036], scale: [1.6, 0.55, 0.9], rotation: [side * 0.5, 0, 0] });
+  }
+  k.add('fleece', blob(0.026, 1, 50 + variant, 0.3), { position: [head[0] - 0.03, head[1] + 0.03, 0], shade: fluffy });
+  if (!lying) {
+    for (const [x, z] of [
+      [0.07, 0.042],
+      [0.07, -0.042],
+      [-0.075, 0.042],
+      [-0.075, -0.042],
+    ]) {
+      k.add('dark', cyl(0.011, 0.009, 0.085, 6), { position: [x, 0.042, z] });
+    }
+  }
+  return k.build(0.1, 0.72);
+}
+
+/** 나무 울타리 한 칸 (길이 0.6): 기둥 셋, 가로대 둘 */
+export function buildFence(seed = 1): PropPart[] {
+  const rand = mulberry32(seed);
+  const k = new Kit();
+  const L = 0.6;
+  for (let i = 0; i < 3; i++) {
+    const h = 0.17 + rand() * 0.035;
+    k.add('wood', cyl(0.014, 0.017, h, 6), {
+      position: [-L / 2 + (i * L) / 2, h / 2, 0],
+      rotation: [(rand() - 0.5) * 0.14, 0, (rand() - 0.5) * 0.14],
+      color: '#8a6238',
+      uv: 'native',
+    });
+  }
+  for (const y of [0.075, 0.135]) {
+    k.add('wood', box(L + 0.05, 0.022, 0.016), {
+      position: [0, y + (rand() - 0.5) * 0.012, 0.014],
+      rotation: [0, 0, (rand() - 0.5) * 0.06],
+      color: new THREE.Color('#9a6e40').multiplyScalar(0.9 + rand() * 0.15),
+    });
+  }
+  return k.build(0.1, 0.7);
+}
+
+/** 물 여물통 */
+export function buildTrough(): PropPart[] {
+  const k = new Kit();
+  k.add('wood', box(0.28, 0.07, 0.11), { position: [0, 0.055, 0], color: '#8a6238' });
+  k.add('paint', box(0.24, 0.004, 0.075), { position: [0, 0.092, 0], color: '#6f9fb3' });
+  for (const x of [-0.11, 0.11]) k.add('wood', box(0.025, 0.03, 0.13), { position: [x, 0.015, 0], color: '#6b4a2a' });
+  return k.build(0.08, 0.7);
+}
+
+// ───────────────────────── 벽돌 (점토 구덩이) ─────────────────────────
+
+/** 벽돌 줄눈: 높이로 켜를 나누고 켜마다 반 장씩 어긋나게 밝기를 바꾼다 */
+function brickCourses(c: THREE.Vector3, n: THREE.Vector3, courseH = 0.028): number {
+  const course = Math.floor(c.y / courseH);
+  const a = Math.atan2(c.z, c.x) * 6 + (course % 2) * 0.5;
+  const s = (Math.floor(a) + course) % 2 ? 0.9 : 1.0;
+  return s * skyShade(n, 0.72, 1.08);
+}
+
+/** 벽돌 굽는 둥근 가마: 원통 벽 위에 돔, 앞쪽 아궁이에 불빛, 꼭대기 연기 구멍, 옆에 장작 */
+export function buildKiln(): PropPart[] {
+  const k = new Kit();
+  const R = 0.24;
+  k.add('brick', cyl(R, R * 1.05, 0.17, 18), { position: [0, 0.085, 0], flat: true, faceShade: (c, n) => brickCourses(c, n) });
+  k.add('brick', new THREE.SphereGeometry(R, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), {
+    position: [0, 0.17, 0],
+    flat: true,
+    faceShade: (c, n) => brickCourses(c, n),
+  });
+  // 아궁이: 어두운 아치 안에 주황 불빛
+  k.add('dark', new THREE.CircleGeometry(0.075, 14, 0, Math.PI), { position: [0, 0.085, R + 0.012] });
+  k.add('dark', box(0.15, 0.085, 0.01), { position: [0, 0.043, R + 0.006] });
+  k.add('paint', new THREE.CircleGeometry(0.045, 12, 0, Math.PI), { position: [0, 0.03, R + 0.016], color: '#f08a3c' });
+  k.add('brick', new THREE.TorusGeometry(0.083, 0.016, 5, 12, Math.PI), { position: [0, 0.085, R + 0.012], color: '#d88a62' });
+  // 연기 구멍
+  k.add('brick', cyl(0.05, 0.065, 0.07, 12), { position: [0, 0.17 + R - 0.01, 0], color: '#c9744e', faceShade: (_c, n) => skyShade(n, 0.7, 1.05) });
+  k.add('dark', new THREE.CircleGeometry(0.036, 12), { position: [0, 0.17 + R + 0.026, 0], rotation: [-Math.PI / 2, 0, 0] });
+  // 옆에 쌓은 장작
+  for (let i = 0; i < 5; i++) {
+    const row = i < 3 ? 0 : 1;
+    const x = 0.3 + (row ? (i - 3.5) : i - 1) * 0.038;
+    k.add('wood', cyl(0.018, 0.018, 0.2, 7), { position: [x, 0.02 + row * 0.033, 0.12], rotation: [Math.PI / 2, 0, 0], color: '#8f6238', uv: 'native' });
+  }
+  return k.build(0.18, 0.62);
+}
+
+/** 깔판 위에 엇갈려 쌓은 벽돌 더미. 변형 1은 한 켜 낮고 위쪽이 덜 찼다. 변형 2는 여덟 켜로 높이 쌓았다. */
+export function buildBrickStack(variant = 0): PropPart[] {
+  const rand = mulberry32(variant * 31 + 3);
+  const k = new Kit();
+  k.add('wood', box(0.36, 0.028, 0.26), { position: [0, 0.014, 0], color: '#8a6238' });
+  const layers = variant === 0 ? 4 : variant === 1 ? 3 : 8;
+  const bh = 0.034;
+  for (let l = 0; l < layers; l++) {
+    const y = 0.028 + bh / 2 + l * bh;
+    const top = l === layers - 1;
+    const alongX = l % 2 === 0;
+    const cols = alongX ? 4 : 8;
+    const rows = alongX ? 5 : 2;
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < rows; j++) {
+        if (top && variant === 1 && rand() < 0.45) continue;
+        const x = alongX ? -0.128 + i * 0.085 : -0.147 + i * 0.042;
+        const z = alongX ? -0.09 + j * 0.045 : -0.045 + j * 0.09;
+        const tone = 0.84 + rand() * 0.22;
+        k.add('brick', alongX ? box(0.08, bh - 0.004, 0.04) : box(0.038, bh - 0.004, 0.085), {
+          position: [x, y, z],
+          rotation: [0, (rand() - 0.5) * 0.06, 0],
+          color: new THREE.Color(rand() < 0.15 ? '#d48a62' : '#ffffff').multiplyScalar(tone),
+          flat: true,
+          faceShade: (_c, n) => skyShade(n, 0.7, 1.06),
+        });
+      }
+    }
+  }
+  return k.build(0.12, 0.66);
+}
+
+/** 캐낸 진흙 무더기. 변형 0에는 삽이 꽂혀 있다. */
+export function buildClayMound(variant = 0): PropPart[] {
+  const k = new Kit();
+  const g = blob(0.16, 2, 60 + variant, 0.35);
+  const pos = g.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    pos.setY(i, y < 0 ? y * 0.15 : y * 0.62);
+  }
+  k.add('clay', g, { position: [0, 0.02, 0], scale: [1.25, 1, 1], color: '#bb8466', shade: (_p, n) => skyShade(n, 0.66, 1.06) });
+  if (variant === 0) {
+    k.add('wood', cyl(0.009, 0.009, 0.3, 6), { position: [0.05, 0.2, 0.02], rotation: [0.3, 0, -0.25], color: '#9a6e40' });
+    k.add('metal', box(0.07, 0.085, 0.008), { position: [0.012, 0.075, -0.02], rotation: [0.3, 0, -0.25] });
+  }
+  return k.build(0.1, 0.66);
+}
+
+// ───────────────────────── 기사단 동상, 잠금 사슬, 교역로 부두 ─────────────────────────
+
+const STATUE_STONE = (c: THREE.Vector3, n: THREE.Vector3): Shade => (Math.floor(c.y / 0.045) % 2 ? 0.92 : 1.03) * skyShade(n, 0.64, 1.08);
+
+/**
+ * 기사단 동상: 팔각 돌 받침 위에서 칼끝을 땅에 짚고 두 손을 칼자루에 얹은 기사.
+ * 붉은 망토와 푸른 겉옷, 금빛 장식이라 숲·밭·채석장 어느 땅 위에서도 눈에 띈다. 얼굴은 +z(카메라) 쪽을 본다.
+ */
+export function buildStatue(): PropPart[] {
+  const k = new Kit();
+  // 받침: 넓은 아랫단, 좁은 윗단, 처마돌, 앞면 놋쇠 명판
+  k.add('stone', cyl(0.25, 0.27, 0.07, 8), { position: [0, 0.035, 0], rotation: [0, Math.PI / 8, 0], flat: true, faceShade: STATUE_STONE, color: '#a39d90' });
+  k.add('stone', cyl(0.185, 0.205, 0.13, 8), { position: [0, 0.135, 0], rotation: [0, Math.PI / 8, 0], flat: true, faceShade: STATUE_STONE, color: '#bdb7a8' });
+  k.add('stone', cyl(0.215, 0.195, 0.03, 8), { position: [0, 0.215, 0], rotation: [0, Math.PI / 8, 0], flat: true, faceShade: (_c, n) => skyShade(n, 0.7, 1.1), color: '#d2ccbc' });
+  k.add('paint', box(0.13, 0.055, 0.008), { position: [0, 0.135, 0.19], color: '#c9a43a' });
+  k.add('dark', box(0.09, 0.008, 0.004), { position: [0, 0.142, 0.195] });
+  k.add('dark', box(0.07, 0.008, 0.004), { position: [0, 0.126, 0.195] });
+  const base = 0.23;
+  const steel = '#a3aab3';
+  const steelDark = '#6e757f';
+  const gold = '#d0a83c';
+  // 다리와 쇠장화
+  for (const x of [-0.05, 0.05]) {
+    k.add('paint', cyl(0.034, 0.038, 0.19, 8), { position: [x, base + 0.095, 0], color: steelDark, shade: (_p, n) => skyShade(n, 0.7, 1.08) });
+    k.add('paint', box(0.06, 0.035, 0.09), { position: [x, base + 0.018, 0.015], color: '#4f5560' });
+  }
+  // 망토: 어깨에서 등 뒤로 넓게 퍼지며 바닥 가까이 내려온다.
+  const cape = box(0.25, 0.36, 0.02, 4, 6, 1);
+  warp(cape, (v) => {
+    const t = (0.18 - v.y) / 0.36; // 위 0 → 아래 1
+    v.x *= 0.78 + 0.32 * t;
+    v.z -= 0.06 * t * t + 0.018 * Math.cos(v.x * 30) * t;
+  });
+  k.add('paint', cape, { position: [0, base + 0.24, -0.075], color: '#a3302a', shade: (p, n) => skyShade(n, 0.62, 1.05) * (0.86 + 0.18 * smoothstep(base + 0.05, base + 0.42, p.y)) });
+  // 몸통 갑옷과 푸른 겉옷 (앞자락에 금빛 띠)
+  k.add('paint', cyl(0.085, 0.1, 0.21, 10), { position: [0, base + 0.29, 0], color: steel, shade: (_p, n) => skyShade(n, 0.66, 1.1) });
+  k.add('paint', box(0.16, 0.2, 0.03), { position: [0, base + 0.275, 0.085], color: '#2f4f86', faceShade: (_c, n) => skyShade(n, 0.7, 1.06) });
+  k.add('paint', box(0.03, 0.2, 0.034), { position: [0, base + 0.275, 0.087], color: gold });
+  k.add('paint', box(0.17, 0.025, 0.12), { position: [0, base + 0.2, 0.02], color: '#5a3b20' });
+  // 어깨 갑옷
+  for (const x of [-0.105, 0.105]) {
+    k.add('paint', new THREE.SphereGeometry(0.048, 10, 8), { position: [x, base + 0.385, 0], scale: [1, 0.8, 1], color: steel, shade: (_p, n) => skyShade(n, 0.62, 1.12) });
+  }
+  // 팔: 어깨에서 앞쪽 칼자루로 모인다.
+  const hands = new THREE.Vector3(0, base + 0.27, 0.13);
+  for (const x of [-0.1, 0.1]) {
+    const sh = new THREE.Vector3(x, base + 0.37, 0.01);
+    const dir = hands.clone().sub(sh);
+    const mid = sh.clone().addScaledVector(dir, 0.5);
+    k.add('paint', cyl(0.024, 0.03, dir.length(), 7), { position: [mid.x, mid.y, mid.z], rotation: aim(dir.x, dir.y, dir.z), color: steel, shade: (_p, n) => skyShade(n, 0.66, 1.1) });
+  }
+  k.add('paint', new THREE.SphereGeometry(0.034, 8, 6), { position: [0, hands.y, hands.z], scale: [1.5, 1, 1], color: steelDark });
+  // 칼: 칼끝은 받침에 닿고 칼자루는 두 손 사이
+  k.add('paint', box(0.026, 0.2, 0.008), { position: [0, base + 0.1, 0.14], color: '#e4e8ee', faceShade: (_c, n) => skyShade(n, 0.8, 1.1) });
+  k.add('paint', new THREE.ConeGeometry(0.018, 0.03, 4), { position: [0, base - 0.004, 0.14], rotation: [Math.PI, Math.PI / 4, 0], scale: [1, 1, 0.3], color: '#e4e8ee' });
+  k.add('paint', box(0.13, 0.018, 0.022), { position: [0, base + 0.205, 0.14], color: gold });
+  k.add('paint', new THREE.SphereGeometry(0.019, 8, 6), { position: [0, base + 0.315, 0.135], color: gold });
+  // 방패: 왼쪽 옆구리에 비스듬히 기대 세운 연 모양 방패
+  const kite = new THREE.Shape();
+  kite.moveTo(-0.07, 0.07);
+  kite.lineTo(0.07, 0.07);
+  kite.quadraticCurveTo(0.075, -0.03, 0, -0.12);
+  kite.quadraticCurveTo(-0.075, -0.03, -0.07, 0.07);
+  const shield = new THREE.ExtrudeGeometry(kite, { depth: 0.014, bevelEnabled: false });
+  shield.translate(0, 0, -0.007);
+  k.add('paint', shield, { position: [-0.15, base + 0.16, 0.05], rotation: [0.05, -0.9, 0.12], color: '#2f4f86', flat: true, faceShade: (_c, n) => skyShade(n, 0.68, 1.08) });
+  const band = box(0.026, 0.17, 0.018);
+  k.add('paint', band, { position: [-0.149, base + 0.155, 0.051], rotation: [0.05, -0.9, 0.12], color: gold });
+  // 머리: 투구, 눈구멍, 붉은 깃털 장식
+  k.add('paint', cyl(0.05, 0.03, 0.03, 8), { position: [0, base + 0.405, 0], color: steelDark });
+  k.add('paint', cyl(0.058, 0.062, 0.09, 12), { position: [0, base + 0.46, 0], color: steel, shade: (_p, n) => skyShade(n, 0.66, 1.12) });
+  k.add('paint', new THREE.SphereGeometry(0.058, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), { position: [0, base + 0.505, 0], color: steel, shade: (_p, n) => skyShade(n, 0.7, 1.15) });
+  k.add('dark', box(0.075, 0.011, 0.01), { position: [0, base + 0.47, 0.058] });
+  k.add('dark', box(0.011, 0.04, 0.01), { position: [0, base + 0.45, 0.06] });
+  k.add('paint', new THREE.SphereGeometry(0.03, 8, 6), { position: [0, base + 0.585, -0.012], scale: [0.55, 1.5, 1.4], color: '#c23a2e', shade: (_p, n) => skyShade(n, 0.7, 1.1) });
+  return k.build(0.22, 0.72);
+}
+
+/** 광장 가운데 둥근 두 단 돌 단: 기사단 동상이 처음 서 있는 자리. 동상이 떠나면 빈 단만 남는다. */
+export function buildDais(): PropPart[] {
+  const k = new Kit();
+  k.add('stone', cyl(0.4, 0.42, 0.04, 20, false), { position: [0, 0.02, 0], flat: true, faceShade: (c, n) => (Math.floor((Math.atan2(c.z, c.x) + Math.PI) * 3) % 2 ? 0.92 : 1.02) * skyShade(n, 0.7, 1.06), color: '#cfc6b2' });
+  k.add('stone', cyl(0.3, 0.32, 0.04, 18, false), { position: [0, 0.06, 0], flat: true, faceShade: (c, n) => (Math.floor((Math.atan2(c.z, c.x) + Math.PI) * 2.5) % 2 ? 0.92 : 1.03) * skyShade(n, 0.72, 1.08), color: '#ddd5c2' });
+  // 단 둘레의 작은 꽃 화분
+  const rand = mulberry32(17);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+    const at: Vec3 = [Math.cos(a) * 0.36, 0.06, Math.sin(a) * 0.36];
+    k.add('clay', cyl(0.035, 0.028, 0.04, 8), { position: at, color: '#c27a52' });
+    k.add('leaf', blob(0.035, 1, 40 + i, 0.4), { position: [at[0], 0.095, at[2]] });
+    k.add('paint', new THREE.SphereGeometry(0.012, 5, 4), { position: [at[0] + 0.01, 0.12, at[2]], color: rand() < 0.5 ? '#e8c34a' : '#d9645a' });
+  }
+  return k.build(0.08, 0.75);
+}
+
+/**
+ * 잠금 사슬: 반지름 1인 타일 육각형(꼭짓점이 앞뒤를 향함)의 여섯 꼭짓점에 쇠말뚝을 박고 그 사이를 사슬로 늘어지게 둘렀다.
+ * 화면에서 HEX 반지름에 맞게 키워 쓴다. 기사단 동상이 선 칸에 나타난다.
+ */
+export function buildChain(): PropPart[] {
+  const k = new Kit();
+  const corners = Array.from({ length: 6 }, (_, i) => {
+    const a = -Math.PI / 2 + (i * Math.PI) / 3;
+    return new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+  });
+  const postH = 0.15;
+  for (const c of corners) {
+    k.add('paint', cyl(0.022, 0.03, postH, 6), { position: [c.x, postH / 2, c.z], color: '#4e535b', flat: true, faceShade: (_c, n) => skyShade(n, 0.7, 1.08) });
+    k.add('paint', new THREE.SphereGeometry(0.03, 8, 6), { position: [c.x, postH + 0.01, c.z], color: '#6f757e' });
+  }
+  const pitch = 0.034;
+  for (let s = 0; s < 6; s++) {
+    const a = corners[s];
+    const b = corners[(s + 1) % 6];
+    const len = a.distanceTo(b);
+    const n = Math.round(len / pitch);
+    const yaw = Math.atan2(-(b.z - a.z), b.x - a.x);
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n;
+      const p = a.clone().lerp(b, t);
+      const y = postH - 0.012 - 0.06 * 4 * t * (1 - t);
+      const link = new THREE.TorusGeometry(0.016, 0.0052, 4, 8);
+      link.scale(1.45, 1, 1);
+      if (i % 2) link.rotateX(Math.PI / 2);
+      // 늘어진 사슬 기울기를 따라 고리를 살짝 기울인다.
+      const slope = Math.atan(0.06 * 4 * (1 - 2 * t) / len);
+      link.rotateZ(slope);
+      k.add('paint', link, { position: [p.x, y, p.z], rotation: [0, yaw, 0], color: i % 2 ? '#8c929b' : '#727881', shade: (_p, nn) => skyShade(nn, 0.66, 1.15) });
+    }
+  }
+  return k.build(0.04, 0.85);
+}
+
+/** 큼직한 놋쇠 자물쇠. 바닥에 세워 두고 고리가 사슬에 걸린다. 앞면(+z)에 열쇠 구멍. */
+export function buildPadlock(): PropPart[] {
+  const k = new Kit();
+  const body = box(0.16, 0.13, 0.06, 2, 2, 1);
+  warp(body, (v) => {
+    // 아래쪽 모서리를 둥글린다.
+    if (v.y < 0) v.x *= 0.88;
+  });
+  k.add('paint', body, { position: [0, 0.065, 0], color: '#d1a73a', flat: true, faceShade: (_c, n) => skyShade(n, 0.72, 1.14) });
+  k.add('paint', box(0.17, 0.016, 0.068), { position: [0, 0.128, 0], color: '#a8822a' });
+  k.add('paint', new THREE.TorusGeometry(0.05, 0.014, 6, 14, Math.PI), { position: [0, 0.136, 0], color: '#9aa1aa', shade: (_p, n) => skyShade(n, 0.66, 1.15) });
+  k.add('dark', new THREE.CircleGeometry(0.017, 10), { position: [0, 0.075, 0.031] });
+  k.add('dark', box(0.012, 0.03, 0.004), { position: [0, 0.055, 0.031] });
+  k.add('paint', new THREE.RingGeometry(0.019, 0.026, 12), { position: [0, 0.075, 0.032], color: '#f0d27a' });
+  return k.build(0.05, 0.85);
+}
+
+/**
+ * 바다로 뻗은 좁은 잔교: x 방향 길이 1. 밝은 가로 판자 양옆에 짙은 테두리를 대어 물 위에서도 길처럼 또렷하다.
+ * 교역로 하나를 땅의 두 꼭짓점과 한 갈래씩 잇는다.
+ */
+export function buildPier(): PropPart[] {
+  const rand = mulberry32(91);
+  const k = new Kit();
+  const n = 10;
+  for (let i = 0; i < n; i++) {
+    k.add('paint', box(1 / n - 0.014, 0.026, 0.16), {
+      position: [-0.5 + (i + 0.5) / n, 0.06, (rand() - 0.5) * 0.01],
+      rotation: [0, (rand() - 0.5) * 0.06, 0],
+      color: new THREE.Color('#e2bf8a').multiplyScalar(0.88 + rand() * 0.14),
+      flat: true,
+      faceShade: (_c, nn) => skyShade(nn, 0.7, 1.06),
+    });
+  }
+  for (const z of [-0.088, 0.088]) k.add('wood', box(1, 0.04, 0.022), { position: [0, 0.058, z], color: '#5e3f22' });
+  for (const x of [-0.45, 0, 0.45]) {
+    for (const z of [-0.09, 0.09]) {
+      k.add('wood', cyl(0.02, 0.024, 0.3, 6), { position: [x, -0.08, z], color: '#5e3f22', uv: 'native' });
+      k.add('wood', cyl(0.022, 0.022, 0.03, 6), { position: [x, 0.09, z], color: '#4e341c' });
+    }
+  }
+  return k.build(0.06, 0.85);
+}
+
+/** 볕에 말리는 날벽돌: 굽기 전 옅은 흙빛 벽돌을 땅에 줄지어 눕혀 두고, 한쪽에 나무 벽돌 틀. */
+export function buildBrickRows(): PropPart[] {
+  const rand = mulberry32(29);
+  const k = new Kit();
+  for (let r = 0; r < 4; r++) {
+    for (let i = 0; i < 6; i++) {
+      if (r === 3 && i > 3) continue;
+      const tone = 0.86 + rand() * 0.18;
+      k.add('clay', box(0.068, 0.028, 0.034), {
+        position: [-0.2 + i * 0.08 + (rand() - 0.5) * 0.01, 0.014, -0.09 + r * 0.06 + (rand() - 0.5) * 0.008],
+        rotation: [0, (rand() - 0.5) * 0.12, 0],
+        color: new THREE.Color('#e8b48e').multiplyScalar(tone),
+        flat: true,
+        faceShade: (_c, n) => skyShade(n, 0.7, 1.08),
+      });
+    }
+  }
+  // 벽돌 틀: 칸이 둘 난 나무틀
+  k.add('wood', box(0.17, 0.03, 0.012), { position: [0.18, 0.015, 0.1], color: '#8a6238' });
+  k.add('wood', box(0.17, 0.03, 0.012), { position: [0.18, 0.015, 0.152], color: '#8a6238' });
+  for (const x of [0.1, 0.18, 0.26]) k.add('wood', box(0.012, 0.03, 0.052), { position: [x, 0.015, 0.126], color: '#7a5532' });
+  k.add('clay', box(0.068, 0.02, 0.038), { position: [0.14, 0.012, 0.126], color: '#c48c66' });
+  return k.build(0.04, 0.75);
+}
+
+// ───────────────────────── 길과 도시 (플레이어 조각) ─────────────────────────
+
+/**
+ * 길: x 방향 길이 1, 폭 0.13 의 판자길. 판자는 지붕 재질이라 플레이어 색이 곱해진다.
+ * 양옆에 짙은 나무 테두리를 대서 흙길 위에서도 모양이 또렷하다.
+ */
+export function buildRoad(): PropPart[] {
+  const rand = mulberry32(77);
+  const k = new Kit();
+  const n = 7;
+  const step = 1 / n;
+  for (let i = 0; i < n; i++) {
+    k.add('roof', box(step - 0.012, 0.035, 0.12), {
+      position: [-0.5 + step * (i + 0.5), 0.05, 0],
+      rotation: [0, (rand() - 0.5) * 0.05, (rand() - 0.5) * 0.03],
+      color: new THREE.Color('#ffffff').multiplyScalar(0.86 + rand() * 0.16),
+      flat: true,
+      faceShade: (_c, nn) => skyShade(nn, 0.72, 1.06),
+    });
+  }
+  for (const z of [-0.07, 0.07]) {
+    k.add('wood', box(1, 0.045, 0.02), { position: [0, 0.032, z], color: '#6b4a2a' });
+  }
+  return k.build(0.06, 0.7);
+}
+
+/** 도시: 돌로 쌓은 아래층 위에 회벽 위층, 색 지붕, 옆에 둥근 탑. 지붕과 탑 지붕에 플레이어 색이 곱해진다. */
+export function buildCity(): PropPart[] {
+  const rand = mulberry32(53);
+  const k = new Kit();
+  const W = 0.56;
+  const D = 0.42;
+  // 돌 아래층: 켜마다 밝기를 바꿔 돌을 쌓은 줄눈처럼 보이게 한다.
+  k.add('stone', box(W, 0.22, D, 3, 3, 3), {
+    position: [0, 0.11, 0],
+    flat: true,
+    faceShade: (c, n) => (Math.floor(c.y / 0.055) % 2 ? 0.9 : 1.02) * skyShade(n, 0.7, 1.06),
+  });
+  // 회벽 위층과 나무 기둥
+  k.add('plaster', box(W - 0.04, 0.17, D - 0.04), { position: [0, 0.305, 0], shade: (_p, n) => skyShade(n, 0.74, 1.04) });
+  for (const x of [-(W - 0.04) / 2, 0, (W - 0.04) / 2]) {
+    k.add('wood', box(0.026, 0.17, 0.012), { position: [x, 0.305, (D - 0.04) / 2 + 0.006], color: TIMBER });
+  }
+  k.add('wood', box(W - 0.02, 0.022, 0.012), { position: [0, 0.39, (D - 0.04) / 2 + 0.006], color: TIMBER });
+  // 맞배지붕 (두 장)
+  const roofY = 0.39;
+  const half = D / 2 + 0.05;
+  const rise = 0.2;
+  const slope = Math.atan2(rise, half);
+  const len = Math.hypot(rise, half) + 0.03;
+  for (const side of [1, -1] as const) {
+    k.add('roof', box(W + 0.08, 0.04, len), {
+      position: [0, roofY + rise / 2 + 0.02, (side * half) / 2],
+      rotation: [side * slope, 0, 0],
+      flat: true,
+      faceShade: (_c, n) => skyShade(n, 0.66, 1.06),
+    });
+  }
+  // 문과 창
+  k.add('wood', box(0.1, 0.15, 0.01), { position: [-0.12, 0.075, D / 2 + 0.006], color: '#5a3b20' });
+  for (const x of [0.06, 0.18]) {
+    k.add('paint', box(0.06, 0.07, 0.006), { position: [x, 0.13, D / 2 + 0.006], color: '#e0a052' });
+    k.add('paint', box(0.06, 0.06, 0.006), { position: [x - 0.12, 0.31, (D - 0.04) / 2 + 0.008], color: '#e0a052' });
+  }
+  // 둥근 탑: 돌 원통 + 총안 + 원뿔 지붕 + 깃대
+  const tx = W / 2 - 0.02;
+  const tz = -D / 2 + 0.04;
+  const towerH = 0.62;
+  k.add('stone', cyl(0.1, 0.11, towerH, 12), {
+    position: [tx, towerH / 2, tz],
+    flat: true,
+    faceShade: (c, n) => (Math.floor(c.y / 0.06) % 2 ? 0.9 : 1.02) * skyShade(n, 0.68, 1.06),
+  });
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    k.add('stone', box(0.04, 0.05, 0.04), { position: [tx + Math.cos(a) * 0.1, towerH + 0.02, tz + Math.sin(a) * 0.1], rotation: [0, -a, 0] });
+  }
+  k.add('roof', new THREE.ConeGeometry(0.13, 0.22, 12), { position: [tx, towerH + 0.15, tz], flat: true, faceShade: (_c, n) => skyShade(n, 0.66, 1.08) });
+  k.add('paint', box(0.03, 0.05, 0.006), { position: [tx, towerH - 0.14, tz + 0.105], color: '#e0a052' });
+  k.add('wood', cyl(0.006, 0.006, 0.16, 5), { position: [tx, towerH + 0.32, tz], color: '#5a3b20' });
+  k.add('banner', box(0.1, 0.05, 0.004), { position: [tx + 0.05, towerH + 0.37, tz], rotation: [0, 0, (rand() - 0.5) * 0.1] });
+  return k.build(0.2, 0.62);
+}
+
 /** 소품 종류별로 만들 수 있는 변형 개수 (시드) */
 export const PROP_VARIANTS: Record<PropKey, number> = {
   house: 1,
@@ -1298,6 +1751,20 @@ export const PROP_VARIANTS: Record<PropKey, number> = {
   boat: 1,
   dock: 1,
   reeds: 2,
+  sheep: 3,
+  fence: 2,
+  trough: 1,
+  kiln: 1,
+  bricks: 3,
+  claymound: 2,
+  road: 1,
+  city: 1,
+  statue: 1,
+  dais: 1,
+  chain: 1,
+  padlock: 1,
+  pier: 1,
+  brickrows: 1,
 };
 
 export function buildProp(key: PropKey, variant = 0): PropPart[] {
@@ -1347,6 +1814,34 @@ export function buildProp(key: PropKey, variant = 0): PropPart[] {
       return buildDock();
     case 'reeds':
       return buildReeds(seed);
+    case 'sheep':
+      return buildSheep(variant);
+    case 'fence':
+      return buildFence(seed);
+    case 'trough':
+      return buildTrough();
+    case 'kiln':
+      return buildKiln();
+    case 'bricks':
+      return buildBrickStack(variant);
+    case 'claymound':
+      return buildClayMound(variant);
+    case 'road':
+      return buildRoad();
+    case 'city':
+      return buildCity();
+    case 'statue':
+      return buildStatue();
+    case 'dais':
+      return buildDais();
+    case 'chain':
+      return buildChain();
+    case 'padlock':
+      return buildPadlock();
+    case 'pier':
+      return buildPier();
+    case 'brickrows':
+      return buildBrickRows();
   }
 }
 

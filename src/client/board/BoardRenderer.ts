@@ -5,41 +5,74 @@
 // - 카메라 조작, 크기 변경, 상태 변경, 짧은 연출 중에만 다시 그린다 (정지 화면은 마지막 프레임 유지)
 // - 만화 음영 재질과 수채화 후처리(먹선·종이 결·물감 얼룩)로 손으로 그린 삽화처럼 보이게 한다 (paint.ts)
 import * as THREE from 'three';
+import { boardGeometry, type BoardGeometry } from '../../shared/board';
 import { MapControls } from 'three/addons/controls/MapControls.js';
-import type { Resource, TileDef, TileKind } from '../../shared/types';
+import { RESOURCES, RESOURCE_LABEL, numberPips } from '../../shared/constants';
+import type { Harbor, Resource, TileDef, TileKind } from '../../shared/types';
 import type { PropKey } from './art/builders';
 import { loadArtLibrary, type ArtLibrary, type ArtReport, type GroundTextureKey, type LoadProgress } from './assets';
 import {
+  DAIS_HEIGHT,
+  HEX_APOTHEM,
   HEX_RADIUS,
+  HEX_SPACING,
   PLATFORM_TOP,
+  PLAZA_STATUE_SPOT,
+  STATUE_SPOT,
+  TOKEN_SPOT,
   TILE_THICKNESS,
   TILE_TOP,
   boardMetrics,
   hexCorners,
-  houseTransform,
   tileCenter,
   tilePlacements,
   type BoardMetrics,
   type Placement,
 } from './layout';
-import { PaintedRenderer, paintMaterial } from './paint';
+import { hashString, smoothstep } from './art/rng';
+import { PaintedRenderer, paintMaterial, paintTime } from './paint';
 import { PerfMeter, type PerfRecording, type PerfStats } from './perf';
 
 export type HighlightKind = 'buildable' | 'placeable';
 export type QualityMode = 'auto' | 'high' | 'low';
 
-export interface BoardSettlementView {
-  tileId: string;
+/** 보드에서 고른 것: 타일, 꼭짓점(마을·도시 자리), 변(길 자리) */
+export interface BoardSelection {
+  kind: 'tile' | 'vertex' | 'edge';
+  id: string;
+}
+
+export interface BoardBuildingView {
+  vertexId: string;
+  kind: 'village' | 'city';
   owner: string;
   colorIndex: number;
   /** 접근성/툴팁용 설명 */
   label: string;
 }
 
+export interface BoardRoadView {
+  edgeId: string;
+  owner: string;
+  colorIndex: number;
+}
+
 export interface BoardState {
-  settlements: BoardSettlementView[];
-  highlights: Partial<Record<string, HighlightKind>>;
-  selected: string | null;
+  buildings: BoardBuildingView[];
+  roads: BoardRoadView[];
+  /** 빛낼 꼭짓점·변·칸 (시작 배치·건설 모드에서 지을 수 있는 자리, 기사단 동상을 옮길 수 있는 칸) */
+  highlights: { vertices: string[]; edges: string[]; tiles?: string[]; kind: HighlightKind } | null;
+  selected: BoardSelection | null;
+  /** 칸마다 놓인 숫자 패 (2~12). 없으면 숫자 패를 그리지 않는다. */
+  numbers?: Record<string, number>;
+  /** 기사단 동상이 선 칸 (없으면 광장 칸) */
+  robber?: string | null;
+  /** 해상 교역로 */
+  harbors?: readonly Harbor[];
+  /** 건설 모드가 아닐 때 내 차례에 은은하게 보여 주는 안내: 길을 이을 수 있는 변(점선), 마을을 지을 수 있는 꼭짓점(고리) */
+  hints?: { vertices: string[]; edges: string[] } | null;
+  /** 금빛으로 따라 그릴 길 (마우스를 올린 길 주인의 가장 긴 교역로) */
+  trace?: string[] | null;
 }
 
 export interface Insets {
@@ -53,7 +86,13 @@ export interface BoardOptions {
   tiles: readonly TileDef[];
   playerColors: readonly string[];
   emblemMarkup: (colorIndex: number) => string;
-  onTileTap?: (tileId: string) => void;
+  onTap?: (sel: BoardSelection) => void;
+  /** 마우스가 올라간 자리 (마우스만). x·y 는 캔버스 안 좌표로, 자리 가운데 위쪽 */
+  onHover?: (sel: BoardSelection | null, x: number, y: number) => void;
+  /** 바람·양·연기 움직임 (기본 켬) */
+  motion?: boolean;
+  /** 교역로 표지 앞에 붙일 아이콘 SVG (자원, null 이면 아무 자원 3:1 의 물음표) */
+  harborIcon?: (resource: Resource | null) => string;
   onLoaded?: (report: ArtReport) => void;
   onLoadProgress?: (p: LoadProgress) => void;
   onPerf?: (s: PerfStats) => void;
@@ -66,7 +105,17 @@ const CAMERA_DISTANCE = 40;
 const LIGHT_DIR = new THREE.Vector3(-0.55, 1, 0.5).normalize();
 /** 그림자가 빛 반대쪽(오른쪽 뒤)으로 살짝 밀리도록 한 오프셋. 조명 방향과 맞춘다. */
 const SHADOW_SHIFT = new THREE.Vector2(0.07, -0.06);
-const RESOURCE_TOKEN_COLOR: Record<Resource, string> = { wood: '#9a6332', grain: '#e7b52c', stone: '#a7b0ba' };
+const RESOURCE_TOKEN_COLOR: Record<Resource, string> = { wood: '#9a6332', grain: '#e7b52c', wool: '#f1ead8', brick: '#b85c3c', stone: '#a7b0ba' };
+type BoardPieceKind = 'village' | 'city' | 'road';
+/** 가마 하나에서 동시에 피어오르는 연기 공 수 */
+const SMOKE_PUFFS = 5;
+/** 바람·양·연기만 움직일 때 프레임 간격 (약 30fps) */
+const AMBIENT_FRAME_MS = 33;
+/** 꼭짓점에 놓는 집(마을)·도시의 크기. 타일 사이 흙길 교차점에 서도록 작게 줄인다. */
+const VILLAGE_SCALE = 0.54;
+const CITY_SCALE = 0.56;
+/** 길 판자가 변 길이에서 차지하는 비율 (양 끝은 마을 자리로 비워 둔다) */
+const ROAD_FRACTION = 0.7;
 const HIGHLIGHT_COLOR: Record<HighlightKind | 'selected' | 'hover', string> = {
   placeable: '#ffe066',
   buildable: '#ffe066',
@@ -76,19 +125,80 @@ const HIGHLIGHT_COLOR: Record<HighlightKind | 'selected' | 'hover', string> = {
 /** 보드 바깥을 채우는 물 색. 물결 무늬 없이 장면 배경색으로만 칠하고, 종이 결과 물감 농담은 후처리가 입힌다.
  *  styles.css 의 --water(보드 배경과 처음 화면·대기실 배경)도 같은 색이다. */
 const WATER_COLOR = '#589eb5';
-const GROUND_FALLBACK: Record<TileKind | 'dirt', string> = {
+const GROUND_FALLBACK: Record<TileKind | 'dirt' | 'sand', string> = {
   wood: '#5f8a3f',
   grain: '#b8924f',
+  wool: '#a9cb74',
+  brick: '#c98a5c',
   stone: '#bdb9ae',
-  market: '#cfc0a2',
+  plaza: '#cfc0a2',
   dirt: '#b99e72',
+  sand: '#dcc595',
 };
 const TILE_GROUND: Record<TileKind, GroundTextureKey> = {
   wood: 'ground_forest',
   grain: 'ground_field',
+  wool: 'ground_pasture',
+  brick: 'ground_clay',
   stone: 'ground_quarry',
-  market: 'ground_cobble',
+  plaza: 'ground_cobble',
 };
+/** 바닷가 변에서 흙 땅이 바다 쪽으로 더 나간 폭 */
+const LAND_MARGIN = 0.3;
+/** 모래밭 윗면 높이 (흙 땅보다 낮다) */
+const BEACH_TOP = 0.13;
+/** 얕은 물 색 (깊은 물은 장면 배경색) */
+const SHALLOW_COLOR = '#86c4cf';
+/** 바닷가 변 가운데에서 교역로 부두 중심까지 거리 */
+const HARBOR_REACH = 1.0;
+/** 화면에 담을 범위: 타일 꼭짓점 바깥으로 이만큼 더 (모래밭이 조금 보이게) */
+const FIT_PAD = 0.32;
+const STATUE_SCALE = 0.86;
+/** 잠금 사슬 육각형 반지름 (꼭짓점의 마을과 겹치지 않게 타일보다 조금 안쪽) */
+const CHAIN_RADIUS = HEX_RADIUS - 0.17;
+const PADLOCK_SCALE = 2.3;
+/** 잠긴 칸을 덮는 그늘의 불투명도 */
+const LOCK_SHADE = 0.26;
+const LOCK_SVG =
+  '<svg class="num-lock" viewBox="0 0 12 14" width="12" height="14" aria-hidden="true"><path d="M3.2 6.2V4.4a2.8 2.8 0 0 1 5.6 0v1.8" fill="none" stroke="#3a2a1f" stroke-width="1.7"/><rect x="1.2" y="6" width="9.6" height="7" rx="1.6" fill="#d1a73a" stroke="#3a2a1f" stroke-width="1.1"/></svg>';
+
+type Pt = { x: number; z: number };
+interface CoastLoop {
+  pts: Pt[];
+  /** pts[i] → pts[i+1] 변의 바깥 방향 */
+  normals: Pt[];
+}
+
+/** 둘레 고리를 바깥으로 d 만큼 민다. 모서리는 뾰족하게 잇는다 (오목한 모서리도 같은 폭을 유지). */
+function offsetLoop(c: CoastLoop, d: number): Pt[] {
+  const n = c.pts.length;
+  return c.pts.map((p, i) => {
+    const n1 = c.normals[(i - 1 + n) % n];
+    const n2 = c.normals[i];
+    let mx = n1.x + n2.x;
+    let mz = n1.z + n2.z;
+    const len = Math.hypot(mx, mz) || 1;
+    mx /= len;
+    mz /= len;
+    const k = d / Math.max(0.3, mx * n1.x + mz * n1.z);
+    return { x: p.x + mx * k, z: p.z + mz * k };
+  });
+}
+
+/** 꺾인 선을 부드럽게 다듬는다 (모서리 깎기를 여러 번) */
+function chaikin(pts: Pt[], iterations: number): Pt[] {
+  let cur = pts;
+  for (let it = 0; it < iterations; it++) {
+    const next: Pt[] = [];
+    for (let i = 0; i < cur.length; i++) {
+      const a = cur[i];
+      const b = cur[(i + 1) % cur.length];
+      next.push({ x: a.x * 0.75 + b.x * 0.25, z: a.z * 0.75 + b.z * 0.25 }, { x: a.x * 0.25 + b.x * 0.75, z: a.z * 0.25 + b.z * 0.75 });
+    }
+    cur = next;
+  }
+  return cur;
+}
 
 interface Anim {
   start: number;
@@ -104,6 +214,15 @@ interface OverlayItem {
   anchor: string;
   lastX?: number;
   lastY?: number;
+}
+
+/** 장면에 놓인 소품 하나: 같은 소품 종류의 인스턴스 메시들 안에서의 번호와 제자리 */
+interface PropInstance {
+  p: Placement;
+  parts: THREE.InstancedMesh[];
+  index: number;
+  /** 접촉 그림자 인스턴스 번호 (없으면 -1) */
+  shadow: number;
 }
 
 interface Token {
@@ -172,33 +291,78 @@ export class BoardRenderer {
   private quality: QualityMode;
   private pixelStep = 0;
   private lastPerfEmit = 0;
-  private state: BoardState = { settlements: [], highlights: {}, selected: null };
+  private state: BoardState = { buildings: [], roads: [], highlights: null, selected: null };
   private firstState = true;
-  private hovered: string | null = null;
+  private hovered: BoardSelection | null = null;
 
-  private hitBoxes: THREE.Mesh[] = [];
   private highlightRing: THREE.InstancedMesh | null = null;
   private highlightFill: THREE.InstancedMesh | null = null;
-  private settlementParts: { mesh: THREE.InstancedMesh; tint: boolean; kind: 'house' | 'banner' }[] = [];
-  private settlementShadow: THREE.InstancedMesh | null = null;
-  private knownSettlements = new Set<string>();
+  private readonly geo: BoardGeometry;
+  private pieceParts: { mesh: THREE.InstancedMesh; tint: boolean; kind: BoardPieceKind }[] = [];
+  private pieceShadow: THREE.InstancedMesh | null = null;
+  private knownPieces = new Set<string>();
+  private spotRing: THREE.InstancedMesh | null = null;
+  private spotFill: THREE.InstancedMesh | null = null;
+  private edgeMark: THREE.InstancedMesh | null = null;
+  private hintDots: THREE.InstancedMesh | null = null;
+  private hintRings: THREE.InstancedMesh | null = null;
+  private traceMark: THREE.InstancedMesh | null = null;
   private growing = new Map<string, number>();
   private tokenMesh: THREE.InstancedMesh | null = null;
   private tokens: Token[] = [];
+  /** 소품 하나하나의 인스턴스 자리 (흔들기·톡 튀기기에 쓴다) */
+  private instances: PropInstance[] = [];
+  private instancesByTile = new Map<string, PropInstance[]>();
+  private sheep: PropInstance[] = [];
+  /** 양마다 거닐 수 있는 반지름 (울타리 칸 가장자리와 숫자 패·동상 빈터를 넘지 않게) */
+  private sheepRoam: number[] = [];
+  private propShadows: THREE.InstancedMesh | null = null;
+  /** 가마 굴뚝 꼭대기와 연기 */
+  private kilnTops: THREE.Vector3[] = [];
+  private smokeMesh: THREE.InstancedMesh | null = null;
+  /** 눌린 타일과 시작 시각 (소품이 톡 튄다) */
+  private bouncing = new Map<string, number>();
+  /** 바람·양·연기 움직임 */
+  private motion: boolean;
+  private lastAmbient = 0;
   private anims: Anim[] = [];
   private tileLabels: OverlayItem[] = [];
   private badges = new Map<string, OverlayItem>();
   private floating: OverlayItem[] = [];
   private tileLabelsVisible: boolean;
+  /** 숫자 패 (HTML) */
+  private numberTokens = new Map<string, OverlayItem>();
+  /** 해상 교역로 표지 (HTML)와 부두 소품 */
+  private harborLabels: OverlayItem[] = [];
+  private harborGroup: THREE.Group | null = null;
+  private harborKey = '';
+  /** 화면에 꼭 담을 범위 (타일 + 교역로 부두) */
+  private fitX = 0;
+  private fitZ = 0;
+  /** 기사단 동상과 잠금(사슬·자물쇠·그늘) */
+  private statue: THREE.Group | null = null;
+  private statueShadow: THREE.Mesh | null = null;
+  private statueTile: string | null = null;
+  private lockRoot: THREE.Group | null = null;
+  private lockChain: THREE.Group | null = null;
+  private padlock: THREE.Group | null = null;
+  private lockShade: THREE.Mesh | null = null;
+  /** 생산·막힘 때 칸 테두리를 빛내는 고리 */
+  private flashRing: THREE.InstancedMesh | null = null;
+  private overlayScale = 0;
 
   constructor(
     private readonly container: HTMLElement,
     private readonly options: BoardOptions,
   ) {
     this.metrics = boardMetrics(options.tiles);
+    this.geo = boardGeometry(options.tiles);
     this.tileById = new Map(options.tiles.map((t) => [t.id, t]));
     this.quality = options.quality ?? 'auto';
     this.tileLabelsVisible = options.showTileLabels ?? true;
+    this.motion = options.motion ?? true;
+    this.fitX = this.metrics.fitX + FIT_PAD;
+    this.fitZ = this.metrics.fitZ + FIT_PAD;
 
     // WebGL 2 컨텍스트를 만든다 (three.js r163 이후 WebGL 1 은 지원하지 않는다).
     // 장면은 화면 밖 버퍼에 그린 뒤 후처리로 옮기므로 캔버스 자체의 계단 현상 줄이기는 쓰지 않는다.
@@ -251,6 +415,8 @@ export class BoardRenderer {
     this.canvas.addEventListener('pointercancel', this.onPointerCancel);
     this.canvas.addEventListener('pointermove', this.onPointerMove);
     this.canvas.addEventListener('pointerleave', this.onPointerLeave);
+    // 탭을 다시 보면 멈춰 있던 바람·양·연기를 이어서 움직인다.
+    document.addEventListener('visibilitychange', this.onVisibility);
 
     // 조명: 왼쪽 앞에서 비치는 따뜻한 햇빛 + 서늘한 하늘빛. 미리 구운 그림자 방향과 맞춘다.
     // 만화 음영이라 햇빛은 단계로 끊기고, 그늘진 면은 하늘빛(푸른 기)만 받아 수채화처럼 서늘해진다.
@@ -271,7 +437,13 @@ export class BoardRenderer {
     const propList = [
       ...placements.map((p) => ({ key: p.key, variant: p.variant })),
       { key: 'house' as PropKey, variant: 0 },
-      { key: 'banner' as PropKey, variant: 0 },
+      { key: 'city' as PropKey, variant: 0 },
+      { key: 'road' as PropKey, variant: 0 },
+      ...(['statue', 'chain', 'padlock', 'pier', 'dock', 'boat', 'logpile', 'sheep', 'blocks', 'barrel'] as PropKey[]).map((key) => ({ key, variant: key === 'sheep' ? 1 : 0 })),
+      { key: 'sack' as PropKey, variant: 0 },
+      { key: 'sack' as PropKey, variant: 1 },
+      { key: 'bricks' as PropKey, variant: 1 },
+      { key: 'crate' as PropKey, variant: 0 },
     ];
     const art = await loadArtLibrary(this.renderer, propList, (p) => {
       if (!this.disposed) this.options.onLoadProgress?.(p);
@@ -283,10 +455,12 @@ export class BoardRenderer {
     this.art = art;
     this.buildGround();
     this.buildProps(placements);
-    this.buildSettlementPool();
+    this.buildPiecePools();
     this.buildHighlights();
     this.buildTokens();
+    this.buildSmoke();
     this.buildTileLabels();
+    this.buildStatue();
     this.ready = true;
     this.applyState();
     this.options.onLoaded?.(art.report);
@@ -296,7 +470,149 @@ export class BoardRenderer {
   }
 
   private allStaticPlacements(): Placement[] {
-    return this.options.tiles.flatMap((t) => tilePlacements(t, this.metrics));
+    return this.options.tiles.flatMap((t) => tilePlacements(t, this.metrics).map((p) => ({ ...p, tile: t.id })));
+  }
+
+  /** 인스턴스 하나를 제자리 기준으로 옮기거나 늘인다 (모든 부품 메시에 같은 행렬) */
+  private setInstance(inst: PropInstance, dx = 0, dy = 0, dz = 0, drot = 0, sx = 1, sy = 1, sz = 1): void {
+    const p = inst.p;
+    const m = compose(p.x + dx, p.y + dy, p.z + dz, p.rotY + drot, p.scale * (p.stretch ?? 1) * sx, p.scale * (p.sy ?? 1) * sy, p.scale * sz);
+    for (const mesh of inst.parts) {
+      mesh.setMatrixAt(inst.index, m);
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+    if (inst.shadow >= 0 && this.propShadows && (dx || dz)) {
+      const r = p.shadow * p.scale * 2;
+      this.propShadows.setMatrixAt(
+        inst.shadow,
+        compose(p.x + dx + SHADOW_SHIFT.x * p.scale, p.y + 0.004, p.z + dz + SHADOW_SHIFT.y * p.scale, p.rotY + drot, r * (p.shadowAspect ?? 1), 1, r),
+      );
+      this.propShadows.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /** 가마 연기: 굴뚝마다 공 다섯 개가 차례로 솟아오르며 커졌다가 사라진다 */
+  private buildSmoke(): void {
+    if (!this.kilnTops.length) return;
+    const geo = this.own(new THREE.IcosahedronGeometry(1, 1));
+    const mat = this.own(paintMaterial({ color: '#ece6dc', wash: 0.5 }));
+    this.smokeMesh = new THREE.InstancedMesh(geo, mat, this.kilnTops.length * SMOKE_PUFFS);
+    this.smokeMesh.count = 0;
+    this.smokeMesh.frustumCulled = false;
+    this.scene.add(this.smokeMesh);
+  }
+
+  /**
+   * 움직임 한 프레임: 바람(셰이더 시간), 양이 거닐며 풀을 뜯는 모습, 가마 연기, 눌린 타일 소품의 튀기.
+   * 움직임을 끈 상태에서도 타일 튀기는 끝까지 재생한다.
+   */
+  private updateMotion(now: number): boolean {
+    const t = now / 1000;
+    if (this.motion) paintTime.value = t;
+    if (this.motion && this.hintDots && (this.hintDots.count || this.hintRings?.count)) {
+      (this.hintDots.material as THREE.MeshBasicMaterial).opacity = 0.5 + 0.35 * (0.5 + 0.5 * Math.sin(t * 2.6));
+    }
+    // 양: 자기 자리 둘레의 둥근 길을 따라 목초지를 거닌다. 걷다가 멈춰 고개를 숙여 풀을 뜯고 다시 걷는다.
+    // 걷는 방향으로 몸을 돌리고, 양마다 길 모양과 박자가 다르다.
+    for (let i = 0; i < this.sheep.length; i++) {
+      const s = this.sheep[i];
+      if (this.bouncing.has(s.p.tile ?? '')) continue;
+      if (!this.motion) continue;
+      const seed = i * 1.618 + s.p.x * 2.3;
+      const r = this.sheepRoam[i] ?? 0.05;
+      // 걷기·멈춤: 늘였다 줄인 시간(빠르기 0~2배, 평균 1배)
+      const w = 0.45 + (i % 3) * 0.08;
+      const tau = t + Math.sin(t * w + seed) / w;
+      const speed = 1 + Math.cos(t * w + seed);
+      const a = 0.16 + (i % 2) * 0.05;
+      const b = 0.11 + ((i + 1) % 3) * 0.03;
+      const dx = r * 0.95 * Math.sin(a * tau + seed);
+      const dz = r * Math.sin(b * tau + seed * 1.7);
+      const vx = r * 0.95 * a * Math.cos(a * tau + seed);
+      const vz = r * b * Math.cos(b * tau + seed * 1.7);
+      // 양 모델은 머리가 +x 를 본다.
+      const yaw = Math.atan2(-vz, vx);
+      let turn = yaw - s.p.rotY;
+      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+      const moving = Math.min(1, speed);
+      const graze = -0.007 * (1 - moving);
+      const step = 0.004 * Math.abs(Math.sin(t * 7 + seed)) * moving;
+      this.setInstance(s, dx, graze + step, dz, turn);
+    }
+    // 가마 연기
+    const smoke = this.smokeMesh;
+    if (smoke) {
+      let n = 0;
+      if (this.motion) {
+        this.kilnTops.forEach((top, k) => {
+          for (let j = 0; j < SMOKE_PUFFS; j++) {
+            const age = (t * 0.32 + j / SMOKE_PUFFS + k * 0.29) % 1;
+            const grow = smoothstep(0, 0.12, age) * (1 - smoothstep(0.72, 1, age));
+            const sc = (0.035 + 0.075 * age) * grow;
+            smoke.setMatrixAt(n++, compose(top.x + Math.sin(age * 4 + k) * 0.05 * age - age * 0.08, top.y + age * 0.62, top.z - age * 0.1, age * 2, sc, sc * 0.85, sc));
+          }
+        });
+      }
+      smoke.count = n;
+      smoke.instanceMatrix.needsUpdate = true;
+    }
+    // 눌린 타일: 소품이 가운데부터 바깥으로 차례로 눌렸다가 톡 튄다. 바위·벽돌 더미는 조금 흔들린다.
+    for (const [tile, start] of this.bouncing) {
+      const list = this.instancesByTile.get(tile) ?? [];
+      const tileDef = this.tileById.get(tile);
+      const c = tileDef ? tileCenter(tileDef, this.metrics) : new THREE.Vector3();
+      let done = true;
+      for (const inst of list) {
+        const delay = Math.hypot(inst.p.x - c.x, inst.p.z - c.z) * 260;
+        const u = Math.min(1, Math.max(0, (now - start - delay) / 520));
+        if (u < 1) done = false;
+        const k = Math.sin(u * Math.PI * 2) * (1 - u);
+        const heavy = inst.p.key === 'boulder' || inst.p.key === 'bricks' || inst.p.key === 'blocks' || inst.p.key === 'kiln';
+        const wobble = heavy ? 0.12 * Math.sin(u * Math.PI * 3) * (1 - u) : 0;
+        this.setInstance(inst, 0, 0.05 * Math.sin(u * Math.PI) * (1 - u) * (heavy ? 0.4 : 1), 0, wobble, 1 - 0.07 * k, 1 + 0.18 * k, 1 - 0.07 * k);
+      }
+      if (done) {
+        for (const inst of list) if (!(this.motion && inst.p.key === 'sheep')) this.setInstance(inst);
+        this.bouncing.delete(tile);
+      }
+    }
+    return this.bouncing.size > 0;
+  }
+
+  /** 움직임 켜기·끄기. 끄면 양을 제자리로 돌리고 연기를 지운다. */
+  setMotion(on: boolean): void {
+    if (this.motion === on) return;
+    this.motion = on;
+    if (!on) {
+      for (const s of this.sheep) this.setInstance(s);
+      paintTime.value = 0;
+      if (this.smokeMesh) this.smokeMesh.count = 0;
+    }
+    this.requestRender();
+  }
+
+  /** 눌린 자리에 짧은 반응: 타일이면 소품이 톡 튀고, 마을·도시·길이면 그 조각이 한 번 부풀었다 돌아온다. */
+  private pokeAt(sel: BoardSelection): void {
+    if (!this.ready) return;
+    if (sel.kind === 'tile') {
+      this.bouncing.set(sel.id, performance.now());
+      this.requestRender();
+      return;
+    }
+    const key = sel.kind === 'vertex' ? `b:${sel.id}` : `r:${sel.id}`;
+    const exists = sel.kind === 'vertex' ? this.state.buildings.some((b) => b.vertexId === sel.id) : this.state.roads.some((r) => r.edgeId === sel.id);
+    if (!exists || this.growing.has(key)) return;
+    this.addAnim({
+      duration: 420,
+      update: (t) => {
+        this.growing.set(key, 1 + 0.16 * Math.sin(t * Math.PI) * (1 - t * 0.3));
+        this.updatePieceInstances();
+      },
+      done: () => {
+        this.growing.delete(key);
+        this.updatePieceInstances();
+      },
+    });
   }
 
   private own<T extends THREE.BufferGeometry | THREE.Material>(x: T): T {
@@ -314,33 +630,31 @@ export class BoardRenderer {
     const m = this.metrics;
     // 보드 바깥은 무늬 없는 물이다. 장면 배경색(WATER_COLOR)이 그 역할을 하므로 따로 그리지 않는다.
 
-    // 흙으로 된 육각 받침 (꼭짓점이 좌우를 향하고 위아래 변이 평평하다). 타일 사이 틈이 흙길이 된다.
-    const R = m.plinthRadius;
+    // 땅: 바깥 타일 둘레(바닷가 변)를 따라 조금 넓힌 흙 땅. 타일 사이 틈이 흙길이 되고, 둘레는 모래밭과 얕은 물로 이어진다.
+    const coast = this.coastLoop();
+    const shapeOf = (pts: Pt[]) => new THREE.Shape(pts.map((q) => new THREE.Vector2(q.x, -q.z)));
+    const shallows = chaikin(offsetLoop(coast, LAND_MARGIN + 1.55), 3);
+    const shallowGeo = this.own(new THREE.ShapeGeometry(shapeOf(shallows), 1).rotateX(-Math.PI / 2));
+    const shallowMesh = new THREE.Mesh(shallowGeo, this.own(paintMaterial({ color: SHALLOW_COLOR, wash: 0.8 })));
+    shallowMesh.position.y = 0.01;
+    this.scene.add(shallowMesh);
+    const beach = chaikin(offsetLoop(coast, LAND_MARGIN + 0.32), 2);
+    const beachGeo = this.own(new THREE.ExtrudeGeometry(shapeOf(beach), { depth: BEACH_TOP + 0.02, bevelEnabled: false }).rotateX(-Math.PI / 2));
+    scaleUV(beachGeo, 0.5);
+    const beachMesh = new THREE.Mesh(beachGeo, [this.groundMaterial('ground_sand', GROUND_FALLBACK.sand), this.own(paintMaterial({ color: '#c9ad7c' }))]);
+    beachMesh.position.y = -0.02;
+    this.scene.add(beachMesh);
+    const land = offsetLoop(coast, LAND_MARGIN);
+    const landGeo = this.own(new THREE.ExtrudeGeometry(shapeOf(land), { depth: PLATFORM_TOP, bevelEnabled: false }).rotateX(-Math.PI / 2));
+    scaleUV(landGeo, 0.5);
     const dirtTop = this.groundMaterial('ground_dirt', GROUND_FALLBACK.dirt);
     const dirtSide = this.own(paintMaterial({ color: '#9a7752', map: this.art?.ground('ground_dirt') ?? null }));
-    const platformGeo = this.own(new THREE.CylinderGeometry(R, R + 0.2, PLATFORM_TOP, 6, 1, false, Math.PI / 6));
-    scaleUV(platformGeo, R);
-    const platform = new THREE.Mesh(platformGeo, [dirtSide, dirtTop, dirtSide]);
-    platform.position.y = PLATFORM_TOP / 2;
-    this.scene.add(platform);
-    // 받침 가장자리를 두르는 낮은 나무 테두리
-    const rimShape = new THREE.Shape();
-    const rimOuter = R + 0.2;
-    const rimInner = R - 0.06;
-    const flatCorners = (rad: number) =>
-      Array.from({ length: 6 }, (_, k) => new THREE.Vector2(Math.cos((k * Math.PI) / 3) * rad, Math.sin((k * Math.PI) / 3) * rad));
-    rimShape.setFromPoints(flatCorners(rimOuter));
-    rimShape.holes.push(new THREE.Path().setFromPoints(flatCorners(rimInner)));
-    const rimGeo = this.own(new THREE.ExtrudeGeometry(rimShape, { depth: 0.07, bevelEnabled: false }).rotateX(-Math.PI / 2));
-    const rimMat = this.own(paintMaterial({ color: '#8a5f36' }));
-    const rim = new THREE.Mesh(rimGeo, rimMat);
-    rim.position.y = PLATFORM_TOP - 0.01;
-    this.scene.add(rim);
+    this.scene.add(new THREE.Mesh(landGeo, [dirtTop, dirtSide]));
 
     // 육각 타일 판 (종류별로 하나의 InstancedMesh). 옆면은 밝은 색이라 위에서 보면 타일 테두리처럼 보인다.
     const slabGeo = this.own(new THREE.CylinderGeometry(HEX_RADIUS, HEX_RADIUS + 0.035, TILE_THICKNESS, 6));
     const sideMat = this.own(paintMaterial({ color: '#efe2c2', wash: 0.6 }));
-    const kinds: TileKind[] = ['wood', 'grain', 'stone', 'market'];
+    const kinds: TileKind[] = [...RESOURCES, 'plaza'];
     for (const kind of kinds) {
       const tiles = this.options.tiles.filter((t) => t.kind === kind);
       if (tiles.length === 0) continue;
@@ -366,17 +680,6 @@ export class BoardRenderer {
     edges.renderOrder = 1;
     this.scene.add(edges);
 
-    // 터치 판정용 투명 타일 상자 (소품이 아니라 타일 단위로 고른다)
-    const hitGeo = this.own(new THREE.CylinderGeometry(HEX_RADIUS + 0.06, HEX_RADIUS + 0.06, 0.7, 6));
-    const hitMat = this.own(new THREE.MeshBasicMaterial({ visible: false }));
-    for (const t of this.options.tiles) {
-      const c = tileCenter(t, m);
-      const box = new THREE.Mesh(hitGeo, hitMat);
-      box.position.set(c.x, TILE_TOP + 0.2, c.z);
-      box.userData.tileId = t.id;
-      box.updateMatrixWorld();
-      this.hitBoxes.push(box);
-    }
   }
 
   /** 바깥 꼭짓점은 검정 반투명, 안쪽은 투명인 육각 띠 (꼭짓점 RGBA 색) */
@@ -435,6 +738,7 @@ export class BoardRenderer {
     for (const list of groups.values()) {
       const { key, variant } = list[0];
       const template = art.prop(key, variant);
+      const meshes: THREE.InstancedMesh[] = [];
       for (const part of template.parts) {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, list.length);
         list.forEach((p, i) =>
@@ -442,7 +746,9 @@ export class BoardRenderer {
         );
         mesh.computeBoundingSphere();
         this.scene.add(mesh);
+        meshes.push(mesh);
       }
+      list.forEach((p, i) => this.instances.push({ p, parts: meshes, index: i, shadow: -1 }));
     }
     // 미리 구운 접촉 그림자: 모든 소품을 한 번의 그리기 호출로 처리한다.
     const shadowed = placements.filter((p) => p.shadow > 0);
@@ -458,13 +764,50 @@ export class BoardRenderer {
     shadows.computeBoundingSphere();
     shadows.renderOrder = 1;
     this.scene.add(shadows);
+    // 움직일 소품을 찾아 둔다: 양, 가마 굴뚝, 타일별 소품 목록
+    this.propShadows = shadows;
+    const byPlacement = new Map(this.instances.map((x) => [x.p, x]));
+    shadowed.forEach((p, i) => {
+      const inst = byPlacement.get(p);
+      if (inst) inst.shadow = i;
+    });
+    for (const inst of this.instances) {
+      const tile = inst.p.tile ?? '';
+      const list = this.instancesByTile.get(tile) ?? [];
+      list.push(inst);
+      this.instancesByTile.set(tile, list);
+    }
+    this.sheep = this.instances.filter((x) => x.p.key === 'sheep');
+    this.sheepRoam = this.sheep.map((inst) => {
+      const t = this.tileById.get(inst.p.tile ?? '');
+      if (!t) return 0;
+      const c = tileCenter(t, this.metrics);
+      const lx = inst.p.x - c.x;
+      const lz = inst.p.z - c.z;
+      // 육각형 변까지 거리 (변의 바깥 방향은 0°, 60°, … 120°마다)
+      let edge = Infinity;
+      for (let k = 0; k < 6; k++) {
+        const a = (k * Math.PI) / 3;
+        edge = Math.min(edge, HEX_APOTHEM - (lx * Math.cos(a) + lz * Math.sin(a)));
+      }
+      const tz = Math.min(TOKEN_SPOT.z, Math.max(STATUE_SPOT.z, lz));
+      const clear = Math.hypot(lx, lz - tz) - 0.23;
+      // 울타리 칸 가장자리와 빈터에 조금 걸쳐도 되니 넉넉히 잡아 목초지를 제법 돌아다니게 한다.
+      return Math.max(0.14, Math.min(0.36, edge - 0.08, clear - 0.02));
+    });
+    this.kilnTops = placements.filter((p) => p.key === 'kiln').map((p) => new THREE.Vector3(p.x, p.y + 0.45 * p.scale, p.z));
   }
 
-  private buildSettlementPool(): void {
+  /** 마을(집)·도시·길을 미리 만든 인스턴스 묶음에 담는다. 플레이어 색은 지붕·판자에 인스턴스 색으로 곱한다. */
+  private buildPiecePools(): void {
     const art = this.art!;
-    const capacity = 16;
-    for (const kind of ['house', 'banner'] as const) {
-      const template = art.prop(kind, 0);
+    const pools: [BoardPieceKind, PropKey, number][] = [
+      ['village', 'house', 24],
+      ['city', 'city', 20],
+      ['road', 'road', 64],
+    ];
+    for (const [kind, key, capacity] of pools) {
+      const template = art.prop(key, 0);
       for (const part of template.parts) {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, capacity);
         mesh.count = 0;
@@ -472,16 +815,16 @@ export class BoardRenderer {
           for (let i = 0; i < capacity; i++) mesh.setColorAt(i, new THREE.Color('#ffffff'));
         }
         mesh.frustumCulled = false;
-        this.settlementParts.push({ mesh, tint: part.tint, kind });
+        this.pieceParts.push({ mesh, tint: part.tint, kind });
         this.scene.add(mesh);
       }
     }
     const quad = this.own(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
-    this.settlementShadow = new THREE.InstancedMesh(quad, this.shadowMaterial(0.55), capacity);
-    this.settlementShadow.count = 0;
-    this.settlementShadow.frustumCulled = false;
-    this.settlementShadow.renderOrder = 1;
-    this.scene.add(this.settlementShadow);
+    this.pieceShadow = new THREE.InstancedMesh(quad, this.shadowMaterial(0.55), 48);
+    this.pieceShadow.count = 0;
+    this.pieceShadow.frustumCulled = false;
+    this.pieceShadow.renderOrder = 1;
+    this.scene.add(this.pieceShadow);
   }
 
   private buildHighlights(): void {
@@ -505,6 +848,53 @@ export class BoardRenderer {
     this.highlightRing.frustumCulled = false;
     this.highlightFill.frustumCulled = false;
     this.scene.add(this.highlightFill, this.highlightRing);
+    const flashShape = new THREE.Shape().setFromPoints(hexPoints(HEX_RADIUS + 0.07));
+    flashShape.holes.push(new THREE.Path().setFromPoints(hexPoints(HEX_RADIUS - 0.16)));
+    const flashGeo = this.own(new THREE.ShapeGeometry(flashShape, 6).rotateX(-Math.PI / 2));
+    const flashMat = this.own(
+      new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+    );
+    this.flashRing = new THREE.InstancedMesh(flashGeo, flashMat, n);
+    for (let i = 0; i < n; i++) {
+      this.flashRing.setMatrixAt(i, compose(0, 0, 0, 0, 0, 1, 0));
+      this.flashRing.setColorAt(i, new THREE.Color('#000000'));
+    }
+    this.flashRing.renderOrder = 3;
+    this.flashRing.frustumCulled = false;
+    this.scene.add(this.flashRing);
+
+    // 꼭짓점 표식(고리 + 옅은 원)과 변 표식(가는 띠): 시작 배치·건설 모드에서 지을 수 있는 자리를 빛낸다.
+    const nv = this.geo.vertices.length;
+    const ne = this.geo.edges.length;
+    const spotRingGeo = this.own(new THREE.RingGeometry(0.15, 0.23, 24).rotateX(-Math.PI / 2));
+    const spotFillGeo = this.own(new THREE.CircleGeometry(0.15, 24).rotateX(-Math.PI / 2));
+    const edgeGeo = this.own(new THREE.PlaneGeometry(1, 0.11).rotateX(-Math.PI / 2));
+    const markMat = (opacity: number) =>
+      this.own(new THREE.MeshBasicMaterial({ transparent: true, opacity, depthWrite: false, toneMapped: false }));
+    this.spotRing = new THREE.InstancedMesh(spotRingGeo, markMat(0.95), nv);
+    this.spotFill = new THREE.InstancedMesh(spotFillGeo, markMat(0.35), nv);
+    this.edgeMark = new THREE.InstancedMesh(edgeGeo, markMat(0.85), ne);
+    for (const m of [this.spotRing, this.spotFill, this.edgeMark]) {
+      for (let i = 0; i < m.count; i++) m.setColorAt(i, new THREE.Color('#ffffff'));
+      m.renderOrder = 4;
+      m.frustumCulled = false;
+      this.scene.add(m);
+    }
+    // 안내 표식: 변마다 점 세 개(점선), 꼭짓점마다 가는 고리. 은은하게 숨 쉬듯 밝아졌다 어두워진다.
+    const hintMat = this.own(new THREE.MeshBasicMaterial({ color: '#fff4cf', transparent: true, opacity: 0.7, depthWrite: false, toneMapped: false }));
+    this.hintDots = new THREE.InstancedMesh(this.own(new THREE.CircleGeometry(0.042, 12).rotateX(-Math.PI / 2)), hintMat, ne * 3);
+    this.hintRings = new THREE.InstancedMesh(this.own(new THREE.RingGeometry(0.1, 0.135, 24).rotateX(-Math.PI / 2)), hintMat, nv);
+    this.traceMark = new THREE.InstancedMesh(
+      this.own(new THREE.PlaneGeometry(1, 0.2).rotateX(-Math.PI / 2)),
+      this.own(new THREE.MeshBasicMaterial({ color: '#ffd34d', transparent: true, opacity: 0.75, depthWrite: false, toneMapped: false })),
+      ne,
+    );
+    for (const m of [this.hintDots, this.hintRings, this.traceMark]) {
+      m.count = 0;
+      m.renderOrder = 5;
+      m.frustumCulled = false;
+      this.scene.add(m);
+    }
   }
 
   private buildTokens(): void {
@@ -526,8 +916,8 @@ export class BoardRenderer {
       const c = tileCenter(t, this.metrics);
       this.tileLabels.push({
         el,
-        // 타일 앞쪽 꼭짓점 근처 (거점·소품과 겹치지 않는 자리)
-        world: new THREE.Vector3(c.x, TILE_TOP, c.z + HEX_RADIUS - 0.16),
+        // 타일 앞쪽 가운데, 숫자 패 아래 (앞 꼭짓점의 마을과 겹치지 않는 자리)
+        world: new THREE.Vector3(c.x, TILE_TOP, c.z + HEX_RADIUS * 0.74),
         anchor: 'translate(-50%, -50%)',
       });
     }
@@ -543,111 +933,239 @@ export class BoardRenderer {
 
   private applyState(): void {
     const s = this.state;
-    const m = this.metrics;
-    // 거점
-    const current = new Set(s.settlements.map((st) => `${st.tileId}:${st.owner}`));
+    // 새로 생긴 조각은 솟아오르며 나타난다 (처음 받은 화면은 연출하지 않는다).
+    const current = new Set([
+      ...s.buildings.map((b) => `b:${b.vertexId}:${b.kind}:${b.owner}`),
+      ...s.roads.map((r) => `r:${r.edgeId}:${r.owner}`),
+    ]);
     if (!this.firstState) {
-      for (const st of s.settlements) {
-        const key = `${st.tileId}:${st.owner}`;
-        if (!this.knownSettlements.has(key)) this.animateGrow(st.tileId);
-      }
+      for (const b of s.buildings) if (!this.knownPieces.has(`b:${b.vertexId}:${b.kind}:${b.owner}`)) this.animateGrow(`b:${b.vertexId}`);
+      for (const r of s.roads) if (!this.knownPieces.has(`r:${r.edgeId}:${r.owner}`)) this.animateGrow(`r:${r.edgeId}`);
     }
     this.firstState = false;
-    this.knownSettlements = current;
-    this.updateSettlementInstances();
+    this.knownPieces = current;
+    this.updatePieceInstances();
 
-    // 거점 위 소유자 표식 (HTML: 색 + 모양)
+    // 마을·도시 위 소유자 표식 (HTML: 색 + 모양)
     const seen = new Set<string>();
-    for (const st of s.settlements) {
-      const tile = this.tileById.get(st.tileId);
-      if (!tile) continue;
-      seen.add(st.tileId);
-      let item = this.badges.get(st.tileId);
+    for (const b of s.buildings) {
+      const p = this.vertexWorld(b.vertexId);
+      if (!p) continue;
+      seen.add(b.vertexId);
+      let item = this.badges.get(b.vertexId);
       if (!item) {
         const el = document.createElement('div');
         el.className = 'owner-badge';
         this.overlay.appendChild(el);
-        const { banner } = houseTransform(tile, m);
-        item = { el, world: banner.clone().add(new THREE.Vector3(0.16, 1.06, 0)), anchor: 'translate(-50%, -100%)' };
-        this.badges.set(st.tileId, item);
+        item = { el, world: p.clone(), anchor: 'translate(-50%, -100%)' };
+        this.badges.set(b.vertexId, item);
       }
-      const key = `${st.owner}:${st.colorIndex}`;
+      item.world.set(p.x, p.y + (b.kind === 'city' ? 0.62 : 0.46), p.z);
+      const key = `${b.owner}:${b.colorIndex}:${b.kind}`;
       if (item.el.dataset.key !== key) {
         item.el.dataset.key = key;
-        item.el.innerHTML = this.options.emblemMarkup(st.colorIndex);
-        item.el.title = st.label;
+        item.el.innerHTML = this.options.emblemMarkup(b.colorIndex);
+        item.el.title = b.label;
+        item.el.classList.toggle('owner-badge-city', b.kind === 'city');
       }
     }
-    for (const [tileId, item] of this.badges) {
-      if (!seen.has(tileId)) {
+    for (const [id, item] of this.badges) {
+      if (!seen.has(id)) {
         item.el.remove();
-        this.badges.delete(tileId);
+        this.badges.delete(id);
       }
     }
+    this.syncNumbers();
+    this.syncHarbors();
+    this.syncRobber();
     this.updateHighlights();
     this.requestRender();
   }
 
-  private updateSettlementInstances(): void {
-    const m = this.metrics;
-    const list = this.state.settlements.filter((st) => this.tileById.has(st.tileId));
+  /** 꼭짓점의 세계 좌표 (타일 윗면 높이) */
+  vertexWorld(id: string): THREE.Vector3 | null {
+    const v = this.geo.vertexMap[id];
+    if (!v) return null;
+    return new THREE.Vector3(v.x * HEX_SPACING - this.metrics.cx, TILE_TOP, v.y * HEX_SPACING - this.metrics.cz);
+  }
+
+  /** 변의 가운데, 방향(y 축 회전), 길이 */
+  private edgeWorld(id: string): { mid: THREE.Vector3; angle: number; length: number; a: THREE.Vector3; b: THREE.Vector3 } | null {
+    const e = this.geo.edgeMap[id];
+    if (!e) return null;
+    const a = this.vertexWorld(e.a)!;
+    const b = this.vertexWorld(e.b)!;
+    return { mid: a.clone().add(b).multiplyScalar(0.5), angle: Math.atan2(-(b.z - a.z), b.x - a.x), length: a.distanceTo(b), a, b };
+  }
+
+  /** 집이 모두 같은 쪽을 보지 않도록 꼭짓점마다 조금씩 돌린다 */
+  private vertexYaw(id: string): number {
+    return ((hashString(id) % 1000) / 1000 - 0.5) * 0.5;
+  }
+
+  private updatePieceInstances(): void {
     const color = new THREE.Color();
-    for (const part of this.settlementParts) {
-      list.forEach((st, i) => {
-        const tile = this.tileById.get(st.tileId)!;
-        const t = houseTransform(tile, m);
-        const g = this.growing.get(st.tileId) ?? 1;
-        const p = part.kind === 'house' ? t.house : t.banner;
-        part.mesh.setMatrixAt(i, compose(p.x, p.y, p.z, 0, g, g, g));
-        if (part.tint) {
-          color.set(this.options.playerColors[st.colorIndex % this.options.playerColors.length]);
-          part.mesh.setColorAt(i, color);
+    const villages = this.state.buildings.filter((b) => b.kind === 'village');
+    const cities = this.state.buildings.filter((b) => b.kind === 'city');
+    for (const part of this.pieceParts) {
+      let i = 0;
+      if (part.kind === 'road') {
+        for (const r of this.state.roads) {
+          const ew = this.edgeWorld(r.edgeId);
+          if (!ew || i >= part.mesh.instanceMatrix.count) continue;
+          const g = this.growing.get(`r:${r.edgeId}`) ?? 1;
+          part.mesh.setMatrixAt(i, compose(ew.mid.x, PLATFORM_TOP + 0.004, ew.mid.z, ew.angle, ew.length * ROAD_FRACTION * g, Math.max(0.01, g), 1));
+          if (part.tint) part.mesh.setColorAt(i, color.set(this.playerColor(r.colorIndex)));
+          i++;
         }
-      });
-      part.mesh.count = list.length;
+      } else {
+        const list = part.kind === 'city' ? cities : villages;
+        const base = part.kind === 'city' ? CITY_SCALE : VILLAGE_SCALE;
+        for (const b of list) {
+          const p = this.vertexWorld(b.vertexId);
+          if (!p || i >= part.mesh.instanceMatrix.count) continue;
+          const sc = base * (this.growing.get(`b:${b.vertexId}`) ?? 1);
+          part.mesh.setMatrixAt(i, compose(p.x, TILE_TOP - 0.03, p.z, this.vertexYaw(b.vertexId), sc, sc, sc));
+          if (part.tint) part.mesh.setColorAt(i, color.set(this.playerColor(b.colorIndex)));
+          i++;
+        }
+      }
+      part.mesh.count = i;
       part.mesh.instanceMatrix.needsUpdate = true;
       if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
     }
-    if (this.settlementShadow) {
-      list.forEach((st, i) => {
-        const tile = this.tileById.get(st.tileId)!;
-        const { house } = houseTransform(tile, m);
-        const g = this.growing.get(st.tileId) ?? 1;
-        this.settlementShadow!.setMatrixAt(i, compose(house.x + SHADOW_SHIFT.x, TILE_TOP + 0.005, house.z + SHADOW_SHIFT.y, 0, 0.98 * g, 1, 0.78 * g));
-      });
-      this.settlementShadow.count = list.length;
-      this.settlementShadow.instanceMatrix.needsUpdate = true;
+    if (this.pieceShadow) {
+      let i = 0;
+      for (const b of this.state.buildings) {
+        const p = this.vertexWorld(b.vertexId);
+        if (!p || i >= this.pieceShadow.instanceMatrix.count) continue;
+        const g = (this.growing.get(`b:${b.vertexId}`) ?? 1) * (b.kind === 'city' ? 0.7 : 0.52);
+        this.pieceShadow.setMatrixAt(i, compose(p.x + SHADOW_SHIFT.x * 0.6, TILE_TOP + 0.006, p.z + SHADOW_SHIFT.y * 0.6, 0, 0.98 * g, 1, 0.8 * g));
+        i++;
+      }
+      this.pieceShadow.count = i;
+      this.pieceShadow.instanceMatrix.needsUpdate = true;
     }
   }
 
+  private playerColor(index: number): string {
+    const list = this.options.playerColors;
+    return list[((index % list.length) + list.length) % list.length];
+  }
+
   private updateHighlights(): void {
+    const color = new THREE.Color();
+    const sel = this.state.selected;
+    const hov = this.hovered;
+    const same = (a: BoardSelection | null, kind: BoardSelection['kind'], id: string) => !!a && a.kind === kind && a.id === id;
+    // 타일: 고른 칸, 기사단 동상을 옮길 수 있는 칸, 마우스가 올라간 칸에 테두리를 그린다.
+    const hlTiles = new Set(this.state.highlights?.tiles ?? []);
+    const hlKind = this.state.highlights?.kind ?? null;
     const ring = this.highlightRing;
     const fill = this.highlightFill;
-    if (!ring || !fill) return;
-    const color = new THREE.Color();
-    this.options.tiles.forEach((t, i) => {
-      const c = tileCenter(t, this.metrics);
-      const hl = this.state.highlights[t.id];
-      const selected = this.state.selected === t.id;
-      const hovered = this.hovered === t.id;
-      let kind: keyof typeof HIGHLIGHT_COLOR | null = null;
-      if (selected) kind = 'selected';
-      else if (hl) kind = hl;
-      else if (hovered) kind = 'hover';
-      const show = kind !== null;
-      ring.setMatrixAt(i, compose(c.x, TILE_TOP + 0.012, c.z, 0, show ? 1 : 0, 1, show ? 1 : 0));
-      const showFill = selected || !!hl;
-      fill.setMatrixAt(i, compose(c.x, TILE_TOP + 0.008, c.z, 0, showFill ? 1 : 0, 1, showFill ? 1 : 0));
-      if (kind) {
-        color.set(HIGHLIGHT_COLOR[kind]);
-        ring.setColorAt(i, color);
-        fill.setColorAt(i, color);
+    if (ring && fill) {
+      this.options.tiles.forEach((t, i) => {
+        const c = tileCenter(t, this.metrics);
+        const selected = same(sel, 'tile', t.id);
+        const kind: keyof typeof HIGHLIGHT_COLOR | null = selected
+          ? 'selected'
+          : hlTiles.has(t.id) && hlKind
+            ? hlKind
+            : same(hov, 'tile', t.id)
+              ? 'hover'
+              : null;
+        const show = kind !== null;
+        ring.setMatrixAt(i, compose(c.x, TILE_TOP + 0.012, c.z, 0, show ? 1 : 0, 1, show ? 1 : 0));
+        fill.setMatrixAt(i, compose(c.x, TILE_TOP + 0.008, c.z, 0, selected ? 1 : 0, 1, selected ? 1 : 0));
+        if (kind) {
+          color.set(HIGHLIGHT_COLOR[kind]);
+          ring.setColorAt(i, color);
+          fill.setColorAt(i, color);
+        }
+      });
+      ring.instanceMatrix.needsUpdate = true;
+      fill.instanceMatrix.needsUpdate = true;
+      if (ring.instanceColor) ring.instanceColor.needsUpdate = true;
+      if (fill.instanceColor) fill.instanceColor.needsUpdate = true;
+    }
+    const hl = this.state.highlights;
+    const hv = new Set(hl?.vertices ?? []);
+    const he = new Set(hl?.edges ?? []);
+    const spotRing = this.spotRing;
+    const spotFill = this.spotFill;
+    if (spotRing && spotFill) {
+      this.geo.vertices.forEach((v, i) => {
+        const p = this.vertexWorld(v.id)!;
+        const selected = same(sel, 'vertex', v.id);
+        const kind: keyof typeof HIGHLIGHT_COLOR | null = selected
+          ? 'selected'
+          : hv.has(v.id) && hl
+            ? hl.kind
+            : same(hov, 'vertex', v.id)
+              ? 'hover'
+              : null;
+        const s = kind ? (selected ? 1.2 : 1) : 0;
+        spotRing.setMatrixAt(i, compose(p.x, TILE_TOP + 0.03, p.z, 0, s, 1, s));
+        spotFill.setMatrixAt(i, compose(p.x, TILE_TOP + 0.028, p.z, 0, kind && kind !== 'hover' ? s : 0, 1, kind && kind !== 'hover' ? s : 0));
+        if (kind) {
+          color.set(HIGHLIGHT_COLOR[kind]);
+          spotRing.setColorAt(i, color);
+          spotFill.setColorAt(i, color);
+        }
+      });
+      spotRing.instanceMatrix.needsUpdate = true;
+      spotFill.instanceMatrix.needsUpdate = true;
+      if (spotRing.instanceColor) spotRing.instanceColor.needsUpdate = true;
+      if (spotFill.instanceColor) spotFill.instanceColor.needsUpdate = true;
+    }
+    const edgeMark = this.edgeMark;
+    if (edgeMark) {
+      this.geo.edges.forEach((e, i) => {
+        const ew = this.edgeWorld(e.id)!;
+        const selected = same(sel, 'edge', e.id);
+        const kind: keyof typeof HIGHLIGHT_COLOR | null = selected ? 'selected' : he.has(e.id) && hl ? hl.kind : same(hov, 'edge', e.id) ? 'hover' : null;
+        const len = kind ? ew.length * 0.66 : 0;
+        edgeMark.setMatrixAt(i, compose(ew.mid.x, PLATFORM_TOP + 0.09, ew.mid.z, ew.angle, len, 1, kind ? (selected ? 1.4 : 1) : 0));
+        if (kind) edgeMark.setColorAt(i, color.set(HIGHLIGHT_COLOR[kind]));
+      });
+      edgeMark.instanceMatrix.needsUpdate = true;
+      if (edgeMark.instanceColor) edgeMark.instanceColor.needsUpdate = true;
+    }
+    // 안내 표식: 빛나는 자리(건설 모드)나 고른 자리와 겹치는 곳은 빼고 그린다.
+    const hints = this.state.hints;
+    if (this.hintDots && this.hintRings) {
+      let nd = 0;
+      for (const id of hints?.edges ?? []) {
+        if (he.has(id) || same(sel, 'edge', id)) continue;
+        const ew = this.edgeWorld(id);
+        if (!ew) continue;
+        for (const t of [0.3, 0.5, 0.7]) {
+          const p = ew.a.clone().lerp(ew.b, t);
+          this.hintDots.setMatrixAt(nd++, compose(p.x, PLATFORM_TOP + 0.09, p.z, 0, 1, 1, 1));
+        }
       }
-    });
-    ring.instanceMatrix.needsUpdate = true;
-    fill.instanceMatrix.needsUpdate = true;
-    if (ring.instanceColor) ring.instanceColor.needsUpdate = true;
-    if (fill.instanceColor) fill.instanceColor.needsUpdate = true;
+      this.hintDots.count = nd;
+      this.hintDots.instanceMatrix.needsUpdate = true;
+      let nr = 0;
+      for (const id of hints?.vertices ?? []) {
+        if (hv.has(id) || same(sel, 'vertex', id)) continue;
+        const p = this.vertexWorld(id);
+        if (!p) continue;
+        this.hintRings.setMatrixAt(nr++, compose(p.x, TILE_TOP + 0.03, p.z, 0, 1, 1, 1));
+      }
+      this.hintRings.count = nr;
+      this.hintRings.instanceMatrix.needsUpdate = true;
+    }
+    if (this.traceMark) {
+      let nt = 0;
+      for (const id of this.state.trace ?? []) {
+        const ew = this.edgeWorld(id);
+        if (!ew) continue;
+        this.traceMark.setMatrixAt(nt++, compose(ew.mid.x, PLATFORM_TOP + 0.08, ew.mid.z, ew.angle, ew.length * 0.82, 1, 1));
+      }
+      this.traceMark.count = nt;
+      this.traceMark.instanceMatrix.needsUpdate = true;
+    }
   }
 
   // ───────────────────────── 연출 ─────────────────────────
@@ -657,79 +1175,43 @@ export class BoardRenderer {
     this.requestRender();
   }
 
-  private animateGrow(tileId: string): void {
-    this.growing.set(tileId, 0.01);
+  /** key: 'b:<꼭짓점>' 또는 'r:<변>' */
+  private animateGrow(key: string): void {
+    this.growing.set(key, 0.01);
     this.addAnim({
       duration: 520,
       update: (t) => {
-        this.growing.set(tileId, Math.max(0.01, easeOutBack(t)));
-        this.updateSettlementInstances();
+        this.growing.set(key, Math.max(0.01, easeOutBack(t)));
+        this.updatePieceInstances();
       },
       done: () => {
-        this.growing.delete(tileId);
-        this.updateSettlementInstances();
+        this.growing.delete(key);
+        this.updatePieceInstances();
       },
     });
   }
 
-  /** 라운드 시작 공동 생산 연출: 거점에서 자원 토큰이 솟아오른다. */
-  playProduction(items: { tileId: string; resource: Resource; amount: number; colorIndex: number }[]): void {
+  /** 라운드 시작 공동 생산 연출: 마을·도시에서 자원 토큰이 솟아오른다. */
+  playProduction(items: { vertexId: string; resource: Resource; amount: number }[]): void {
     if (!this.ready) return;
     const now = performance.now();
     items.forEach((item, idx) => {
-      const tile = this.tileById.get(item.tileId);
-      if (!tile) return;
-      const { house } = houseTransform(tile, this.metrics);
+      const at = this.vertexWorld(item.vertexId);
+      if (!at) return;
       for (let k = 0; k < item.amount; k++) {
-        const from = house.clone().add(new THREE.Vector3((k - (item.amount - 1) / 2) * 0.22, 0.75, 0.1));
+        const from = at.clone().add(new THREE.Vector3((k - (item.amount - 1) / 2) * 0.2, 0.45, 0.08));
         this.tokens.push({
           start: now + idx * 90 + k * 140,
           duration: 1100,
           from,
-          to: from.clone().add(new THREE.Vector3(0, 0.9, 0)),
+          to: from.clone().add(new THREE.Vector3(0, 0.85, 0)),
           arc: 0,
           color: new THREE.Color(RESOURCE_TOKEN_COLOR[item.resource]),
           spin: 5,
         });
       }
-      this.spawnFloating(
-        house.clone().add(new THREE.Vector3(0, 1.1, 0)),
-        `+${item.amount}`,
-        `float-label float-${item.resource}`,
-        idx * 90,
-      );
+      this.spawnFloating(at.clone().add(new THREE.Vector3(0, 0.95, 0)), `+${item.amount}`, `float-label float-${item.resource}`, idx * 90);
     });
-    this.requestRender();
-  }
-
-  /** 납품 연출: 납품한 사람의 거점에서 가까운 시장으로 물자가 날아간다. */
-  playDelivery(fromTileIds: string[], resources: Resource[], points: number): void {
-    if (!this.ready) return;
-    const markets = this.options.tiles.filter((t) => t.kind === 'market');
-    if (markets.length === 0) return;
-    const starts = fromTileIds
-      .map((id) => this.tileById.get(id))
-      .filter((t): t is TileDef => !!t)
-      .map((t) => houseTransform(t, this.metrics).house.clone().add(new THREE.Vector3(0, 0.5, 0)));
-    if (starts.length === 0) starts.push(new THREE.Vector3(0, TILE_TOP + 0.5, 0));
-    const origin = starts[0];
-    const market = markets
-      .map((t) => tileCenter(t, this.metrics))
-      .sort((a, b) => a.distanceTo(origin) - b.distanceTo(origin))[0];
-    const target = market.clone().add(new THREE.Vector3(0, 0.45, 0.2));
-    const now = performance.now();
-    resources.forEach((r, i) => {
-      this.tokens.push({
-        start: now + i * 120,
-        duration: 900,
-        from: starts[i % starts.length].clone(),
-        to: target.clone().add(new THREE.Vector3((i - (resources.length - 1) / 2) * 0.18, 0, 0)),
-        arc: 1.1,
-        color: new THREE.Color(RESOURCE_TOKEN_COLOR[r]),
-        spin: 8,
-      });
-    });
-    this.spawnFloating(target.clone().add(new THREE.Vector3(0, 0.7, 0)), `+${points}점`, 'float-label float-points', 700);
     this.requestRender();
   }
 
@@ -771,6 +1253,526 @@ export class BoardRenderer {
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     return this.tokens.length > 0;
+  }
+
+  // ───────────────────────── 바닷가·교역로 ─────────────────────────
+
+  /** 바닷가 변(타일 하나에만 닿은 변)을 이어 만든 보드 둘레 고리. 변마다 바깥 방향(그 타일 중심에서 멀어지는 쪽)을 함께 준다. */
+  private coastLoop(): CoastLoop {
+    const coast = this.geo.edges.filter((e) => e.tiles.length === 1);
+    const byVertex = new Map<string, typeof coast>();
+    for (const e of coast) for (const v of [e.a, e.b]) byVertex.set(v, [...(byVertex.get(v) ?? []), e]);
+    const pts: Pt[] = [];
+    const normals: Pt[] = [];
+    if (!coast.length) return { pts, normals };
+    let edge = coast[0];
+    let from = edge.a;
+    const used = new Set<string>();
+    while (!used.has(edge.id)) {
+      used.add(edge.id);
+      const to = edge.a === from ? edge.b : edge.a;
+      const a = this.vertexWorld(from)!;
+      const b = this.vertexWorld(to)!;
+      const c = tileCenter(this.tileById.get(edge.tiles[0])!, this.metrics);
+      let nx = b.z - a.z;
+      let nz = -(b.x - a.x);
+      const len = Math.hypot(nx, nz) || 1;
+      nx /= len;
+      nz /= len;
+      if (nx * ((a.x + b.x) / 2 - c.x) + nz * ((a.z + b.z) / 2 - c.z) < 0) {
+        nx = -nx;
+        nz = -nz;
+      }
+      pts.push({ x: a.x, z: a.z });
+      normals.push({ x: nx, z: nz });
+      const next = (byVertex.get(to) ?? []).find((e) => e.id !== edge.id && !used.has(e.id));
+      if (!next) break;
+      edge = next;
+      from = to;
+    }
+    return { pts, normals };
+  }
+
+  /** 교역로 하나의 자리: 바닷가 변의 두 꼭짓점, 가운데, 바깥 방향, 바다 쪽 부두 중심 */
+  private harborSpot(edgeId: string) {
+    const e = this.geo.edgeMap[edgeId];
+    if (!e || e.tiles.length !== 1) return null;
+    const ew = this.edgeWorld(edgeId)!;
+    const c = tileCenter(this.tileById.get(e.tiles[0])!, this.metrics);
+    const n = new THREE.Vector3(ew.mid.x - c.x, 0, ew.mid.z - c.z).normalize();
+    const a = ew.a.clone().setY(0);
+    const b = ew.b.clone().setY(0);
+    const mid = ew.mid.clone().setY(0);
+    return { a, b, mid, n, dock: mid.clone().addScaledVector(n, HARBOR_REACH) };
+  }
+
+  /** 소품 배치 목록을 인스턴스 메시 묶음으로 만든다 (교역로 부두처럼 상태를 받은 뒤 붙이는 소품) */
+  private instancedGroup(placements: Placement[]): THREE.Group {
+    const art = this.art!;
+    const group = new THREE.Group();
+    const byKey = new Map<string, Placement[]>();
+    for (const p of placements) {
+      const k = `${p.key}:${p.variant}`;
+      byKey.set(k, [...(byKey.get(k) ?? []), p]);
+    }
+    for (const list of byKey.values()) {
+      for (const part of art.prop(list[0].key, list[0].variant).parts) {
+        const mesh = new THREE.InstancedMesh(part.geometry, part.material, list.length);
+        list.forEach((p, i) => mesh.setMatrixAt(i, compose(p.x, p.y, p.z, p.rotY, p.scale * (p.stretch ?? 1), p.scale * (p.sy ?? 1), p.scale)));
+        mesh.computeBoundingSphere();
+        group.add(mesh);
+      }
+    }
+    return group;
+  }
+
+  /**
+   * 해상 교역로: 바닷가 변 바깥 바다에 작은 부두를 띄우고 그 변의 두 꼭짓점에서 잔교를 잇는다.
+   * 부두에는 교역 물품(2:1 은 그 자원, 3:1 은 통과 상자)을 쌓고 비율 표지를 띄운다.
+   */
+  private syncHarbors(): void {
+    const list = this.state.harbors ?? [];
+    const key = list.map((h) => `${h.edgeId}:${h.resource ?? '*'}`).join(',');
+    if (key === this.harborKey || !this.art) return;
+    this.harborKey = key;
+    if (this.harborGroup) {
+      this.scene.remove(this.harborGroup);
+      this.harborGroup.traverse((o) => {
+        if ((o as THREE.InstancedMesh).isInstancedMesh) (o as THREE.InstancedMesh).dispose();
+      });
+      this.harborGroup = null;
+    }
+    for (const l of this.harborLabels) l.el.remove();
+    this.harborLabels = [];
+    this.fitX = this.metrics.fitX + FIT_PAD;
+    this.fitZ = this.metrics.fitZ + FIT_PAD;
+    const placements: Placement[] = [];
+    list.forEach((h, idx) => {
+      const s = this.harborSpot(h.edgeId);
+      if (!s) return;
+      const yaw = Math.atan2(s.n.x, s.n.z);
+      const side = new THREE.Vector3(s.n.z, 0, -s.n.x);
+      // 잔교와 부두 바닥은 모래밭(윗면 약 0.13)보다 높아야 모래에 묻히지 않는다.
+      const deck = 0.16;
+      placements.push({ key: 'dock', variant: 0, x: s.dock.x, y: 0.09, z: s.dock.z, rotY: yaw, scale: 0.52, shadow: 0 });
+      for (const v of [s.a, s.b]) {
+        // 잔교는 꼭짓점 바로 앞 흙 둑에서 나와 부두 모서리로 이어진다 (교역로 하나에 길 두 갈래).
+        const start = v.clone().addScaledVector(s.n, 0.2);
+        const toward = v.clone().sub(s.mid).normalize();
+        const end = s.dock.clone().addScaledVector(toward, 0.17).addScaledVector(s.n, -0.1);
+        const mid = start.clone().add(end).multiplyScalar(0.5);
+        placements.push({
+          key: 'pier',
+          variant: 0,
+          x: mid.x,
+          y: 0.075,
+          z: mid.z,
+          rotY: Math.atan2(-(end.z - start.z), end.x - start.x),
+          scale: 1.15,
+          stretch: start.distanceTo(end) / 1.15,
+          shadow: 0,
+        });
+      }
+      if (idx % 2 === 0) {
+        const at = s.dock.clone().addScaledVector(side, idx % 4 === 0 ? 0.36 : -0.36).addScaledVector(s.n, 0.04);
+        placements.push({ key: 'boat', variant: 0, x: at.x, y: 0.0, z: at.z, rotY: Math.atan2(-s.n.z, s.n.x), scale: 0.34, shadow: 0 });
+      }
+      const on = (dx: number, dz: number) => s.dock.clone().addScaledVector(side, dx).addScaledVector(s.n, dz);
+      const cargo = (key: PropKey, variant: number, at: THREE.Vector3, scale: number, rot = 0) =>
+        placements.push({ key, variant, x: at.x, y: deck, z: at.z, rotY: yaw + rot, scale, shadow: 0 });
+      switch (h.resource) {
+        case 'wood':
+          cargo('logpile', 0, on(0, 0), 0.34, Math.PI / 2);
+          break;
+        case 'grain':
+          cargo('sack', 0, on(-0.06, 0), 0.62);
+          cargo('sack', 1, on(0.07, 0.03), 0.6, 1.2);
+          break;
+        case 'wool':
+          cargo('sheep', 1, on(0, 0), 0.72, 0.6);
+          break;
+        case 'brick':
+          cargo('bricks', 1, on(0, 0), 0.52);
+          break;
+        case 'stone':
+          cargo('blocks', 0, on(0, 0), 0.36);
+          break;
+        default:
+          cargo('barrel', 0, on(-0.07, 0), 0.62);
+          cargo('crate', 0, on(0.08, 0.02), 0.62, 0.4);
+          break;
+      }
+      const el = document.createElement('div');
+      el.className = `harbor-label ${h.resource ? `harbor-res harbor-${h.resource}` : 'harbor-any'}`;
+      // 앞에 아이콘(자원, 3:1 은 물음표)만 두고 비율을 쓴다. 이름은 마우스를 올리면 나온다.
+      el.innerHTML = `${this.options.harborIcon?.(h.resource) ?? ''}<b>${h.resource ? '2:1' : '3:1'}</b>`;
+      el.title = h.resource ? `해상 교역로: ${RESOURCE_LABEL[h.resource]} 2장 → 원하는 자원 1장` : '해상 교역로: 같은 자원 3장 → 원하는 자원 1장';
+      this.overlay.appendChild(el);
+      this.harborLabels.push({ el, world: s.dock.clone().addScaledVector(s.n, 0.42).setY(0.36), anchor: 'translate(-50%, -50%) scale(var(--tz, 1))' });
+      const tip = s.dock.clone().addScaledVector(s.n, 0.42);
+      this.fitX = Math.max(this.fitX, Math.abs(tip.x) + 0.4);
+      this.fitZ = Math.max(this.fitZ, Math.abs(tip.z) + 0.3);
+    });
+    if (placements.length) {
+      this.harborGroup = this.instancedGroup(placements);
+      this.scene.add(this.harborGroup);
+    }
+    this.fitCamera();
+  }
+
+  // ───────────────────────── 숫자 패, 기사단 동상, 잠금 ─────────────────────────
+
+  /** 기사단 동상이 선 칸. 상태에 없으면 광장 칸에 선다. */
+  private robberTile(): string | null {
+    if (this.state.robber !== undefined) return this.state.robber;
+    return this.options.tiles.find((t) => t.kind === 'plaza')?.id ?? null;
+  }
+
+  /** 숫자 패를 칸마다 띄운다 (빨간 6·8, 나올 확률 점). 동상이 선 칸의 패는 잠긴 모습이 된다. */
+  private syncNumbers(): void {
+    const nums = this.state.numbers ?? {};
+    const robber = this.robberTile();
+    for (const t of this.options.tiles) {
+      const n = nums[t.id];
+      let item = this.numberTokens.get(t.id);
+      if (!n) {
+        if (item) {
+          item.el.remove();
+          this.numberTokens.delete(t.id);
+        }
+        continue;
+      }
+      if (!item) {
+        const el = document.createElement('div');
+        this.overlay.appendChild(el);
+        const c = tileCenter(t, this.metrics);
+        item = { el, world: new THREE.Vector3(c.x + TOKEN_SPOT.x, TILE_TOP + 0.02, c.z + TOKEN_SPOT.z), anchor: 'translate(-50%, -50%) scale(var(--tz, 1))' };
+        this.numberTokens.set(t.id, item);
+      }
+      const locked = robber === t.id;
+      const key = `${n}:${locked}`;
+      if (item.el.dataset.key !== key) {
+        item.el.dataset.key = key;
+        item.el.className = `num-token${n === 6 || n === 8 ? ' num-hot' : ''}${locked ? ' num-locked' : ''}`;
+        // 바깥 요소는 자리(transform)만 맡고, 원판과 튀는 연출은 안쪽 요소가 맡는다 (scale 연출이 자리까지 늘리지 않게).
+        item.el.innerHTML = `<span class="num-face"><b>${n}</b><i>${'•'.repeat(numberPips(n))}</i></span>${locked ? LOCK_SVG : ''}`;
+        item.el.title = `${t.id} · 주사위 ${n}${locked ? ' · 기사단 동상이 막고 있음' : ''}`;
+      }
+    }
+  }
+
+  private buildStatue(): void {
+    const art = this.art!;
+    const group = (key: PropKey) => {
+      const g = new THREE.Group();
+      for (const part of art.prop(key, 0).parts) g.add(new THREE.Mesh(part.geometry, part.material));
+      return g;
+    };
+    this.statue = group('statue');
+    this.statue.scale.setScalar(STATUE_SCALE);
+    this.statue.visible = false;
+    const quad = this.own(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
+    this.statueShadow = new THREE.Mesh(quad, this.shadowMaterial(0.55));
+    this.statueShadow.renderOrder = 1;
+    this.statueShadow.visible = false;
+    this.scene.add(this.statue, this.statueShadow);
+
+    // 잠금: 칸 둘레 사슬 + 앞 오른쪽 변의 자물쇠 + 칸을 어둡게 덮는 그늘
+    this.lockRoot = new THREE.Group();
+    this.lockRoot.visible = false;
+    this.lockChain = group('chain');
+    this.lockChain.scale.setScalar(CHAIN_RADIUS);
+    this.padlock = group('padlock');
+    // 사슬 고리가 앞 오른쪽 변 가운데에서 조금 바깥에 선다 (꼭짓점의 마을·변의 길과 겹치지 않는 자리).
+    const n = { x: 0.5, z: Math.sqrt(3) / 2 };
+    this.padlock.position.set(0.433 * CHAIN_RADIUS + n.x * 0.06, 0, 0.75 * CHAIN_RADIUS + n.z * 0.06);
+    this.padlock.rotation.y = Math.PI / 6;
+    this.padlock.scale.setScalar(PADLOCK_SCALE);
+    const hex = hexCorners(HEX_RADIUS - 0.02).map((v) => new THREE.Vector2(v.x, -v.z));
+    const shadeGeo = this.own(new THREE.ShapeGeometry(new THREE.Shape().setFromPoints(hex)).rotateX(-Math.PI / 2));
+    this.lockShade = new THREE.Mesh(
+      shadeGeo,
+      this.own(new THREE.MeshBasicMaterial({ color: '#241b3c', transparent: true, opacity: LOCK_SHADE, depthWrite: false, toneMapped: false })),
+    );
+    this.lockShade.position.y = 0.006;
+    this.lockShade.renderOrder = 2;
+    this.lockRoot.add(this.lockShade, this.lockChain, this.padlock);
+    this.scene.add(this.lockRoot);
+  }
+
+  private statueSpot(tileId: string): THREE.Vector3 {
+    const t = this.tileById.get(tileId)!;
+    const c = tileCenter(t, this.metrics);
+    const s = t.kind === 'plaza' ? PLAZA_STATUE_SPOT : STATUE_SPOT;
+    return new THREE.Vector3(c.x + s.x, TILE_TOP + (t.kind === 'plaza' ? DAIS_HEIGHT : 0), c.z + s.z);
+  }
+
+  private placeStatue(at: THREE.Vector3, lift: number): void {
+    this.statue!.position.set(at.x, at.y + lift, at.z);
+    const r = 0.5 * (1 - Math.min(0.6, lift * 0.45));
+    this.statueShadow!.position.set(at.x + SHADOW_SHIFT.x * 0.7, at.y + 0.006, at.z + SHADOW_SHIFT.y * 0.7);
+    this.statueShadow!.scale.set(r, 1, r * 0.9);
+  }
+
+  /** 동상이 다른 칸으로 옮겨 가면 들려 올라 한 바퀴 돌며 날아가 쿵 내려앉고, 그 칸에 사슬과 자물쇠가 채워진다. */
+  private syncRobber(): void {
+    if (!this.statue) return;
+    const tile = this.robberTile();
+    if (tile === this.statueTile) return;
+    const from = this.statueTile;
+    this.statueTile = tile;
+    if (!tile || !this.tileById.has(tile)) {
+      this.statue.visible = false;
+      this.statueShadow!.visible = false;
+      this.setLock(null, false);
+      return;
+    }
+    const to = this.statueSpot(tile);
+    this.statue.visible = true;
+    this.statueShadow!.visible = true;
+    if (!from) {
+      this.placeStatue(to, 0);
+      this.setLock(tile, false);
+      return;
+    }
+    const start = this.statue.position.clone();
+    this.setLock(null, true);
+    const pos = new THREE.Vector3();
+    this.addAnim({
+      duration: 1050,
+      update: (t) => {
+        const e = easeInOut(t);
+        pos.lerpVectors(start, to, e);
+        this.placeStatue(pos, Math.sin(Math.PI * e) * 1.1);
+        this.statue!.rotation.y = e * Math.PI * 2;
+      },
+      done: () => {
+        this.statue!.rotation.y = 0;
+        this.placeStatue(to, 0);
+        this.bouncing.set(tile, performance.now());
+        this.addAnim({
+          duration: 320,
+          update: (t) => {
+            const k = Math.sin(t * Math.PI) * (1 - t);
+            this.statue!.scale.set(STATUE_SCALE * (1 + 0.12 * k), STATUE_SCALE * (1 - 0.16 * k), STATUE_SCALE * (1 + 0.12 * k));
+          },
+          done: () => this.statue!.scale.setScalar(STATUE_SCALE),
+        });
+        this.setLock(tile, true);
+      },
+    });
+  }
+
+  /** 칸에 잠금(사슬·자물쇠·그늘)을 채우거나 푼다. 광장은 생산하지 않는 칸이라 잠그지 않는다. */
+  private setLock(tile: string | null, animate: boolean): void {
+    const root = this.lockRoot;
+    const chain = this.lockChain;
+    const padlock = this.padlock;
+    const shade = this.lockShade?.material as THREE.MeshBasicMaterial | undefined;
+    if (!root || !chain || !padlock || !shade) return;
+    const t = tile ? this.tileById.get(tile) : null;
+    if (!t || t.kind === 'plaza') {
+      if (!root.visible) return;
+      if (!animate) {
+        root.visible = false;
+        return;
+      }
+      this.addAnim({
+        duration: 260,
+        update: (k) => {
+          chain.scale.set(CHAIN_RADIUS, CHAIN_RADIUS * Math.max(0.001, 1 - k), CHAIN_RADIUS);
+          padlock.scale.setScalar(PADLOCK_SCALE * Math.max(0.001, 1 - k));
+          shade.opacity = LOCK_SHADE * (1 - k);
+        },
+        done: () => {
+          root.visible = false;
+        },
+      });
+      return;
+    }
+    const c = tileCenter(t, this.metrics);
+    root.position.set(c.x, TILE_TOP, c.z);
+    root.visible = true;
+    padlock.rotation.z = 0;
+    if (!animate) {
+      chain.scale.setScalar(CHAIN_RADIUS);
+      padlock.scale.setScalar(PADLOCK_SCALE);
+      padlock.position.y = 0;
+      padlock.visible = true;
+      shade.opacity = LOCK_SHADE;
+      return;
+    }
+    padlock.visible = false;
+    this.addAnim({
+      duration: 420,
+      update: (k) => {
+        chain.scale.set(CHAIN_RADIUS, CHAIN_RADIUS * Math.max(0.001, easeOutBack(k)), CHAIN_RADIUS);
+        shade.opacity = LOCK_SHADE * k;
+      },
+    });
+    this.addAnim({
+      delay: 240,
+      duration: 620,
+      update: (k) => {
+        padlock.visible = true;
+        padlock.scale.setScalar(PADLOCK_SCALE);
+        const fall = Math.min(1, k / 0.45);
+        padlock.position.y = 0.6 * (1 - fall * fall);
+        padlock.rotation.z = k > 0.45 ? Math.sin((k - 0.45) * Math.PI * 7) * 0.3 * (1 - k) : 0;
+      },
+      done: () => {
+        padlock.position.y = 0;
+        padlock.rotation.z = 0;
+      },
+    });
+  }
+
+  /** 막힌 칸의 숫자가 나왔을 때: 자물쇠가 덜컹이고 사슬이 튄다. */
+  private shakeLock(): void {
+    const padlock = this.padlock;
+    const chain = this.lockChain;
+    if (!this.lockRoot?.visible || !padlock || !chain) return;
+    this.addAnim({
+      duration: 760,
+      update: (k) => {
+        const d = 1 - k;
+        padlock.rotation.z = Math.sin(k * Math.PI * 9) * 0.35 * d;
+        chain.position.y = Math.abs(Math.sin(k * Math.PI * 7)) * 0.03 * d;
+      },
+      done: () => {
+        padlock.rotation.z = 0;
+        chain.position.y = 0;
+      },
+    });
+  }
+
+  /** 칸 테두리를 잠깐 빛낸다 (생산은 금빛, 막힘은 붉은빛) */
+  private flashTile(tileId: string, color: string, delay = 0): void {
+    const ring = this.flashRing;
+    const i = this.options.tiles.findIndex((t) => t.id === tileId);
+    if (!ring || i < 0) return;
+    const c = tileCenter(this.options.tiles[i], this.metrics);
+    const base = new THREE.Color(color);
+    const col = new THREE.Color();
+    this.addAnim({
+      delay,
+      duration: 1400,
+      update: (t) => {
+        const k = t < 0.18 ? t / 0.18 : 1 - (t - 0.18) / 0.82;
+        const s = 1 + 0.04 * Math.sin(t * Math.PI * 4);
+        ring.setMatrixAt(i, compose(c.x, TILE_TOP + 0.014, c.z, 0, s, 1, s));
+        ring.setColorAt(i, col.copy(base).multiplyScalar(Math.max(0, k)));
+        ring.instanceMatrix.needsUpdate = true;
+        if (ring.instanceColor) ring.instanceColor.needsUpdate = true;
+      },
+      done: () => {
+        ring.setMatrixAt(i, compose(c.x, 0, c.z, 0, 0, 1, 0));
+        ring.instanceMatrix.needsUpdate = true;
+      },
+    });
+  }
+
+  /** 숫자 패를 한 번 크게 튀긴다 (CSS 연출) */
+  private pulseToken(tileId: string, cls: 'num-roll' | 'num-blocked'): void {
+    const item = this.numberTokens.get(tileId);
+    if (!item) return;
+    item.el.classList.remove('num-roll', 'num-blocked');
+    void item.el.offsetWidth;
+    item.el.classList.add(cls);
+    window.setTimeout(() => item.el.classList.remove(cls), 1700);
+  }
+
+  /**
+   * 주사위 생산 연출: 숫자가 나온 칸의 테두리가 금빛으로 빛나고 숫자 패가 튀며, 칸 위 소품이 일하듯 들썩인다.
+   * 그다음 그 칸에서 자원 토큰이 솟아 닿은 마을·도시로 날아간다. 동상에 막힌 칸은 붉게 빛나고 자물쇠가 덜컹인다.
+   */
+  playRoll(tiles: string[], blocked: string[], items: { tileId: string; vertexId: string; resource: Resource; amount: number }[]): void {
+    if (!this.ready) return;
+    const now = performance.now();
+    tiles.forEach((id, i) => {
+      const isBlocked = blocked.includes(id);
+      this.flashTile(id, isBlocked ? '#e0503c' : '#ffcf3f', i * 70);
+      this.pulseToken(id, isBlocked ? 'num-blocked' : 'num-roll');
+      const t = this.tileById.get(id);
+      if (isBlocked) {
+        this.shakeLock();
+        if (t) this.spawnFloating(tileCenter(t, this.metrics).add(new THREE.Vector3(0, 0.75, 0)), '막힘', 'float-label float-blocked', 150);
+        return;
+      }
+      this.bouncing.set(id, now + i * 70);
+    });
+    items.forEach((it, idx) => {
+      if (blocked.includes(it.tileId)) return;
+      const t = this.tileById.get(it.tileId);
+      const to = this.vertexWorld(it.vertexId);
+      if (!t || !to) return;
+      const c = tileCenter(t, this.metrics);
+      const from = new THREE.Vector3(c.x + TOKEN_SPOT.x, TILE_TOP + 0.3, c.z + TOKEN_SPOT.z);
+      for (let k = 0; k < it.amount; k++) {
+        this.tokens.push({
+          start: now + 420 + idx * 110 + k * 130,
+          duration: 880,
+          from: from.clone(),
+          to: to.clone().add(new THREE.Vector3((k - (it.amount - 1) / 2) * 0.16, 0.42, 0)),
+          arc: 0.75,
+          color: new THREE.Color(RESOURCE_TOKEN_COLOR[it.resource]),
+          spin: 7,
+        });
+      }
+      this.spawnFloating(to.clone().add(new THREE.Vector3(0, 0.95, 0)), `+${it.amount}`, `float-label float-${it.resource}`, 1000 + idx * 110);
+    });
+    this.requestRender();
+  }
+
+  /** 조각 하나(마을·도시 'b:<꼭짓점>', 길 'r:<변>')를 잠깐 부풀린다. */
+  private pulsePiece(key: string, delay: number, amount: number): void {
+    this.addAnim({
+      delay,
+      duration: 560,
+      update: (t) => {
+        this.growing.set(key, 1 + amount * Math.sin(t * Math.PI));
+        this.updatePieceInstances();
+      },
+      done: () => {
+        this.growing.delete(key);
+        this.updatePieceInstances();
+      },
+    });
+  }
+
+  /**
+   * 달성 연출. 최장 교역로는 그 사람의 길이 차례로 솟았다 가라앉고, 최강 기사단은 기사단 동상이 제자리에서 뛰어올라
+   * 한 바퀴 돌며 그 사람의 마을·도시가 부푼다.
+   */
+  playAward(award: 'longest_road' | 'largest_army', _colorIndex: number, playerId: string): void {
+    if (!this.ready) return;
+    if (award === 'longest_road') {
+      const roads = this.state.roads.filter((r) => r.owner === playerId);
+      roads.forEach((r, i) => this.pulsePiece(`r:${r.edgeId}`, i * 80, 0.5));
+      const mids = roads.map((r) => this.edgeWorld(r.edgeId)?.mid).filter((m): m is THREE.Vector3 => !!m);
+      if (mids.length) {
+        const at = mids.reduce((a, m) => a.add(m), new THREE.Vector3()).multiplyScalar(1 / mids.length);
+        this.spawnFloating(at.add(new THREE.Vector3(0, 0.8, 0)), '최장 교역로', 'float-label float-award', 300);
+      }
+      return;
+    }
+    this.state.buildings.filter((b) => b.owner === playerId).forEach((b, i) => this.pulsePiece(`b:${b.vertexId}`, 200 + i * 90, 0.3));
+    const statue = this.statue;
+    if (statue?.visible) {
+      const base = statue.position.clone();
+      this.addAnim({
+        duration: 900,
+        update: (t) => {
+          statue.position.y = base.y + Math.sin(Math.PI * t) * 0.45;
+          statue.rotation.y = easeInOut(t) * Math.PI * 2;
+        },
+        done: () => {
+          statue.position.copy(base);
+          statue.rotation.y = 0;
+        },
+      });
+      this.spawnFloating(base.clone().add(new THREE.Vector3(0, 1.0, 0)), '최강 기사단', 'float-label float-award', 300);
+    }
   }
 
   // ───────────────────────── 카메라·입력 ─────────────────────────
@@ -816,6 +1818,14 @@ export class BoardRenderer {
     return { x: ((p.x + 1) / 2) * this.width, y: ((1 - p.y) / 2) * this.height };
   }
 
+  /** 꼭짓점·변 가운데의 화면 좌표 (테스트·접근성용). 마을은 몸통 높이에서 잰다. */
+  spotScreenPosition(kind: 'vertex' | 'edge', id: string): { x: number; y: number } | null {
+    const w = kind === 'vertex' ? this.vertexWorld(id)?.add(new THREE.Vector3(0, 0.08, 0)) : this.edgeWorld(id)?.mid.setY(PLATFORM_TOP + 0.06);
+    if (!w) return null;
+    const p = w.project(this.camera);
+    return { x: ((p.x + 1) / 2) * this.width, y: ((1 - p.y) / 2) * this.height };
+  }
+
   private pixelRatioTarget(): number {
     const dpr = window.devicePixelRatio || 1;
     if (this.quality === 'low') return Math.min(dpr, 1);
@@ -849,9 +1859,10 @@ export class BoardRenderer {
   /** 화면에서 HUD 가 가리지 않는 영역 안에 보드 전체가 들어오도록 직교 카메라 범위를 맞춘다. */
   private fitCamera(): void {
     // 타일이 화면에 최대한 크게 보이도록 타일 범위에 맞춘다 (받침 가장자리는 조금 잘려도 된다).
-    const { fitX, fitZ } = this.metrics;
+    const fitX = this.fitX;
+    const fitZ = this.fitZ;
     const el = THREE.MathUtils.degToRad(ELEVATION_DEG);
-    const margin = 0.22;
+    const margin = 0.08;
     const needW = (fitX + margin) * 2;
     const needH = (fitZ + margin) * 2 * Math.sin(el) + 1.1 * Math.cos(el);
     const ins = this.insets;
@@ -891,6 +1902,12 @@ export class BoardRenderer {
   private onControlsStart = (): void => {
     this.interacting = true;
     this.requestRender();
+    // 보드를 끌기 시작하면 마우스 올림 알림을 닫는다 (위치가 맞지 않게 되므로).
+    if (this.hovered) {
+      this.hovered = null;
+      this.updateHighlights();
+      this.emitHover();
+    }
   };
 
   private onControlsEnd = (): void => {
@@ -898,12 +1915,90 @@ export class BoardRenderer {
     this.emitPerf(true);
   };
 
-  private pick(clientX: number, clientY: number): string | null {
+  /**
+   * 화면 좌표를 보드 위의 자리로 바꾼다. 빛나는 자리가 있으면 그중 가까운 것을 넉넉하게 잡고,
+   * 없으면 꼭짓점 → 변 → 타일 순으로 가까운 것을 고른다. 판정 반경은 확대 수준에 맞춰 화면에서 손가락 크기로 유지한다.
+   */
+  private pick(clientX: number, clientY: number): BoardSelection | null {
     const rect = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    const hit = this.raycaster.intersectObjects(this.hitBoxes, false)[0];
-    return (hit?.object.userData.tileId as string | undefined) ?? null;
+    const ray = this.raycaster.ray;
+    const low = new THREE.Vector3();
+    const mid = new THREE.Vector3();
+    if (!ray.intersectPlane(new THREE.Plane(yAxis, -TILE_TOP), low)) return null;
+    // 집·도시는 높이가 있어 몸통을 누르면 바닥보다 조금 뒤쪽이 맞는다. 꼭짓점은 그 높이에서 잰다.
+    ray.intersectPlane(new THREE.Plane(yAxis, -(TILE_TOP + 0.14)), mid);
+    const worldPerPixel = (this.camera.right - this.camera.left) / this.camera.zoom / Math.max(1, rect.width);
+    // 손가락 크기(약 24px)로 잡되, 멀리 축소해도 이웃 꼭짓점(1.25 떨어짐)까지 넘보지 않게 상한을 둔다.
+    const reach = Math.min(0.42, Math.max(0.16, 24 * worldPerPixel));
+    const flat = (p: THREE.Vector3, q: THREE.Vector3) => Math.hypot(p.x - q.x, p.z - q.z);
+    const nearestVertex = (ids: readonly string[]) => {
+      let best: { id: string; d: number } | null = null;
+      for (const id of ids) {
+        const p = this.vertexWorld(id);
+        if (!p) continue;
+        const d = Math.min(flat(p, mid), flat(p, low));
+        if (!best || d < best.d) best = { id, d };
+      }
+      return best;
+    };
+    const nearestEdge = (ids: readonly string[]) => {
+      let best: { id: string; d: number } | null = null;
+      const seg = new THREE.Line3();
+      const closest = new THREE.Vector3();
+      const at = new THREE.Vector3(low.x, 0, low.z);
+      for (const id of ids) {
+        const ew = this.edgeWorld(id);
+        if (!ew) continue;
+        // 양 끝(마을 자리)을 뺀 가운데 부분만 길로 본다. 꼭짓점 가까이 누르면 꼭짓점이 잡힌다.
+        const a = new THREE.Vector3(ew.a.x, 0, ew.a.z);
+        const b = new THREE.Vector3(ew.b.x, 0, ew.b.z);
+        seg.set(a.clone().lerp(b, 0.18), a.clone().lerp(b, 0.82));
+        seg.closestPointToPoint(at, true, closest);
+        const d = closest.distanceTo(at);
+        if (!best || d < best.d) best = { id, d };
+      }
+      return best;
+    };
+    // 꼭짓점과 변 가운데 더 가까운 쪽을 고른다 (꼭짓점을 먼저 보면 변 가운데를 눌러도 끝 꼭짓점이 잡힌다).
+    const closer = (vIds: readonly string[], eIds: readonly string[], vScale: number, eScale: number): BoardSelection | null => {
+      const v = vIds.length ? nearestVertex(vIds) : null;
+      const e = eIds.length ? nearestEdge(eIds) : null;
+      const vOk = !!v && v.d < reach * vScale;
+      const eOk = !!e && e.d < reach * eScale;
+      if (vOk && (!eOk || v!.d <= e!.d)) return { kind: 'vertex', id: v!.id };
+      if (eOk) return { kind: 'edge', id: e!.id };
+      return null;
+    };
+    const hl = this.state.highlights;
+    if (hl?.tiles?.length) {
+      let best: { id: string; d: number } | null = null;
+      for (const id of hl.tiles) {
+        const t = this.tileById.get(id);
+        if (!t) continue;
+        const d = flat(tileCenter(t, this.metrics), low);
+        if (!best || d < best.d) best = { id, d };
+      }
+      if (best && best.d < HEX_RADIUS) return { kind: 'tile', id: best.id };
+    }
+    if (hl && (hl.vertices.length || hl.edges.length)) {
+      const hit = closer(hl.vertices, hl.edges, 1.7, 1.5);
+      if (hit) return hit;
+    }
+    const hit = closer(
+      this.geo.vertices.map((x) => x.id),
+      this.geo.edges.map((x) => x.id),
+      1,
+      0.8,
+    );
+    if (hit) return hit;
+    let tile: { id: string; d: number } | null = null;
+    for (const t of this.options.tiles) {
+      const d = flat(tileCenter(t, this.metrics), low);
+      if (!tile || d < tile.d) tile = { id: t.id, d };
+    }
+    return tile && tile.d < HEX_RADIUS ? { kind: 'tile', id: tile.id } : null;
   }
 
   private onPointerDown = (e: PointerEvent): void => {
@@ -921,8 +2016,11 @@ export class BoardRenderer {
     const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y);
     const slop = e.pointerType === 'mouse' ? 6 : 12;
     if (moved > slop || performance.now() - d.t > 650) return;
-    const tile = this.pick(e.clientX, e.clientY);
-    if (tile) this.options.onTileTap?.(tile);
+    const sel = this.pick(e.clientX, e.clientY);
+    if (sel) {
+      this.pokeAt(sel);
+      this.options.onTap?.(sel);
+    }
   };
 
   private onPointerCancel = (e: PointerEvent): void => {
@@ -932,13 +2030,18 @@ export class BoardRenderer {
 
   private onPointerMove = (e: PointerEvent): void => {
     if (e.pointerType !== 'mouse' || e.buttons !== 0 || !this.ready) return;
-    const tile = this.pick(e.clientX, e.clientY);
-    if (tile !== this.hovered) {
-      this.hovered = tile;
-      this.canvas.style.cursor = tile ? 'pointer' : '';
+    const sel = this.pick(e.clientX, e.clientY);
+    if (sel?.kind !== this.hovered?.kind || sel?.id !== this.hovered?.id) {
+      this.hovered = sel;
+      this.canvas.style.cursor = sel ? 'pointer' : '';
       this.updateHighlights();
       this.requestRender();
+      this.emitHover();
     }
+  };
+
+  private onVisibility = (): void => {
+    if (!document.hidden) this.requestRender();
   };
 
   private onPointerLeave = (): void => {
@@ -946,8 +2049,21 @@ export class BoardRenderer {
       this.hovered = null;
       this.updateHighlights();
       this.requestRender();
+      this.emitHover();
     }
   };
+
+  /** 마우스가 올라간 자리를 알린다. 위치는 그 자리(꼭짓점·변·타일 가운데) 바로 위의 캔버스 좌표. */
+  private emitHover(): void {
+    const sel = this.hovered;
+    if (!this.options.onHover) return;
+    if (!sel) {
+      this.options.onHover(null, 0, 0);
+      return;
+    }
+    const at = sel.kind === 'tile' ? this.tileScreenPosition(sel.id) : this.spotScreenPosition(sel.kind, sel.id);
+    this.options.onHover(sel, at?.x ?? 0, at?.y ?? 0);
+  }
 
   // ───────────────────────── 그리기 ─────────────────────────
 
@@ -959,6 +2075,14 @@ export class BoardRenderer {
   private frame = (now: number): void => {
     this.rafId = 0;
     if (this.disposed) return;
+    // 바람·양·연기만 움직이는 동안에는 초당 30번 정도만 그린다 (배터리를 아낀다).
+    const busy = this.interacting || this.anims.length > 0 || this.tokens.length > 0 || this.bouncing.size > 0;
+    const ambient = this.motion && this.ready && !document.hidden;
+    if (!busy && ambient && now - this.lastAmbient < AMBIENT_FRAME_MS) {
+      this.rafId = requestAnimationFrame(this.frame);
+      return;
+    }
+    this.lastAmbient = now;
     let animating = false;
     if (this.anims.length) {
       const keep: Anim[] = [];
@@ -976,6 +2100,7 @@ export class BoardRenderer {
       animating = keep.length > 0;
     }
     if (this.updateTokens(now)) animating = true;
+    if (this.ready && (ambient || this.bouncing.size) && this.updateMotion(now)) animating = true;
     const moving = this.controls.update();
     const t0 = performance.now();
     this.renderer.info.reset();
@@ -987,6 +2112,8 @@ export class BoardRenderer {
     if (continuous) {
       this.autoQuality();
       this.emitPerf(false);
+      this.requestRender();
+    } else if (ambient) {
       this.requestRender();
     }
   };
@@ -1043,7 +2170,16 @@ export class BoardRenderer {
         item.lastY = y;
       }
     };
+    // 숫자 패·교역로 표지는 확대 수준에 맞춰 크기를 조금 바꾼다 (타일 크기에 비례하되 너무 작거나 크지 않게).
+    const pxPerUnit = (w * this.camera.zoom) / Math.max(0.001, this.camera.right - this.camera.left);
+    const tz = Math.round(Math.min(1.6, Math.max(0.72, pxPerUnit / 46)) * 20) / 20;
+    if (tz !== this.overlayScale) {
+      this.overlayScale = tz;
+      this.overlay.style.setProperty('--tz', String(tz));
+    }
     if (this.tileLabelsVisible) this.tileLabels.forEach(place);
+    this.numberTokens.forEach(place);
+    this.harborLabels.forEach(place);
     this.badges.forEach(place);
     this.floating.forEach(place);
   }
@@ -1061,6 +2197,7 @@ export class BoardRenderer {
     this.canvas.removeEventListener('pointercancel', this.onPointerCancel);
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerleave', this.onPointerLeave);
+    document.removeEventListener('visibilitychange', this.onVisibility);
     for (const g of this.owned.geometries) g.dispose();
     for (const m of this.owned.materials) m.dispose();
     this.scene.traverse((o) => {

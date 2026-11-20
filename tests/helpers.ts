@@ -1,9 +1,10 @@
 // 통합 테스트용 도우미: 실제 서버를 띄우고 Socket.IO 클라이언트 여러 개로 참가한다.
 import { io as connect, type Socket } from 'socket.io-client';
 import { expect } from 'vitest';
-import { BUILD_COST, CONTRACTS, RESOURCES, TILES, hasBundle } from '../src/shared/constants';
+import { VERTEX_MAP } from '../src/shared/board';
+import { DEV_COST, PIECE_COST, PIECE_LIMIT, RESOURCES, TILES, hasBundle } from '../src/shared/constants';
 import type { AckResult, RoomView, SessionInfo } from '../src/shared/protocol';
-import { buildableTiles, placeableTiles, settlementsOf } from '../src/shared/rules';
+import { buildableRoads, buildableVillages, pieceCount, placeableVertices, setupRoadEdges, upgradableVillages } from '../src/shared/rules';
 import type { GameAction } from '../src/shared/types';
 
 export class TestClient {
@@ -115,30 +116,72 @@ export async function sync(clients: TestClient[], version: number): Promise<void
   await Promise.all(clients.map((c) => c.waitFor((v) => (v.game?.version ?? 0) >= version)));
 }
 
-/** 간단한 봇: 납품 → 건설 → 시장 → 턴 종료 순으로 고른다. */
+/**
+ * 간단한 봇 (카탄 규칙). 굴리기 → (7이면 버리기·동상·빼앗기) → 도시 → 마을 → 발전 카드·길 → 모자란 자원 은행 교환 → 턴 종료.
+ * 매 행동이 자원을 쓰거나 단계를 넘기므로 같은 턴에 끝없이 돌지 않는다.
+ */
 export function chooseAction(v: RoomView, seat: number): GameAction {
   const g = v.game!;
   const me = v.you;
   const r = g.myResources;
   if (g.phase === 'placement') {
-    const free = placeableTiles(g.settlements);
-    // 자리마다 다른 쪽에서 시작해 거점이 고르게 퍼지게 한다.
-    const preferred = [...TILES].map((t) => t.id).filter((id) => free.includes(id));
-    return { type: 'place', tileId: preferred[(seat * 5) % preferred.length] };
+    const free = placeableVertices(g.buildings);
+    // 자리와 배치 횟수마다 다른 쪽에서 골라 마을이 고르게 퍼지게 한다. 바닷가보다 칸 셋에 닿은 꼭짓점을 먼저 본다.
+    const inner = free.filter((id) => VERTEX_MAP[id].tiles.length === 3);
+    const pool = inner.length ? inner : free;
+    const vertexId = pool[(seat * 7 + g.buildings.length * 5) % pool.length];
+    return { type: 'place', vertexId, edgeId: setupRoadEdges(g.roads, vertexId)[0] };
   }
-  if (g.actionsLeft <= 0) return { type: 'end_turn' };
-  for (const c of CONTRACTS) {
-    const open = !g.contracts.find((x) => x.id === c.id)?.completedBy;
-    if (open && hasBundle(r, c.cost)) return { type: 'deliver', contractId: c.id };
+  if (g.step === 'discard' && g.discards[me]) {
+    // 가장 많은 자원부터 하나씩 버린다
+    const left = { ...r };
+    const out = { wood: 0, grain: 0, wool: 0, brick: 0, stone: 0 };
+    for (let i = 0; i < g.discards[me]; i++) {
+      const most = RESOURCES.reduce((a, b) => (left[a] >= left[b] ? a : b));
+      left[most] -= 1;
+      out[most] += 1;
+    }
+    return { type: 'discard', bundle: out };
   }
-  if (settlementsOf(g.settlements, me).length < 3 && hasBundle(r, BUILD_COST)) {
-    const tiles = buildableTiles(g.settlements, me);
-    if (tiles.length) return { type: 'build', tileId: tiles[0] };
+  if (g.step === 'roll') return { type: 'roll' };
+  if (g.step === 'robber') {
+    // 남의 마을이 많이 닿고 내 마을은 없는 칸
+    const score = (tileId: string) =>
+      g.buildings.filter((b) => VERTEX_MAP[b.vertexId].tiles.includes(tileId)).reduce((n, b) => n + (b.owner === me ? -10 : 1), 0);
+    const tiles = TILES.map((t) => t.id).filter((id) => id !== g.robber);
+    const best = tiles.reduce((a, b) => (score(b) > score(a) ? b : a), tiles[(seat * 5) % tiles.length]);
+    return { type: 'move_robber', tileId: best };
   }
-  const most = RESOURCES.reduce((a, b) => (r[a] >= r[b] ? a : b));
-  if (r[most] >= 3) {
-    const least = RESOURCES.filter((x) => x !== most).reduce((a, b) => (r[a] <= r[b] ? a : b));
-    return { type: 'market', give: most, get: least };
+  if (g.step === 'steal') return { type: 'steal', from: g.stealFrom[0] };
+  if (g.step === 'road_building') return { type: 'build_road', edgeId: buildableRoads(g.buildings, g.roads, me)[0] };
+
+  const count = (kind: 'road' | 'village' | 'city') => pieceCount(g.buildings, g.roads, me, kind);
+  const playable = (kind: string) => !g.devPlayedThisTurn && g.myDevCards.some((c) => c.kind === kind && c.boughtTurn < g.turn);
+  // 내 마을이 닿은 칸에 동상이 있으면 기사를 쓴다
+  if (playable('knight') && g.buildings.some((b) => b.owner === me && VERTEX_MAP[b.vertexId].tiles.includes(g.robber))) {
+    return { type: 'play_dev', kind: 'knight' };
+  }
+  if (hasBundle(r, PIECE_COST.city) && count('city') < PIECE_LIMIT.city) {
+    const villages = upgradableVillages(g.buildings, me);
+    if (villages.length) return { type: 'build_city', vertexId: villages[0] };
+  }
+  const villageSpots = buildableVillages(g.buildings, g.roads, me);
+  if (hasBundle(r, PIECE_COST.village) && count('village') < PIECE_LIMIT.village && villageSpots.length) {
+    return { type: 'build_village', vertexId: villageSpots[0] };
+  }
+  if (playable('road_building') && !villageSpots.length && buildableRoads(g.buildings, g.roads, me).length) return { type: 'play_dev', kind: 'road_building' };
+  if (playable('year_of_plenty')) return { type: 'play_dev', kind: 'year_of_plenty', resources: ['stone', 'grain'] };
+  if (hasBundle(r, DEV_COST) && g.devDeckCount > 0) return { type: 'buy_dev' };
+  if (hasBundle(r, PIECE_COST.road) && count('road') < PIECE_LIMIT.road && !villageSpots.length) {
+    const edges = buildableRoads(g.buildings, g.roads, me);
+    if (edges.length) return { type: 'build_road', edgeId: edges[(seat * 3 + g.turn) % edges.length] };
+  }
+  // 다음 목표(도시 → 마을 → 발전 카드)에 모자란 자원 하나를, 목표에 안 쓰는 남는 자원으로 은행에서 바꾼다.
+  const target = count('village') > 0 && count('city') < PIECE_LIMIT.city ? PIECE_COST.city : villageSpots.length ? PIECE_COST.village : DEV_COST;
+  const missing = RESOURCES.find((x) => r[x] < target[x]);
+  if (missing) {
+    const give = RESOURCES.find((x) => x !== missing && r[x] - target[x] >= g.myTradeRatios[x]);
+    if (give) return { type: 'bank_trade', give, get: missing };
   }
   return { type: 'end_turn' };
 }

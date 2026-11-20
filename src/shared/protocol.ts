@@ -1,14 +1,5 @@
 // 브라우저 ↔ 서버 Socket.IO 메시지 형식.
-import type {
-  Bundle,
-  ContractId,
-  GameAction,
-  GameEvent,
-  GamePhase,
-  GameResult,
-  Resource,
-  Settlement,
-} from './types';
+import type { Building, Bundle, DevCard, GameEvent, GamePhase, GameResult, GameAction, Harbor, Resource, Road, TileId, TurnStep } from './types';
 
 export interface LobbyPlayerView {
   id: string;
@@ -19,13 +10,22 @@ export interface LobbyPlayerView {
   connected: boolean;
 }
 
-/** 다른 사람에게도 공개되는 플레이어 정보. 종류별 자원은 포함하지 않는다. */
+/** 다른 사람에게도 공개되는 플레이어 정보. 종류별 자원과 발전 카드 종류는 포함하지 않는다. */
 export interface GamePlayerView {
   id: string;
   seat: number;
+  /** 공개 승점: 마을·도시 + 최장 교역로·최강 기사단 (숨긴 승점 카드는 빠진다) */
   score: number;
   resourceTotal: number;
-  settlementCount: number;
+  /** 손에 든 발전 카드 장수 */
+  devCardCount: number;
+  /** 쓴 기사 카드 수 */
+  knightsPlayed: number;
+  /** 가장 길게 이어진 길 */
+  roadLength: number;
+  villages: number;
+  cities: number;
+  roads: number;
 }
 
 /** 교환 당사자에게만 give/get 이 채워진다. */
@@ -37,27 +37,41 @@ export interface TradeView {
   get?: Bundle;
 }
 
-export interface ContractView {
-  id: ContractId;
-  completedBy: string | null;
-}
-
 export interface GameView {
   phase: GamePhase;
-  round: number;
-  totalRounds: number;
-  forecast: Resource[];
+  /** 진행 턴 번호 (시작 배치 중에는 0) */
+  turn: number;
   order: string[];
   placementOrder: string[];
   placementPlayerId: string | null;
-  firstPlayerId: string | null;
   currentPlayerId: string | null;
-  actionsLeft: number;
-  settlements: Settlement[];
-  contracts: ContractView[];
+  step: TurnStep;
+  dice: [number, number] | null;
+  /** 7이 나와 아직 버려야 하는 장수 */
+  discards: Record<string, number>;
+  /** 기사단 동상을 옮긴 뒤 빼앗을 수 있는 상대 */
+  stealFrom: string[];
+  /** 기사단 동상이 선 칸 */
+  robber: TileId;
+  /** 칸마다 놓인 주사위 숫자 */
+  numbers: Record<TileId, number>;
+  harbors: Harbor[];
+  buildings: Building[];
+  roads: Road[];
+  devDeckCount: number;
+  devPlayedThisTurn: boolean;
+  freeRoads: number;
+  longestRoad: { holder: string | null; length: number };
+  largestArmy: { holder: string | null; size: number };
   players: GamePlayerView[];
   /** 이 화면의 주인 자원만 종류별로 들어 있다. */
   myResources: Bundle;
+  /** 이 화면의 주인이 든 발전 카드 */
+  myDevCards: DevCard[];
+  /** 이 화면의 주인이 쓸 수 있는 은행 교환 비율 */
+  myTradeRatios: Record<Resource, number>;
+  /** 이 화면의 주인 승점 (숨긴 승점 카드 포함) */
+  myPoints: number;
   trade: TradeView | null;
   events: GameEvent[];
   result: GameResult | null;

@@ -19,7 +19,9 @@ export type MaterialKey =
   | 'metal'
   | 'clay'
   | 'dark'
-  | 'paint';
+  | 'paint'
+  | 'fleece'
+  | 'brick';
 
 /** 소품 재질이 쓰는 KTX2 텍스처 키 (public/art/textures/<키>.ktx2) */
 export type PropTextureKey =
@@ -71,6 +73,10 @@ export const MATERIALS: Record<MaterialKey, MaterialSpec> = {
   dark: { color: '#3a2d22', roughness: 0.9 },
   /** 흰 바탕이라 꼭짓점 색이 그대로 보인다. 사과·양배추·들꽃·창문 불빛처럼 작은 색 소품에 쓴다. */
   paint: { color: '#ffffff', roughness: 0.7 },
+  /** 양털 (목초지의 양) */
+  fleece: { color: '#f1e9d6', roughness: 0.95 },
+  /** 구운 벽돌 (가마, 벽돌 더미) */
+  brick: { color: '#a24a33', roughness: 0.9 },
 };
 
 export const MATERIAL_KEYS = Object.keys(MATERIALS) as MaterialKey[];

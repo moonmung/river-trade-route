@@ -109,6 +109,9 @@ function toonRamp(): THREE.DataTexture {
  */
 export const PAINT_SATURATION = 1.3;
 
+/** 바람 흔들림에 쓰는 시간(초). BoardRenderer 가 움직임을 켜 둔 동안 매 프레임 올린다. 모든 재질이 같은 값을 본다. */
+export const paintTime = { value: 0 };
+
 export interface PaintOptions {
   color?: THREE.ColorRepresentation;
   map?: THREE.Texture | null;
@@ -117,6 +120,8 @@ export interface PaintOptions {
   name?: string;
   /** 물감 얼룩 세기 (0 이면 고른 색) */
   wash?: number;
+  /** 바람에 흔들리는 세기 (0 이면 고정). 소품 바닥은 그대로 두고 높이 올라갈수록 많이 흔들린다. */
+  sway?: number;
 }
 
 /** 만화 음영 + 물감 얼룩 재질. 인스턴싱·인스턴스 색(플레이어 색)·꼭짓점 색을 모두 쓸 수 있다. */
@@ -130,12 +135,32 @@ export function paintMaterial(o: PaintOptions = {}): THREE.MeshToonMaterial {
     gradientMap: toonRamp(),
   });
   const wash = o.wash ?? 1;
+  const sway = o.sway ?? 0;
+  if (sway > 0) m.defines = { ...(m.defines ?? {}), PAINT_SWAY: '' };
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uPaintNoise = { value: paintNoise() };
     shader.uniforms.uPaintWash = { value: wash };
     shader.uniforms.uPaintSaturation = { value: PAINT_SATURATION };
+    shader.uniforms.uTime = paintTime;
+    shader.uniforms.uSway = { value: sway };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vPaintWorld;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vPaintWorld;\nuniform float uTime;\nuniform float uSway;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+  #ifdef PAINT_SWAY
+    // 바람: 소품마다 위치로 박자를 어긋나게 하고, 높이의 제곱만큼 끝이 휘게 한다.
+    vec4 swayRoot = vec4( 0.0, 0.0, 0.0, 1.0 );
+    #ifdef USE_INSTANCING
+      swayRoot = instanceMatrix * swayRoot;
+    #endif
+    vec3 swayAt = ( modelMatrix * swayRoot ).xyz;
+    float swayPhase = uTime * 0.9 + swayAt.x * 1.3 + swayAt.z * 0.9;
+    float swayBend = max( transformed.y, 0.0 ) * max( transformed.y, 0.0 ) * uSway;
+    transformed.x += ( sin( swayPhase ) + 0.35 * sin( swayPhase * 2.3 + 1.1 ) ) * swayBend;
+    transformed.z += cos( swayPhase * 0.83 + 0.7 ) * swayBend * 0.55;
+  #endif`,
+      )
       .replace(
         '#include <project_vertex>',
         `#include <project_vertex>
@@ -160,7 +185,7 @@ export function paintMaterial(o: PaintOptions = {}): THREE.MeshToonMaterial {
   diffuseColor.rgb = max( mix( vec3( paintLuma ), diffuseColor.rgb, uPaintSaturation ), 0.0 );`,
       );
   };
-  m.customProgramCacheKey = () => 'paint-v2';
+  m.customProgramCacheKey = () => (sway > 0 ? 'paint-v3-sway' : 'paint-v3');
   return m;
 }
 
