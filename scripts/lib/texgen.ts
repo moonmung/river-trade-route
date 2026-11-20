@@ -358,86 +358,111 @@ export function groundGrass(size = 512): Img {
   return img;
 }
 
+// ───────────────────────── 수채화 바닥 텍스처 ─────────────────────────
+// 넓게 번진 물감 농담 위에, 마르며 얼룩 테두리에 고인 물감(블룸), 어두운 물감일수록 도드라지는 알갱이,
+// 짧은 붓 자국을 겹쳐 칠한다. 사진 같은 질감 대신 손으로 칠한 삽화처럼 보이게 하는 것이 목적이다.
+
+/** 물감 얼룩: 얼룩 안쪽(0~1)과, 물감이 고여 진해진 얼룩 테두리(0~1) */
+function bloom(u: number, v: number, period: number, seed: number, threshold = 0.55): { inside: number; rim: number } {
+  const t = fbm(u, v, period, period, 5, seed);
+  return {
+    inside: smooth(threshold - 0.02, threshold + 0.03, t),
+    rim: 1 - smooth(0.0, 0.028, Math.abs(t - threshold)),
+  };
+}
+
+/** 어두운 물감일수록 도드라지는 알갱이 */
+function granulate(c: RGB, u: number, v: number, seed: number, amount = 0.14): RGB {
+  const g = fbm(u, v, 128, 128, 2, seed);
+  const lum = c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11;
+  return scale(c, 1 - (g - 0.5) * amount * (1.4 - lum));
+}
+
+/** 한 방향으로 길쭉한 붓 자국 (0 = 가로, 1 = 세로, 2·3 = 대각선). density 가 클수록 자국이 많다. */
+function strokes(u: number, v: number, dir: 0 | 1 | 2 | 3, density: number, seed: number): number {
+  const [x, y] = dir === 0 ? [u, v] : dir === 1 ? [v, u] : dir === 2 ? [u + v, u - v] : [u - v, u + v];
+  const s = fbm(x, y, 5, 44, 2, seed);
+  return smooth(1 - density, 1 - density + 0.07, s);
+}
+
+/** 타일 사이 흙길과 받침: 따뜻한 시에나 물감, 군데군데 진한 얼룩과 잔돌 점 */
 export function groundDirt(size = 512): Img {
   const img = new Img(size, size);
   each(size, (u, v, x, y) => {
-    const patch = fbm(u, v, 4, 4, 4, 111);
-    const pebble = voronoi(u, v, 36, 113, 0.9);
-    let c = mix(hex('#a2865e'), hex('#cbb187'), patch);
-    if (pebble.f1 < 0.18) c = mix(c, hash2(pebble.id, 1, 115) > 0.5 ? hex('#e0d2b6') : hex('#7d6446'), 0.5 * (1 - pebble.f1 / 0.18));
-    img.set(x, y, c);
+    let c = mix(hex('#c8a679'), hex('#e3cba2'), fbm(u, v, 3, 3, 4, 181));
+    const b = bloom(u, v, 5, 183, 0.58);
+    c = mix(c, hex('#ae8a5f'), b.inside * 0.35);
+    c = scale(c, 1 - b.rim * 0.16);
+    const dot = voronoi(u, v, 28, 185, 0.9);
+    if (hash2(dot.id, 1, 187) > 0.62) c = mix(c, hex('#977654'), (1 - smooth(0.05, 0.16, dot.f1)) * 0.4);
+    img.set(x, y, granulate(c, u, v, 189));
   });
   return img;
 }
 
-/** 숲 바닥: 밝은 이끼, 햇빛 얼룩, 낙엽·솔잎 */
+/** 숲 바닥: 맑은 풀색 물감, 진한 초록 얼룩, 사선으로 짧게 그은 풀 붓 자국과 누런 낙엽 점 */
 export function groundForest(size = 512): Img {
   const img = new Img(size, size);
   each(size, (u, v, x, y) => {
-    const moss = fbm(u, v, 4, 4, 4, 121);
-    const sun = smooth(0.55, 0.75, fbm(u, v, 3, 3, 3, 129));
-    const needlesA = fbm(u, v, 96, 8, 2, 123);
-    const needlesB = fbm(u, v, 8, 96, 2, 125);
-    const needle = Math.max(needlesA, needlesB);
-    let c = mix(hex('#3f6f2e'), hex('#76a843'), moss);
-    c = mix(c, hex('#a7c75c'), sun * 0.45);
-    c = mix(c, hex('#8a6a3e'), smooth(0.7, 0.84, needle) * 0.55);
-    c = scale(c, 0.9 + 0.2 * fbm(u, v, 24, 24, 2, 127));
-    img.set(x, y, c);
+    let c = mix(hex('#7da55c'), hex('#aecb7e'), fbm(u, v, 3, 3, 4, 121));
+    const b = bloom(u, v, 4, 123, 0.57);
+    c = mix(c, hex('#62894a'), b.inside * 0.45);
+    c = scale(c, 1 - b.rim * 0.18);
+    const grass = Math.max(strokes(u, v, 2, 0.11, 125), strokes(u, v, 3, 0.09, 127));
+    c = mix(c, hex('#4f7a3d'), grass * 0.42);
+    c = mix(c, hex('#c79d55'), strokes(u, v, 0, 0.035, 129) * 0.5);
+    img.set(x, y, granulate(c, u, v, 131));
   });
   return img;
 }
 
-/** 갈아 놓은 밭: 밀 줄과 같은 방향(가로)의 고랑 */
-/** 밭: 밀 고랑 사이로 보이는 황금빛 그루터기와 흙 고랑 (밀 줄과 같은 가로 방향) */
+/** 밭: 황토색 물감, 밀 줄과 같은 가로 방향 고랑, 밝게 남긴 붓 자국 */
 export function groundField(size = 512): Img {
   const img = new Img(size, size);
   each(size, (u, v, x, y) => {
-    const furrow = Math.sin((v * 12 + (fbm(u, v, 4, 2, 2, 131) - 0.5) * 0.25) * Math.PI * 2) * 0.5 + 0.5;
-    const n = fbm(u, v, 24, 24, 3, 133);
-    const straw = fbm(u, v, 64, 6, 2, 137);
-    let c = mix(hex('#a07a3c'), hex('#e2bd5e'), furrow * 0.65 + n * 0.35);
-    c = mix(c, hex('#f3d987'), smooth(0.62, 0.8, straw) * 0.5);
-    img.set(x, y, c);
+    let c = mix(hex('#dbb265'), hex('#f0d592'), fbm(u, v, 3, 3, 4, 141));
+    const furrow = Math.sin((v * 10 + (fbm(u, v, 4, 2, 2, 143) - 0.5) * 0.3) * Math.PI * 2) * 0.5 + 0.5;
+    c = mix(c, hex('#bf8e47'), smooth(0.55, 0.95, furrow) * 0.35);
+    c = mix(c, hex('#f7e5ad'), strokes(u, v, 0, 0.18, 145) * 0.45);
+    const b = bloom(u, v, 3, 147, 0.6);
+    c = scale(c, 1 - b.rim * 0.12);
+    img.set(x, y, granulate(c, u, v, 149, 0.1));
   });
   return img;
 }
 
-/** 채석장: 거친 바위 바닥(큰 바위 덩어리의 밝고 어두운 면)과 군데군데 자갈 */
+/** 채석장: 서늘한 회색 물감, 보랏빛 그늘 얼룩, 군데군데 끊긴 먹선 금, 자갈 점 */
 export function groundQuarry(size = 512): Img {
   const img = new Img(size, size);
   each(size, (u, v, x, y) => {
-    const rock = voronoi(u, v, 4, 141, 0.95);
-    const gravel = voronoi(u, v, 56, 147, 0.95);
-    const rough = fbm(u, v, 16, 16, 4, 143);
-    const patch = smooth(0.55, 0.7, fbm(u, v, 3, 3, 3, 153));
-    // 바위 면마다 밝기를 달리하고, 빛 방향(왼쪽 위)으로 기울어진 면을 밝게 칠한다.
-    const facet = hash2(rock.id, 2, 145);
-    const lit = (-rock.dx - rock.dy) * 0.12;
-    let c = mix(hex('#8f8c85'), hex('#d0ccc2'), clamp01(facet * 0.45 + rough * 0.45 + 0.1 + lit));
-    const seam = 1 - smooth(0.02, 0.09, rock.f2 - rock.f1);
-    c = scale(c, 1 - seam * 0.35);
-    const pebble = mix(hex('#8a857b'), hex('#c8c2b6'), hash2(gravel.id, 5, 149));
-    c = mix(c, scale(pebble, 1 - (1 - smooth(0, 0.14, gravel.f2 - gravel.f1)) * 0.3), patch * 0.85);
-    img.set(x, y, c);
+    let c = mix(hex('#b6b0a6'), hex('#dbd4c7'), fbm(u, v, 3, 3, 4, 151));
+    const b = bloom(u, v, 4, 153, 0.55);
+    c = mix(c, hex('#9b94a3'), b.inside * 0.4);
+    c = scale(c, 1 - b.rim * 0.2);
+    const rock = voronoi(u, v, 5, 155, 0.9);
+    const crack = 1 - smooth(0.0, 0.03, rock.f2 - rock.f1);
+    c = mix(c, hex('#6a6158'), crack * (fbm(u, v, 8, 8, 2, 157) > 0.45 ? 0.5 : 0.1));
+    const gravel = voronoi(u, v, 40, 159, 0.9);
+    const patch = smooth(0.5, 0.7, fbm(u, v, 3, 3, 3, 161));
+    c = scale(c, 1 - (1 - smooth(0, 0.12, gravel.f2 - gravel.f1)) * 0.14 * patch);
+    img.set(x, y, granulate(c, u, v, 163, 0.18));
   });
   return img;
 }
 
-/** 시장 바닥 자갈 포장 (둥근 돌 + 모래 줄눈) */
+/** 시장 바닥: 크림색 물감 위에 펜으로 대충 그은 둥근 돌 (테두리가 군데군데 끊긴다) */
 export function groundCobble(size = 512): Img {
   const img = new Img(size, size);
   each(size, (u, v, x, y) => {
-    const vo = voronoi(u, v, 12, 151, 0.7);
-    const edge = vo.f2 - vo.f1;
-    const tone = hash2(vo.id, 4, 153);
-    const n = fbm(u, v, 32, 32, 2, 155);
-    let c = mix(hex('#b0a48c'), hex('#dcd0b6'), tone * 0.7 + n * 0.3);
-    // 햇빛 방향(왼쪽 위)으로 밝게, 반대쪽으로 어둡게 미리 칠해 돌이 둥글어 보이게 한다.
-    c = scale(c, 1 + (-vo.dx - vo.dy) * 0.25);
-    const mortar = 1 - smooth(0.04, 0.14, edge);
-    c = mix(c, hex('#8a7a60'), mortar);
-    img.set(x, y, c);
+    const vo = voronoi(u, v, 10, 171, 0.7);
+    let c = mix(hex('#dccbab'), hex('#f0e4c9'), fbm(u, v, 3, 3, 4, 173));
+    const tone = hash2(vo.id, 4, 175);
+    c = mix(c, tone > 0.66 ? hex('#cbb390') : tone > 0.33 ? hex('#dac6a3') : hex('#c4b9a8'), 0.5);
+    // 돌마다 왼쪽 위는 밝고 오른쪽 아래는 그늘지게 한 번 더 칠한다.
+    c = scale(c, 1 + (-vo.dx - vo.dy) * 0.16);
+    const pen = (1 - smooth(0.015, 0.05, vo.f2 - vo.f1)) * (fbm(u, v, 16, 16, 2, 177) > 0.35 ? 1 : 0.3);
+    c = mix(c, hex('#7b6249'), pen * 0.6);
+    img.set(x, y, granulate(c, u, v, 179));
   });
   return img;
 }

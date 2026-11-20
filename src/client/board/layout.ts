@@ -1,4 +1,4 @@
-// 보드 배치: 육각 타일 위치, 타일 종류별 소품 배치, 육각 받침, 강줄기, 보드 밖 풍경.
+// 보드 배치: 육각 타일 위치, 타일 종류별 소품 배치, 육각 받침. 보드 밖은 물이라 따로 배치할 것이 없다.
 // 모든 배치는 타일 ID를 시드로 정해지므로 모든 기기에서 같은 모습이 된다.
 // 타일은 꼭짓점이 위아래(화면 앞뒤)를 향하는 pointy-top 육각형이다.
 import * as THREE from 'three';
@@ -19,7 +19,6 @@ export const TILE_THICKNESS = 0.09;
 export const TILE_TOP = PLATFORM_TOP + TILE_THICKNESS;
 /** 바깥 타일과 받침 가장자리 사이 여백 */
 export const PLATFORM_MARGIN = 0.38;
-export const WATER_Y = 0.035;
 
 /** 거점(집)과 깃발이 서는 자리 (타일 중심 기준, 앞쪽 오른편) */
 export const HOUSE_SLOT = { x: 0.22, z: 0.32 };
@@ -99,15 +98,6 @@ export function tileCenter(tile: Pick<TileDef, 'q' | 'r'>, m: BoardMetrics): THR
   return new THREE.Vector3(c.x - m.cx, TILE_TOP, c.z - m.cz);
 }
 
-/** 받침 육각형 안쪽인지 (pad 만큼 넓혀서 판정) */
-export function insidePlinth(x: number, z: number, m: BoardMetrics, pad = 0): boolean {
-  const cos30 = SQRT3 / 2;
-  const R = m.plinthRadius + pad;
-  const ax = Math.abs(x);
-  const az = Math.abs(z);
-  return az <= R * cos30 && ax * cos30 + az * 0.5 <= R * cos30;
-}
-
 /** 타일 안에서 z 위치의 가로 반폭 (육각형이 위아래로 좁아지는 것 반영) */
 function halfWidthAt(z: number): number {
   return Math.min(HEX_APOTHEM, (HEX_RADIUS - Math.abs(z)) * SQRT3);
@@ -126,6 +116,46 @@ function inClearing(x: number, z: number, pad: number): boolean {
 function insideHex(x: number, z: number, margin: number): boolean {
   const R = HEX_RADIUS - margin;
   return Math.abs(x) <= (R * SQRT3) / 2 && Math.abs(z) <= R - Math.abs(x) / SQRT3;
+}
+
+/** 바닥 소품끼리 겹치지 않게 보는 대략의 반지름 (배율 1 기준) */
+const FOOTPRINT: Partial<Record<PropKey, number>> = {
+  pine: 0.22,
+  oak: 0.26,
+  bush: 0.13,
+  tuft: 0.06,
+  logpile: 0.32,
+  stump: 0.12,
+  stook: 0.12,
+  sack: 0.09,
+  boulder: 0.2,
+  pebbles: 0.1,
+  blocks: 0.32,
+};
+
+interface ScatterItem {
+  key: PropKey;
+  variants: number;
+  count: number;
+  scale: [number, number];
+  shadow: number;
+}
+
+/** 빈 땅에 작은 소품(덤불, 풀 포기, 자갈)을 흩뿌린다. 이미 놓인 소품과 거점 빈터를 피해서 자리를 고른다. */
+function scatter(out: Local[], rand: () => number, items: ScatterItem[], allow: (x: number, z: number) => boolean): void {
+  for (const item of items) {
+    let placed = 0;
+    for (let tries = 0; tries < 80 && placed < item.count; tries++) {
+      const x = (rand() * 2 - 1) * HEX_APOTHEM;
+      const z = (rand() * 2 - 1) * HEX_RADIUS;
+      const scale = item.scale[0] + rand() * (item.scale[1] - item.scale[0]);
+      const reach = (FOOTPRINT[item.key] ?? 0.1) * scale;
+      if (!insideHex(x, z, reach + 0.04) || inClearing(x, z, reach * 0.6) || !allow(x, z)) continue;
+      if (out.some((p) => p.key !== 'wheatrow' && Math.hypot(p.x - x, p.z - z) < reach + (FOOTPRINT[p.key] ?? 0.1) * p.scale * 0.8)) continue;
+      out.push({ key: item.key, variant: Math.floor(rand() * item.variants), x, z, rotY: rand() * 6.28, scale, shadow: item.shadow });
+      placed++;
+    }
+  }
 }
 
 /** 숲: 뒤쪽 절반을 소나무와 참나무가 빽빽하게 채운다. 앞 왼쪽은 통나무 더미, 앞 오른쪽은 거점 빈터. */
@@ -148,6 +178,16 @@ function forest(rand: () => number): Local[] {
       out.push({ key: oak ? 'oak' : 'pine', variant: Math.floor(rand() * 3), x, z, rotY: rand() * 6.28, scale: s, shadow: oak ? 0.38 : 0.31 });
     }
   }
+  // 숲 앞쪽 빈 땅의 덤불과 풀 포기, 들꽃
+  scatter(
+    out,
+    rand,
+    [
+      { key: 'bush', variants: 2, count: 2, scale: [0.8, 1.1], shadow: 0.16 },
+      { key: 'tuft', variants: 2, count: 7, scale: [0.8, 1.3], shadow: 0 },
+    ],
+    (_x, z) => z > -0.1,
+  );
   return out;
 }
 
@@ -167,13 +207,15 @@ function field(rand: () => number): Local[] {
   out.push({ key: 'stook', variant: 0, x: -0.14, z: 0.8, rotY: rand() * 3, scale: 0.92, shadow: 0.13 });
   out.push({ key: 'sack', variant: 0, x: 0.12, z: 0.8, rotY: rand() * 3, scale: 0.95, shadow: 0.12 });
   out.push({ key: 'sack', variant: 1, x: 0.27, z: 0.74, rotY: rand() * 3, scale: 0.9, shadow: 0.11 });
+  // 밭 앞 꼭짓점의 들꽃
+  scatter(out, rand, [{ key: 'tuft', variants: 2, count: 2, scale: [0.9, 1.2], shadow: 0 }], (_x, z) => z > 0.66);
   return out;
 }
 
 /** 채석장: 뒤쪽에 높이 솟은 바위 언덕, 앞쪽에 잘라 낸 돌덩이와 자갈 */
 function quarry(rand: () => number): Local[] {
   const r = () => rand() * 6.28;
-  return [
+  const out: Local[] = [
     { key: 'boulder', variant: 0, x: -0.42, z: -0.5, rotY: r(), scale: 1.65, sy: 1.5, shadow: 0.24 },
     { key: 'boulder', variant: 2, x: 0.08, z: -0.66, rotY: r(), scale: 1.85, sy: 1.75, shadow: 0.24 },
     { key: 'boulder', variant: 1, x: 0.5, z: -0.38, rotY: r(), scale: 1.5, sy: 1.4, shadow: 0.24 },
@@ -186,6 +228,17 @@ function quarry(rand: () => number): Local[] {
     { key: 'boulder', variant: 1, x: -0.22, z: 0.78, rotY: r(), scale: 0.32, shadow: 0.24 },
     { key: 'boulder', variant: 2, x: 0.06, z: 0.86, rotY: r(), scale: 0.36, shadow: 0.24 },
   ];
+  // 앞쪽 바닥의 자갈 무더기와 바위 틈 풀 포기
+  scatter(
+    out,
+    rand,
+    [
+      { key: 'pebbles', variants: 2, count: 3, scale: [0.8, 1.2], shadow: 0.1 },
+      { key: 'tuft', variants: 1, count: 2, scale: [0.7, 1.0], shadow: 0 },
+    ],
+    (_x, z) => z > -0.2,
+  );
+  return out;
 }
 
 /** 시장: 포석 광장 가운데 우물, 뒤쪽에 줄무늬 천막, 앞쪽에 상자·통·포대 */
@@ -228,84 +281,4 @@ export function houseTransform(tile: TileDef, m: BoardMetrics): { house: THREE.V
     house: new THREE.Vector3(c.x + HOUSE_SLOT.x, TILE_TOP, c.z + HOUSE_SLOT.z),
     banner: new THREE.Vector3(c.x + BANNER_SLOT.x, TILE_TOP, c.z + BANNER_SLOT.z),
   };
-}
-
-// ───────────────────────── 강과 풍경 ─────────────────────────
-
-/** 보드 오른쪽을 따라 내려와 앞쪽을 지나가는 강줄기 */
-export function riverCurve(m: BoardMetrics): THREE.CatmullRomCurve3 {
-  const hx = m.halfX;
-  const hz = m.halfZ;
-  const pts = [
-    [hx * 0.55 + 2.4, -hz - 14],
-    [hx * 0.55 + 2.2, -hz - 3],
-    [hx * 0.8 + 1.6, -hz + 0.6],
-    [hx + 1.7, -0.6],
-    [hx * 0.75 + 1.6, hz - 0.7],
-    [hx * 0.3 + 0.8, hz + 1.75],
-    [-hx * 0.4, hz + 2.05],
-    [-hx - 3.5, hz + 2.4],
-    [-hx - 16, hz + 2.9],
-  ];
-  return new THREE.CatmullRomCurve3(
-    pts.map(([x, z]) => new THREE.Vector3(x, 0, z)),
-    false,
-    'catmullrom',
-    0.5,
-  );
-}
-
-export const RIVER_WIDTH = 2.0;
-export const BANK_WIDTH = 0.42;
-
-function distanceToCurve(p: THREE.Vector3, samples: THREE.Vector3[]): number {
-  let best = Infinity;
-  for (const s of samples) best = Math.min(best, (s.x - p.x) ** 2 + (s.z - p.z) ** 2);
-  return Math.sqrt(best);
-}
-
-/** 보드 밖 풍경: 나무, 덤불, 바위, 갈대, 부두와 배 */
-export function sceneryPlacements(m: BoardMetrics, seed = 42): Placement[] {
-  const rand = mulberry32(seed);
-  const curve = riverCurve(m);
-  const samples = curve.getSpacedPoints(160);
-  const out: Placement[] = [];
-  const reach = 9;
-  const tries = 1000;
-  for (let i = 0; i < tries; i++) {
-    const x = (rand() * 2 - 1) * (m.halfX + reach);
-    const z = (rand() * 2 - 1) * (m.halfZ + reach);
-    if (insidePlinth(x, z, m, 0.55)) continue;
-    const p = new THREE.Vector3(x, 0, z);
-    const d = distanceToCurve(p, samples);
-    if (d < RIVER_WIDTH / 2 + BANK_WIDTH + 0.15) {
-      // 강가 가장자리에 갈대
-      if (d > RIVER_WIDTH / 2 - 0.05 && rand() < 0.35) {
-        out.push({ key: 'reeds', variant: Math.floor(rand() * 2), x, y: 0, z, rotY: rand() * 6, scale: 1 + rand() * 0.6, shadow: 0 });
-      }
-      continue;
-    }
-    // 보드 가까이는 듬성듬성, 멀어질수록 숲이 빽빽해진다.
-    const edge = Math.max(0, Math.hypot(x, z) - m.plinthRadius);
-    const density = Math.min(1, 0.16 + edge * 0.12);
-    if (rand() > density) continue;
-    const r = rand();
-    if (r < 0.45) out.push({ key: 'pine', variant: Math.floor(rand() * 3), x, y: 0, z, rotY: rand() * 6, scale: 0.9 + rand() * 0.5, shadow: 0.34 });
-    else if (r < 0.8) out.push({ key: 'oak', variant: Math.floor(rand() * 3), x, y: 0, z, rotY: rand() * 6, scale: 0.9 + rand() * 0.45, shadow: 0.4 });
-    else if (r < 0.93) out.push({ key: 'bush', variant: Math.floor(rand() * 2), x, y: 0, z, rotY: rand() * 6, scale: 0.9 + rand() * 0.6, shadow: 0.16 });
-    else out.push({ key: 'boulder', variant: Math.floor(rand() * 4), x, y: 0, z, rotY: rand() * 6, scale: 0.6 + rand() * 0.6, shadow: 0.2 });
-  }
-
-  // 부두와 배: 보드 오른쪽(가운데 시장 줄 높이) 강가
-  const dockZ = 0;
-  const bankPoint = samples.reduce((best, s) => (Math.abs(s.z - dockZ) < Math.abs(best.z - dockZ) && s.x > 0 ? s : best), samples[0]);
-  const dockX = bankPoint.x - RIVER_WIDTH / 2 - 0.05;
-  out.push({ key: 'dock', variant: 0, x: dockX, y: 0, z: dockZ, rotY: Math.PI / 2, scale: 1.1, shadow: 0 });
-  out.push({ key: 'barrel', variant: 0, x: dockX - 0.75, y: 0, z: dockZ - 0.45, rotY: 0.3, scale: 1, shadow: 0.13 });
-  out.push({ key: 'crate', variant: 0, x: dockX - 0.7, y: 0, z: dockZ + 0.4, rotY: 0.7, scale: 1, shadow: 0.13 });
-  out.push({ key: 'sack', variant: 1, x: dockX - 0.92, y: 0, z: dockZ + 0.1, rotY: 1.7, scale: 1, shadow: 0.12 });
-  out.push({ key: 'boat', variant: 0, x: bankPoint.x + 0.15, y: WATER_Y - 0.03, z: dockZ - 1.05, rotY: Math.PI / 2 + 0.12, scale: 1.1, shadow: 0 });
-  const far = curve.getPointAt(0.8);
-  out.push({ key: 'boat', variant: 0, x: far.x, y: WATER_Y - 0.03, z: far.z + 0.2, rotY: 0.08, scale: 1.0, shadow: 0 });
-  return out;
 }

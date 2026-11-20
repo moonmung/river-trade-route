@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generatedBy": "scripts/generate-assets.ts",
-  "generatedAt": "2026-11-19T22:36:34.305Z",
+  "generatedAt": "2026-11-20T05:55:24.673Z",
   "note": "temporary: true 인 항목은 코드로 만든 임시 에셋입니다. 최종 모델·텍스처로 바꾸면 false 로 고치세요.",
   "models": {
     "house": {
@@ -61,6 +61,18 @@
     "bush_1": {
       "url": "models/village_kit.glb",
       "node": "bush_1",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "tuft_0": {
+      "url": "models/village_kit.glb",
+      "node": "tuft_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "tuft_1": {
+      "url": "models/village_kit.glb",
+      "node": "tuft_1",
       "temporary": true,
       "note": "코드로 만든 임시 모델"
     },
@@ -145,6 +157,18 @@
     "boulder_3": {
       "url": "models/village_kit.glb",
       "node": "boulder_3",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "pebbles_0": {
+      "url": "models/village_kit.glb",
+      "node": "pebbles_0",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
+    },
+    "pebbles_1": {
+      "url": "models/village_kit.glb",
+      "node": "pebbles_1",
       "temporary": true,
       "note": "코드로 만든 임시 모델"
     },

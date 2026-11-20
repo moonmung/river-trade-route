@@ -9,16 +9,16 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildProp, propAssetName, type PropKey } from './art/builders';
 import { MATERIALS, materialKeyFromName, type MaterialKey } from './art/materials';
+import { paintMaterial } from './paint';
 
+// 보드 밖이 무늬 없는 물로 바뀌면서 풀밭(ground_grass)·강둑(ground_sand)·물결(water_normal) 텍스처는 불러오지 않는다.
+// 파일과 manifest 항목은 남아 있다.
 export type GroundTextureKey =
-  | 'ground_grass'
   | 'ground_dirt'
   | 'ground_forest'
   | 'ground_field'
   | 'ground_quarry'
   | 'ground_cobble'
-  | 'ground_sand'
-  | 'water_normal'
   | 'contact_shadow';
 
 export interface ManifestEntry {
@@ -68,24 +68,39 @@ export interface ArtLibrary {
 const ART_BASE = '/art/';
 const TRANSCODER_PATH = '/vendor/basis/';
 
-const fallbackMaterials = new Map<MaterialKey, THREE.MeshStandardMaterial>();
+const fallbackMaterials = new Map<MaterialKey, THREE.Material>();
 
-function fallbackMaterial(key: MaterialKey): THREE.MeshStandardMaterial {
+/** 재질 키에 맞는 만화 음영 재질. 텍스처 없이 재질 색 × 꼭짓점 색으로 칠한다. */
+function fallbackMaterial(key: MaterialKey): THREE.Material {
   let m = fallbackMaterials.get(key);
   if (!m) {
     const spec = MATERIALS[key];
-    m = new THREE.MeshStandardMaterial({
+    m = paintMaterial({
       name: `M_${key}`,
-      color: new THREE.Color(spec.color),
-      roughness: spec.roughness,
-      metalness: spec.metalness ?? 0,
+      color: spec.color,
       vertexColors: true,
       side: spec.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
-      flatShading: false,
     });
     fallbackMaterials.set(key, m);
   }
   return m;
+}
+
+/**
+ * GLB 재질을 같은 그림체의 만화 음영 재질로 바꾼다.
+ * 이름이 M_<키> 인 재질은 재질 목록의 색을 쓰고, 그 밖의 재질은 GLB 의 색과 텍스처를 그대로 옮긴다.
+ */
+function paintedFromGltf(material: THREE.Material): THREE.Material {
+  const key = materialKeyFromName(material.name);
+  if (key) return fallbackMaterial(key);
+  const src = material as THREE.MeshStandardMaterial;
+  return paintMaterial({
+    name: material.name,
+    color: src.color ?? '#ffffff',
+    map: src.map ?? null,
+    vertexColors: !!src.vertexColors,
+    side: material.side,
+  });
 }
 
 export function fallbackTemplate(key: PropKey, variant: number): PropTemplate {
@@ -113,13 +128,14 @@ function templateFromObject(root: THREE.Object3D, sharedMaterials: Map<string, T
     const name = material.name || 'M_unnamed';
     let shared = sharedMaterials.get(name);
     if (!shared) {
-      shared = material;
-      sharedMaterials.set(name, material);
+      shared = paintedFromGltf(material);
+      sharedMaterials.set(name, shared);
+      if (shared !== material) material.dispose();
     }
     const g = mesh.geometry.clone();
     g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toLocal, mesh.matrixWorld));
     // 같은 이름의 재질을 공유할 때, 꼭짓점 색이 없는 모델이 검게 그려지지 않게 흰색을 채운다.
-    if ((shared as THREE.MeshStandardMaterial).vertexColors && !g.attributes.color) {
+    if (shared.vertexColors && !g.attributes.color) {
       const white = new Float32Array(g.attributes.position.count * 3).fill(1);
       g.setAttribute('color', new THREE.BufferAttribute(white, 3));
     }
@@ -190,14 +206,11 @@ export async function loadArtLibrary(
   report.manifestFound = !!manifest;
 
   const groundKeys: GroundTextureKey[] = [
-    'ground_grass',
     'ground_dirt',
     'ground_forest',
     'ground_field',
     'ground_quarry',
     'ground_cobble',
-    'ground_sand',
-    'water_normal',
     'contact_shadow',
   ];
   const uniqueProps = [...new Map(propList.map((p) => [propAssetName(p.key, p.variant), p])).values()];

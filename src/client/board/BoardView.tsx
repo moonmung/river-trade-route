@@ -11,7 +11,6 @@ export interface BoardViewProps {
   insets?: Insets;
   quality?: QualityMode;
   showTileLabels?: boolean;
-  scenery?: boolean;
   onTileTap?: (tileId: string) => void;
   onPerf?: (s: PerfStats) => void;
   onLoaded?: (report: ArtReport) => void;
@@ -42,7 +41,6 @@ export default function BoardView(props: BoardViewProps) {
         emblemMarkup: (i) => emblemSvgMarkup(i, 20),
         quality: propsRef.current.quality,
         showTileLabels: propsRef.current.showTileLabels,
-        scenery: propsRef.current.scenery,
         onTileTap: (id) => propsRef.current.onTileTap?.(id),
         onPerf: (s) => propsRef.current.onPerf?.(s),
         onLoadProgress: (p) => setProgress(p),
