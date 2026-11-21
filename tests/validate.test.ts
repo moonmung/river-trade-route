@@ -51,6 +51,17 @@ describe('입력 형식 검사', () => {
     expect(parseAction({ type: 'market', give: 'gold', get: 'wood' })).toBeNull();
     expect(parseAction({ type: 'trade_propose', to: 'x', give: { wood: 1.5 }, get: { grain: 1 } })).toBeNull();
     expect(parseAction({ type: 'trade_accept', tradeId: -1 })).toBeNull();
+    // 모두에게 제안(to 없음), 확정, 은행 묶음 교환
+    expect(parseAction({ type: 'trade_propose', give: { wood: 1 }, get: { grain: 1 } })).toEqual({
+      type: 'trade_propose',
+      give: { wood: 1, grain: 0, wool: 0, brick: 0, stone: 0 },
+      get: { wood: 0, grain: 1, wool: 0, brick: 0, stone: 0 },
+    });
+    expect(parseAction({ type: 'trade_propose', to: 7, give: { wood: 1 }, get: { grain: 1 } })).toBeNull();
+    expect(parseAction({ type: 'trade_confirm', tradeId: 3, with: 'p2' })).toEqual({ type: 'trade_confirm', tradeId: 3, with: 'p2' });
+    expect(parseAction({ type: 'trade_confirm', tradeId: 3 })).toBeNull();
+    expect(parseAction({ type: 'bank_trade', give: 'wood', get: 'stone' })).toBeNull();
+    expect(parseAction({ type: 'bank_trade', give: { wood: 8 }, get: { stone: 2 } })).toMatchObject({ type: 'bank_trade', give: { wood: 8 }, get: { stone: 2 } });
     expect(parseAction({ type: 'nope' })).toBeNull();
     expect(parseAction([1, 2])).toBeNull();
   });

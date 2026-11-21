@@ -66,14 +66,20 @@ export interface DevCard {
  */
 export type TurnStep = 'roll' | 'discard' | 'robber' | 'steal' | 'main' | 'road_building';
 
+/** 교환 제안을 받은 사람의 응답. 수락해도 바로 옮기지 않고 제안한 사람이 수락한 사람 중 한 명을 골라 확정한다. */
+export type TradeResponse = 'pending' | 'accepted' | 'rejected';
+
 export interface TradeOffer {
   id: number;
   from: string;
-  to: string;
+  /** 제안을 받은 사람들 (모두에게 제안하면 제안한 사람을 뺀 전원) */
+  to: string[];
   /** 제안한 사람(차례인 사람)이 내는 자원 */
   give: Bundle;
   /** 제안한 사람이 받는 자원 (상대가 내는 자원) */
   get: Bundle;
+  /** 받은 사람마다 응답 */
+  responses: Record<string, TradeResponse>;
 }
 
 export type GamePhase = 'placement' | 'playing' | 'finished';
@@ -91,10 +97,14 @@ export type GameAction =
   | { type: 'play_dev'; kind: 'knight' | 'road_building' }
   | { type: 'play_dev'; kind: 'year_of_plenty'; resources: [Resource, Resource] }
   | { type: 'play_dev'; kind: 'monopoly'; resource: Resource }
-  | { type: 'bank_trade'; give: Resource; get: Resource }
-  | { type: 'trade_propose'; to: string; give: Bundle; get: Bundle }
+  /** 은행·해상 교역로: give 는 자원마다 내 비율의 배수, get 은 그 묶음 수만큼 */
+  | { type: 'bank_trade'; give: Bundle; get: Bundle }
+  /** to 를 빼면 모두에게 제안한다 */
+  | { type: 'trade_propose'; to?: string; give: Bundle; get: Bundle }
   | { type: 'trade_accept'; tradeId: number }
   | { type: 'trade_reject'; tradeId: number }
+  /** 제안한 사람이 수락한 사람 중 한 명(with)을 골라 교환을 확정한다 */
+  | { type: 'trade_confirm'; tradeId: number; with: string }
   | { type: 'trade_cancel'; tradeId: number }
   | { type: 'end_turn' };
 
@@ -133,10 +143,14 @@ export type GameEvent = EventBase &
     | { kind: 'build'; player: string; piece: PieceKind; at: string; free?: boolean }
     | { kind: 'buy_dev'; player: string; detail?: DevKind }
     | { kind: 'play_dev'; player: string; card: Exclude<DevKind, 'victory'>; resources?: Resource[]; amount?: number }
-    | { kind: 'bank_trade'; player: string; give: Resource; get: Resource; ratio: number }
-    | { kind: 'trade_proposed'; from: string; to: string; tradeId: number; detail?: { give: Bundle; get: Bundle } }
-    | { kind: 'trade_accepted'; from: string; to: string; tradeId: number; detail?: { give: Bundle; get: Bundle } }
-    | { kind: 'trade_closed'; from: string; to: string; tradeId: number; reason: TradeCloseReason }
+    /** harbor: 해상 교역로 비율(3:1·2:1)로 낸 자원이 있었는지 */
+    | { kind: 'bank_trade'; player: string; give: Bundle; get: Bundle; harbor: boolean }
+    // 교환 제안 내용은 모두에게 공개한다 (모두에게 한 번에 제안하므로).
+    | { kind: 'trade_proposed'; from: string; to: string[]; tradeId: number; give: Bundle; get: Bundle }
+    | { kind: 'trade_response'; player: string; from: string; tradeId: number; response: Exclude<TradeResponse, 'pending'> }
+    /** 교환 성사: from 이 give 를 내고 to 가 get 을 냈다 */
+    | { kind: 'trade_accepted'; from: string; to: string; tradeId: number; give: Bundle; get: Bundle }
+    | { kind: 'trade_closed'; from: string; tradeId: number; reason: TradeCloseReason }
     | { kind: 'award'; award: 'longest_road' | 'largest_army'; player: string | null; previous: string | null; size: number }
     | { kind: 'turn_end'; player: string }
     | { kind: 'game_end'; winners: string[] }

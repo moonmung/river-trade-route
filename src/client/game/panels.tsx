@@ -1,14 +1,14 @@
-import { MiniHand } from './hand';
+import { DevIcon, MiniHand } from './hand';
 import { useEffect, useState } from 'react';
-import { DEV_LABEL, PIECE_COST, PIECE_LABEL, PIECE_LIMIT, PIECE_POINTS, RESOURCES, RESOURCE_LABEL, WIN_POINTS } from '../../shared/constants';
+import { DEV_COST, DEV_LABEL, PIECE_COST, PIECE_LABEL, PIECE_LIMIT, PIECE_POINTS, RESOURCES, RESOURCE_LABEL, WIN_POINTS } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
 import { pieceCount } from '../../shared/rules';
 import type { PieceKind } from '../../shared/types';
 import { playerColor } from '../theme';
 import { Emblem, ResourceIcon } from '../ui/icons';
-import { josa } from '../ui/josa';
 import { showToast } from '../ui/toast';
-import { bankBlocker, buildBlocker, bundleText, isMyTurn, playDevBlocker, tradeBlocker, turnBlocker, type PlayerInfo } from './derive';
+import { buildBlocker, isMyTurn, playDevBlocker, turnBlocker, type PlayerInfo } from './derive';
+import { canBankNow, tradeButtonBlocker } from './trade';
 import { ActionButton, ResourceAmount, sendAction } from './ui';
 
 type Players = Map<string, PlayerInfo>;
@@ -131,6 +131,8 @@ export function PlayersPanel({ view, players }: { view: RoomView; players: Playe
         const isCurrent = g.currentPlayerId === id || g.placementPlayerId === id;
         const color = playerColor(p.colorIndex);
         const points = id === view.you ? g.myPoints : info.score;
+        const resp = g.trade && g.trade.to.includes(id) ? g.trade.responses[id] : null;
+        const offering = g.trade?.from === id;
         return (
           <li
             key={id}
@@ -144,6 +146,12 @@ export function PlayersPanel({ view, players }: { view: RoomView; players: Playe
               {g.longestRoad.holder === id && (
                 <span className="tag tag-award" title={`최장 교역로 (길 ${g.longestRoad.length}칸, 2점)`}>
                   <AwardIcon kind="longest_road" />
+                </span>
+              )}
+              {offering && <span className="tag trade-resp trade-resp-offer" title="교환 제안 중">⇄ 제안</span>}
+              {resp && (
+                <span className={`tag trade-resp trade-resp-${resp}`} title={`교환 제안에 ${resp === 'accepted' ? '수락' : resp === 'rejected' ? '거절' : '아직 응답 안 함'}`}>
+                  {resp === 'accepted' ? '✓ 수락' : resp === 'rejected' ? '✕ 거절' : '…'}
                 </span>
               )}
               {g.largestArmy.holder === id && (
@@ -271,6 +279,7 @@ export function ActionBar({
   view,
   buildMode,
   menuOpen,
+  tradeOpen,
   onToggleBuild,
   onTrade,
   onDev,
@@ -278,6 +287,7 @@ export function ActionBar({
   view: RoomView;
   buildMode: PieceKind | null;
   menuOpen: boolean;
+  tradeOpen: boolean;
   onToggleBuild: () => void;
   onTrade: () => void;
   onDev: () => void;
@@ -330,11 +340,16 @@ export function ActionBar({
         icon={<PieceIcon kind={buildMode ?? 'village'} size={20} />}
       />
       <ActionButton
-        className="btn act"
+        className={`btn act act-trade ${canBankNow(view) ? 'act-bankable' : ''}`}
         label="교환"
-        blocker={bankBlocker(view) && tradeBlocker(view) ? turnBlocker(view) ?? null : null}
+        active={tradeOpen}
+        blocker={tradeOpen ? null : tradeButtonBlocker(view)}
         onClick={onTrade}
-        icon={<span className="act-ico">⇄</span>}
+        icon={
+          <span className="act-ico">
+            ⇄{canBankNow(view) && <i className="act-dot" title="은행·교역로와 바로 바꿀 수 있는 자원이 있습니다" aria-label="은행 교환 가능" />}
+          </span>
+        }
       />
       <ActionButton
         className={`btn act ${devPlayable ? 'pulse-soft' : ''}`}
@@ -354,67 +369,34 @@ export function ActionBar({
   );
 }
 
-export function TradeBanner({ view, players }: { view: RoomView; players: Players }) {
-  const g = view.game!;
-  const t = g.trade;
-  if (!t) return null;
-  const from = players.get(t.from);
-  const to = players.get(t.to);
-  if (t.to === view.you && t.give && t.get) {
-    const lacking = RESOURCES.filter((r) => g.myResources[r] < t.get![r]);
-    return (
-      <div className="trade-banner trade-incoming" role="alertdialog" aria-label="교환 제안 도착">
-        <div className="trade-title">
-          <Emblem colorIndex={from?.colorIndex ?? 0} size={16} /> {from?.nickname}의 교환 제안
-        </div>
-        <div className="trade-lines">
-          <div>
-            내가 받음: <b>{bundleText(t.give)}</b>
-          </div>
-          <div>
-            내가 줌: <b>{bundleText(t.get)}</b>
-          </div>
-        </div>
-        {lacking.length > 0 && (
-          <div className="warn-text small">{lacking.map((r) => RESOURCE_LABEL[r]).join(', ')}이(가) 부족해 수락할 수 없습니다.</div>
-        )}
-        <div className="row-buttons">
-          <ActionButton
-            className="btn btn-primary"
-            label="수락"
-            blocker={lacking.length ? '요청받은 자원이 부족합니다.' : null}
-            onClick={() => sendAction({ type: 'trade_accept', tradeId: t.id })}
-          />
-          <ActionButton className="btn" label="거절" blocker={null} onClick={() => sendAction({ type: 'trade_reject', tradeId: t.id })} />
-        </div>
-      </div>
-    );
-  }
-  if (t.from === view.you && t.give && t.get) {
-    return (
-      <div className="trade-banner trade-outgoing">
-        <div className="trade-title">
-          {to?.nickname}에게 교환 제안 중 · 응답을 기다리는 중
-          {to && !to.connected && <em className="warn-text"> (상대 연결 끊김)</em>}
-        </div>
-        <div className="trade-lines">
-          <div>
-            내가 줌: <b>{bundleText(t.give)}</b>
-          </div>
-          <div>
-            내가 받음: <b>{bundleText(t.get)}</b>
-          </div>
-        </div>
-        <div className="row-buttons">
-          <ActionButton className="btn btn-small" label="제안 취소" blocker={null} onClick={() => sendAction({ type: 'trade_cancel', tradeId: t.id })} />
-        </div>
-      </div>
-    );
-  }
+/** 건설 비용 카드: 넓은 화면 오른쪽 패널에 늘 펴 둔다 (좁은 화면은 건설 메뉴에 비용이 나온다) */
+export function BuildCosts() {
+  const rows = [
+    { key: 'road', icon: <PieceIcon kind="road" size={18} />, label: PIECE_LABEL.road, cost: PIECE_COST.road, note: '' },
+    { key: 'village', icon: <PieceIcon kind="village" size={18} />, label: PIECE_LABEL.village, cost: PIECE_COST.village, note: '1점' },
+    { key: 'city', icon: <PieceIcon kind="city" size={18} />, label: PIECE_LABEL.city, cost: PIECE_COST.city, note: '2점' },
+    { key: 'dev', icon: <DevIcon kind="knight" size={18} />, label: '발전 카드', cost: DEV_COST, note: '' },
+  ];
   return (
-    <div className="trade-banner trade-other">
-      {josa(from?.nickname ?? '?', '이/가')} {to?.nickname}에게 교환을 제안하는 중 (내용은 두 사람에게만 보입니다)
-    </div>
+    <section className="build-costs">
+      <h3>건설 비용</h3>
+      <ul>
+        {rows.map((row) => (
+          <li key={row.key}>
+            <span className="bc-name">
+              {row.icon}
+              {row.label}
+            </span>
+            <span className="build-cost">
+              {RESOURCES.filter((r) => row.cost[r] > 0).map((r) => (
+                <ResourceAmount key={r} resource={r} amount={row.cost[r]} size={16} />
+              ))}
+            </span>
+            {row.note && <small className="muted">{row.note}</small>}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

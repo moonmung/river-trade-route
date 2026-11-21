@@ -291,20 +291,8 @@
   flex-wrap: wrap;
 }
 
-.trade-lines {
-  display: flex;
-  gap: 4px 14px;
-  flex-wrap: wrap;
-  margin: 4px 0;
-}
-
 .trade-banner .row-buttons {
   margin-top: 4px;
-}
-
-.trade-other {
-  font-size: 0.82rem;
-  padding: 5px 9px;
 }
 
 /* 아래 HUD */
@@ -674,18 +662,6 @@
   border-color: var(--river);
   background-color: #dfeaee;
   box-shadow: 0 0 0 2px rgba(52, 104, 143, 0.3);
-}
-
-.trade-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-@media (max-width: 460px) {
-  .trade-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .trade-row {
@@ -1078,76 +1054,6 @@
   }
   100% {
     opacity: 0;
-  }
-}
-
-/* 달성 두루마리: 위에서 펼쳐졌다가 말려 올라간다 */
-.award-show {
-  position: fixed;
-  left: 50%;
-  top: 22%;
-  transform: translateX(-50%);
-  z-index: 41;
-  pointer-events: none;
-  animation: award-life 3.2s ease-in-out forwards;
-}
-
-.award-scroll {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 20px 12px 16px;
-  background: var(--tex-grain), linear-gradient(90deg, #d8bf8a, #f6ead0 12%, #f6ead0 88%, #d8bf8a);
-  border: 1.5px solid rgba(58, 42, 31, 0.6);
-  border-radius: 6px;
-  box-shadow: var(--shadow), 0 0 0 4px rgba(201, 150, 50, 0.35);
-  transform-origin: top center;
-  animation: award-unroll 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
-}
-
-.award-title {
-  font-family: var(--font-title);
-  font-weight: 700;
-  font-size: 1.3rem;
-  color: #7a4b0c;
-  letter-spacing: 0.04em;
-}
-
-.award-who {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-weight: 700;
-}
-
-.award-who b {
-  color: var(--gold);
-}
-
-.award-detail {
-  font-size: 0.8rem;
-  color: var(--ink-soft);
-}
-
-@keyframes award-unroll {
-  from {
-    transform: scaleY(0.05) scaleX(0.7);
-    opacity: 0;
-  }
-  to {
-    transform: none;
-    opacity: 1;
-  }
-}
-
-@keyframes award-life {
-  0%,
-  85% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-14px);
   }
 }
 
@@ -1664,4 +1570,603 @@
 .mini-hand b {
   font-family: var(--font-title);
   font-size: 0.8rem;
+}
+
+/* ───────── 교환 창 ─────────
+ * 손에 든 카드 바로 위에 붙어 열리는 종이 쪽지. 위 줄은 낼 카드, 아래 줄은 받을 카드.
+ * 카드는 손에 든 카드(.hcard)와 같은 종이 카드를 작게 줄여 쓰고 고른 장수는 붉은 밀랍 도장으로 찍는다.
+ */
+.trade-panel {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  /* 손에 든 카드가 양피지 띠 위로 솟아 있으니 그 위에 띄운다 */
+  bottom: calc(100% + 30px);
+  max-width: 440px;
+  margin: 0 auto;
+  z-index: 2;
+  background-color: var(--parchment-hi);
+  background-image: var(--paper);
+  border: 1px solid rgba(58, 42, 31, 0.5);
+  border-radius: var(--wobble);
+  box-shadow: var(--shadow);
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: trade-panel-in 0.18s ease-out;
+}
+
+/* 넓은 화면: 행동 버튼 쪽(오른쪽)이 아니라 손에 든 카드 위에 붙인다 */
+.game-wide .trade-panel {
+  left: 12px;
+  right: auto;
+  bottom: calc(100% + 38px);
+  width: 440px;
+  margin: 0;
+}
+
+@keyframes trade-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.trade-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trade-tabs {
+  flex: 1;
+  margin: 0;
+}
+
+.trade-tabs .tab {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 0.86rem;
+}
+
+.trade-head .icon-btn {
+  height: 32px;
+  min-width: 34px;
+}
+
+.trade-side {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.trade-side-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-title);
+  font-size: 0.86rem;
+}
+
+.trade-side-label small {
+  font-family: var(--font);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+.trade-side-get .trade-side-label b {
+  color: var(--river-dark);
+}
+
+.trade-side-give .trade-side-label b {
+  color: var(--vermilion);
+}
+
+/* 다섯 장을 한 줄에. 휴대폰 폭(375px)에서도 넘치지 않게 칸 폭을 나눠 쓴다. */
+.tcards {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  padding: 9px 4px 0 6px;
+}
+
+.tslot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tcard {
+  --cw: 50px;
+  --ch: 64px;
+  width: min(var(--cw), 100%);
+  margin: 0;
+  transform: none;
+  transition:
+    transform 0.12s ease-out,
+    filter 0.12s;
+}
+
+.tcard:hover,
+.tcard:focus-visible {
+  transform: translateY(-3px);
+  z-index: 3 !important;
+}
+
+.tcard .hcard-art {
+  height: 54%;
+}
+
+.tcard .hcard-name {
+  font-size: 10px;
+}
+
+/* 고른 카드: 쪽빛 실로 묶은 듯 테두리를 둘러 위로 살짝 들린다 */
+.tcard-picked {
+  transform: translateY(-3px);
+}
+
+.tcard-picked .hcard-face {
+  box-shadow:
+    0 0 0 2px var(--river),
+    inset 0 0 9px rgba(120, 78, 30, 0.32),
+    0 4px 8px rgba(30, 20, 10, 0.3);
+}
+
+.trade-side-give .tcard-picked .hcard-face {
+  box-shadow:
+    0 0 0 2px var(--vermilion),
+    inset 0 0 9px rgba(120, 78, 30, 0.32),
+    0 4px 8px rgba(30, 20, 10, 0.3);
+}
+
+/* 고를 수 없는 카드: 물감이 빠진 듯 흐리게 (이미 고른 카드는 그대로 둔다) */
+.tcard-off:not(.tcard-picked) {
+  filter: grayscale(0.85) sepia(0.15);
+  opacity: 0.5;
+}
+
+.tcard-off:not(.tcard-picked):hover {
+  transform: none;
+}
+
+.tslot-minus {
+  position: absolute;
+  top: -7px;
+  right: max(-4px, calc(50% - 31px));
+  z-index: 4;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(58, 42, 31, 0.7);
+  background: var(--parchment-hi) var(--tex-grain);
+  color: var(--ink);
+  font: 700 15px/1 var(--font);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(30, 20, 10, 0.35);
+}
+
+.tslot-minus:hover {
+  background-color: #f6e2ae;
+}
+
+.tslot-sub {
+  min-height: 1em;
+  font-size: 0.66rem;
+  line-height: 1;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.trade-arrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.trade-arrow::before,
+.trade-arrow::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed rgba(58, 42, 31, 0.35);
+}
+
+.trade-note {
+  margin: 2px 0 0;
+  color: var(--ink-soft);
+  line-height: 1.35;
+}
+
+.trade-note .cost-inline {
+  margin-right: 4px;
+}
+
+.trade-go {
+  margin-top: 2px;
+}
+
+.trade-go span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 교환 버튼: 은행·교역로와 바로 바꿀 수 있으면 황토 점 */
+.act-trade .act-ico {
+  position: relative;
+}
+
+.act-dot {
+  position: absolute;
+  top: -3px;
+  right: -9px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 0 1.5px var(--parchment-hi);
+}
+
+/* ───────── 열린 교환 제안 ───────── */
+.trade-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border-left: 5px solid var(--pc, var(--river));
+}
+
+.trade-outgoing {
+  background-color: #f6ead0;
+}
+
+.offer-lines {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.offer-side {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  background: rgba(255, 250, 235, 0.6);
+  border: 1px dashed rgba(58, 42, 31, 0.3);
+  border-radius: var(--wobble-sm);
+}
+
+.offer-label {
+  font-size: 0.74rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.offer-swap {
+  color: var(--ink-soft);
+}
+
+.bundle-chips {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.bundle-chips .res-amount {
+  font-size: 0.9rem;
+}
+
+.offer-resps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.offer-chip,
+.offer-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+}
+
+.offer-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 250, 235, 0.7);
+  border: 1px solid rgba(58, 42, 31, 0.25);
+}
+
+.offer-pick > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.offer-resp-rejected .offer-chip {
+  opacity: 0.6;
+}
+
+.resp-mark {
+  font-style: normal;
+  font-weight: 800;
+}
+
+.resp-accepted {
+  color: var(--good);
+}
+
+.offer-pick .resp-accepted {
+  color: #d9f0c8;
+}
+
+.resp-rejected {
+  color: var(--danger);
+}
+
+.resp-pending {
+  color: var(--ink-soft);
+}
+
+.resp-text {
+  font-size: 0.74rem;
+}
+
+.offer-chip .resp-text {
+  color: var(--ink-soft);
+}
+
+.trade-offer .row-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.offer-hint {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 플레이어 목록: 열린 제안에 대한 응답 */
+.trade-resp {
+  font-size: 0.66rem;
+  padding: 0 5px;
+}
+
+.trade-resp-accepted {
+  background-color: #dcebcf;
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.trade-resp-rejected {
+  opacity: 0.65;
+}
+
+.trade-resp-offer {
+  background-color: #f6e2ae;
+  border-color: var(--gold);
+}
+
+/* ───────── 건설 비용 카드 (넓은 화면 오른쪽 패널) ───────── */
+.build-costs ul {
+  list-style: none;
+  margin: 0;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background-color: var(--parchment-hi);
+  background-image: var(--tex-grain);
+  border: 1px solid rgba(58, 42, 31, 0.32);
+  border-radius: var(--wobble-sm);
+}
+
+.build-costs li {
+  display: grid;
+  grid-template-columns: 92px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+}
+
+.bc-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.build-costs .build-cost {
+  display: inline-flex;
+  gap: 5px;
+}
+
+/* ───────── 달성 공지 ─────────
+ * 화면 위쪽에 "빨강 플레이어 최장 교역로 달성"을 크게 띄운다. 양피지 띠 양 끝은 제비꼬리로 자르고,
+ * 띠 가장자리와 색 이름을 그 플레이어 색(--pc)으로 칠한다. 위에서 내려와 머물다 올라가며 사라진다.
+ */
+.award-banner {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--safe-top) + 10px);
+  z-index: 45;
+  width: min(94vw, 640px);
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: award-banner-life 4.2s ease-in-out forwards;
+}
+
+/* 넓은 화면: 오른쪽 패널을 뺀 보드 위 가운데 */
+.game-wide .award-banner {
+  left: calc((100% - var(--side-w)) / 2);
+  width: min(calc(94vw - var(--side-w)), 640px);
+}
+
+.award-ribbon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 34px 12px 30px;
+  background-color: var(--parchment-hi);
+  background-image: var(--tex-grain), linear-gradient(180deg, var(--pc-soft), var(--parchment-hi) 30%, var(--parchment-hi) 70%, var(--pc-soft));
+  clip-path: polygon(0 0, 100% 0, calc(100% - 18px) 50%, 100% 100%, 0 100%, 18px 50%);
+  filter: drop-shadow(0 6px 10px rgba(24, 38, 46, 0.35));
+  animation: award-drop 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+}
+
+/* 위아래 가장자리의 색 띠 (먹선 두 줄 사이를 플레이어 색으로) */
+.award-ribbon::before,
+.award-ribbon::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: var(--pc);
+  border-block: 1px solid rgba(58, 42, 31, 0.7);
+}
+
+.award-ribbon::before {
+  top: 3px;
+}
+
+.award-ribbon::after {
+  bottom: 3px;
+}
+
+/* 밀랍 도장 안의 달성 표식 */
+.award-seal {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 52% 48% 50% 46% / 47% 53% 48% 52%;
+  background-color: var(--pc);
+  background-image: var(--tex-grain);
+  box-shadow:
+    inset 0 0 0 3px rgba(0, 0, 0, 0.18),
+    inset 0 0 0 5px rgba(255, 240, 220, 0.25),
+    0 2px 3px rgba(30, 10, 5, 0.4);
+  animation: award-seal 0.7s 0.25s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.award-seal svg {
+  filter: drop-shadow(0 0 1.5px rgba(255, 248, 230, 0.9));
+}
+
+.award-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.award-headline {
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: clamp(1.15rem, 4.6vw, 1.9rem);
+  line-height: 1.15;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+.award-color {
+  color: var(--pc);
+  /* 연한 색(주황)도 양피지 위에서 읽히게 먹으로 가는 테두리 */
+  -webkit-text-stroke: 0.6px var(--pc-ink);
+  paint-order: stroke fill;
+  text-shadow: 0 1px 0 rgba(255, 248, 230, 0.8);
+}
+
+/* "최장 교역로 달성"은 한 덩어리로 줄을 바꾼다 */
+.award-what {
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .award-ribbon {
+    gap: 9px;
+    padding: 10px 26px 10px 24px;
+  }
+
+  .award-seal {
+    width: 44px;
+    height: 44px;
+  }
+
+  .award-seal svg {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+.award-sub {
+  font-size: 0.86rem;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+
+.award-sub svg {
+  vertical-align: -2px;
+}
+
+@keyframes award-drop {
+  from {
+    transform: translateY(-120%);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes award-seal {
+  from {
+    transform: scale(0.2) rotate(-40deg);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes award-banner-life {
+  0%,
+  86% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .award-ribbon,
+  .award-seal,
+  .trade-panel {
+    animation: none;
+  }
 }

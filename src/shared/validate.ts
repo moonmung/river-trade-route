@@ -62,8 +62,11 @@ export function parseAction(raw: unknown): GameAction | null {
       return isTileId(raw.tileId) ? { type: 'move_robber', tileId: raw.tileId } : null;
     case 'steal':
       return typeof raw.from === 'string' && raw.from.length <= 64 ? { type: 'steal', from: raw.from } : null;
-    case 'bank_trade':
-      return isResource(raw.give) && isResource(raw.get) ? { type: 'bank_trade', give: raw.give, get: raw.get } : null;
+    case 'bank_trade': {
+      const give = parseBundle(raw.give, 99);
+      const get = parseBundle(raw.get, 99);
+      return give && get ? { type: 'bank_trade', give, get } : null;
+    }
     case 'play_dev':
       if (raw.kind === 'knight' || raw.kind === 'road_building') return { type: 'play_dev', kind: raw.kind };
       if (raw.kind === 'monopoly') return isResource(raw.resource) ? { type: 'play_dev', kind: 'monopoly', resource: raw.resource } : null;
@@ -75,13 +78,20 @@ export function parseAction(raw: unknown): GameAction | null {
     case 'trade_propose': {
       const give = parseBundle(raw.give);
       const get = parseBundle(raw.get);
-      if (typeof raw.to !== 'string' || raw.to.length > 64 || !give || !get) return null;
+      if (!give || !get) return null;
+      // to 가 없으면 모두에게 제안한다.
+      if (raw.to === undefined || raw.to === null) return { type: 'trade_propose', give, get };
+      if (typeof raw.to !== 'string' || raw.to.length > 64) return null;
       return { type: 'trade_propose', to: raw.to, give, get };
     }
     case 'trade_accept':
     case 'trade_reject':
     case 'trade_cancel':
       return isTradeId(raw.tradeId) ? { type: raw.type, tradeId: raw.tradeId } : null;
+    case 'trade_confirm':
+      return isTradeId(raw.tradeId) && typeof raw.with === 'string' && raw.with.length <= 64
+        ? { type: 'trade_confirm', tradeId: raw.tradeId, with: raw.with }
+        : null;
     case 'end_turn':
       return { type: 'end_turn' };
     default:

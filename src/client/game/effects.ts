@@ -94,26 +94,29 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           break;
         case 'award':
           if (e.player) {
+            // 화면 위쪽에 "빨강 플레이어 최장 교역로 달성" 공지를 크게 띄운다.
             const unit = e.award === 'longest_road' ? `이어진 길 ${e.size}칸` : `기사 ${e.size}장`;
             const from = e.previous ? ` · ${name(e.previous)}에게서 가져옴` : '';
-            showAward(e.award, e.player === me ? '나' : name(e.player), color(e.player), `${unit}${from}`);
+            showAward(e.award, { colorIndex: color(e.player), nickname: name(e.player), mine: e.player === me, detail: `${unit} · +2점${from}` });
             rendererRef.current?.playAward(e.award, color(e.player), e.player);
             buzz(180);
           }
           break;
         case 'trade_proposed':
-          if (e.to === me) {
-            showToast(`${name(e.from)}의 교환 제안이 도착했습니다.`, 'warn', 4000);
+          if (e.to.includes(me)) {
+            showToast(`${josa(name(e.from), '이/가')} 교환을 제안했습니다.`, 'warn', 4000);
             buzz(120);
           }
           break;
+        case 'trade_response':
+          if (e.from === me && e.response === 'accepted') showToast(`${josa(name(e.player), '이/가')} 수락했습니다 · 눌러서 교환을 확정하세요`, 'good');
+          break;
         case 'trade_accepted':
-          if (e.from === me) showToast(`${josa(name(e.to), '이/가')} 교환을 수락했습니다.`, 'good');
-          else if (e.to === me) showToast('교환이 성사되었습니다.', 'good');
+          if (e.from === me) showToast(`${josa(name(e.to), '과/와')} 교환했습니다 · ${bundleText(e.get)} 받음`, 'good');
+          else if (e.to === me) showToast(`교환이 성사되었습니다 · ${bundleText(e.give)} 받음`, 'good');
           break;
         case 'trade_closed':
-          if (e.from === me && e.reason === 'rejected') showToast(`${josa(name(e.to), '이/가')} 교환 제안을 거절했습니다.`, 'warn');
-          if (e.to === me && e.reason !== 'rejected') showToast(`${name(e.from)}의 교환 제안이 닫혔습니다.`);
+          if (e.from === me && e.reason === 'rejected') showToast('모두 거절해 교환 제안이 닫혔습니다.', 'warn');
           break;
         case 'game_end':
           buzz(200);

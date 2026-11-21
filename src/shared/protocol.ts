@@ -1,5 +1,5 @@
 // 브라우저 ↔ 서버 Socket.IO 메시지 형식.
-import type { Building, Bundle, DevCard, GameEvent, GamePhase, GameResult, GameAction, Harbor, Resource, Road, TileId, TurnStep } from './types';
+import type { Building, Bundle, DevCard, GameEvent, GamePhase, GameResult, GameAction, Harbor, Resource, Road, TileId, TradeResponse, TurnStep } from './types';
 
 export interface LobbyPlayerView {
   id: string;
@@ -28,13 +28,17 @@ export interface GamePlayerView {
   roads: number;
 }
 
-/** 교환 당사자에게만 give/get 이 채워진다. */
+/** 열린 교환 제안. 모두에게 제안하므로 내용과 응답은 모두에게 보인다 (종류별 보유량은 들어 있지 않다). */
 export interface TradeView {
   id: number;
   from: string;
-  to: string;
-  give?: Bundle;
-  get?: Bundle;
+  /** 제안을 받은 사람들 */
+  to: string[];
+  /** 제안한 사람이 내는 자원 */
+  give: Bundle;
+  /** 제안한 사람이 받는 자원 */
+  get: Bundle;
+  responses: Record<string, TradeResponse>;
 }
 
 export interface GameView {
