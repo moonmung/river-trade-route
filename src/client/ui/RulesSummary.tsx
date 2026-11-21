@@ -15,6 +15,8 @@ import {
   RESOURCE_LABEL,
   SPECIAL_HARBOR_RATIO,
   WIN_POINTS,
+  WIN_POINTS_MAX,
+  WIN_POINTS_MIN,
 } from '../../shared/constants';
 import type { Bundle, DevKind, PieceKind } from '../../shared/types';
 import { ResourceIcon } from './icons';
@@ -77,7 +79,7 @@ export function RulesSummary({ open = false }: { open?: boolean }) {
         </li>
         <li>
           <b>발전 카드</b>: <CostOf name="한 장" cost={DEV_COST} /> 덱 구성은 {DEV_LIST}장입니다. 산 턴에는 쓸 수 없고 한 턴에 한 장만 씁니다.
-          기사는 주사위를 굴리기 전에도 써서 동상을 옮길 수 있고, 승점 카드는 숨겨 두었다가 10점에 닿을 때 셉니다.
+          기사는 주사위를 굴리기 전에도 써서 동상을 옮길 수 있고, 승점 카드는 숨겨 두었다가 승리 점수에 닿을 때 셉니다.
         </li>
         <li>
           <b>최장 교역로</b>: 끊기지 않고 이어진 길이 {LONGEST_ROAD_MIN}개 이상으로 가장 긴 사람이 {AWARD_POINTS}점을 받습니다. 남의 마을·도시가
@@ -85,7 +87,7 @@ export function RulesSummary({ open = false }: { open?: boolean }) {
           받습니다. 둘 다 더 앞선 사람이 나오면 넘어갑니다.
         </li>
         <li>
-          마을 1점, 도시 2점에 달성과 승점 카드를 더해 자기 차례에 먼저 <b>{WIN_POINTS}점</b>에 닿은 사람이 이깁니다.
+          마을 1점, 도시 2점에 달성과 승점 카드를 더해 자기 차례에 먼저 <b>승리 점수</b>(기본 {WIN_POINTS}점, 방장이 방을 만들 때 {WIN_POINTS_MIN}~{WIN_POINTS_MAX}점으로 정함)에 닿은 사람이 이깁니다. 2명이면 같은 규칙으로 일대일 대결을 합니다.
         </li>
       </ul>
     </details>

@@ -492,6 +492,82 @@ h2 {
   }
 }
 
+/* 승리 점수 고르기 (방 만들기·대기실) */
+.wp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--font-title);
+  font-weight: 700;
+}
+
+.win-points {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.wp-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink);
+  background: var(--parchment-hi);
+  color: var(--ink);
+  font: 700 1.25rem/1 var(--font-title);
+  cursor: pointer;
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+
+.wp-btn:not(:disabled):hover {
+  background: #f3e2bb;
+}
+
+.wp-btn:not(:disabled):active {
+  transform: scale(0.9);
+}
+
+.wp-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.wp-value,
+.wp-fixed {
+  min-width: 62px;
+  text-align: center;
+  font-family: var(--font-title);
+  color: var(--gold);
+}
+
+.wp-value b,
+.wp-fixed b {
+  font-size: 1.6rem;
+  color: var(--ink);
+  margin-right: 1px;
+}
+
+.wp-fixed {
+  text-align: left;
+}
+
+.lobby-points {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 14px;
+}
+
+.lobby-points h2 {
+  margin: 0;
+}
+
+.lobby-points p {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+}
+
 .rules summary {
   cursor: pointer;
   font-family: var(--font-title);
@@ -1030,7 +1106,7 @@ h2 {
 }
 
 .flat-wood polygon {
-  fill: #7fa95a;
+  fill: #5f8a49;
 }
 
 .flat-grain polygon {
@@ -1038,7 +1114,7 @@ h2 {
 }
 
 .flat-wool polygon {
-  fill: #b4d47f;
+  fill: #d6e6ab;
 }
 
 .flat-brick polygon {

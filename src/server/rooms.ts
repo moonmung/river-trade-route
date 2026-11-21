@@ -1,6 +1,6 @@
 // 방과 자리 관리. 진행 상태는 메모리에 두고, 바뀔 때마다 onChange 로 알려 persist.ts 가 디스크에 저장한다.
 import { randomBytes, randomInt } from 'node:crypto';
-import { MAX_PLAYERS, MIN_PLAYERS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH } from '../shared/constants';
+import { MAX_PLAYERS, MIN_PLAYERS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, WIN_POINTS, WIN_POINTS_MAX, WIN_POINTS_MIN, normalizeWinPoints } from '../shared/constants';
 import { SEAT_CODE_LENGTH, type AckResult, type RoomPeek, type SeatHandover } from '../shared/protocol';
 import { applyAction, createGame, type GameState } from '../shared/rules';
 import type { GameAction } from '../shared/types';
@@ -25,6 +25,8 @@ export interface Room {
   phase: 'lobby' | 'game';
   game: GameState | null;
   gameNumber: number;
+  /** 방장이 정한 승리 점수 (10~20, 다음 게임부터 쓴다) */
+  winPoints: number;
   createdAt: number;
   /** 마지막으로 상태가 바뀐 시각 (오래 비어 있는 방 정리용) */
   touchedAt: number;
@@ -50,7 +52,7 @@ function secureRandom(): number {
  * Room 에 필드를 더하면 여기에 기본값을 넣어 두어야 예전 저장 파일에서 되살린 방도 그 필드를 갖는다.
  */
 export function blankRoom(code: string, now = Date.now()): Room {
-  return { code, hostId: '', players: [], phase: 'lobby', game: null, gameNumber: 1, createdAt: now, touchedAt: now };
+  return { code, hostId: '', players: [], phase: 'lobby', game: null, gameNumber: 1, winPoints: WIN_POINTS, createdAt: now, touchedAt: now };
 }
 
 export class RoomManager {
@@ -98,11 +100,13 @@ export class RoomManager {
     };
   }
 
-  create(nickname: string): { room: Room; player: RoomPlayer } | RoomError {
+  create(nickname: string, winPoints: unknown = WIN_POINTS): { room: Room; player: RoomPlayer } | RoomError {
+    const points = normalizeWinPoints(winPoints);
+    if (points === null) return { error: `승리 점수는 ${WIN_POINTS_MIN}~${WIN_POINTS_MAX}점 사이로 정하세요.` };
     if (this.rooms.size >= this.maxRooms) this.pruneIdleRooms();
     if (this.rooms.size >= this.maxRooms) return { error: '열려 있는 방이 너무 많습니다. 쓰지 않는 방에서 나가 주세요.' };
     const player = this.newPlayer(null, nickname);
-    const room: Room = { ...blankRoom(this.newCode()), hostId: player.id, players: [player] };
+    const room: Room = { ...blankRoom(this.newCode()), hostId: player.id, players: [player], winPoints: points };
     this.rooms.set(room.code, room);
     this.changed();
     return { room, player };
@@ -153,6 +157,20 @@ export class RoomManager {
     return null;
   }
 
+  /** 방장이 대기실에서 승리 점수를 바꾼다. */
+  setWinPoints(room: Room, playerId: string, winPoints: unknown): RoomError | null {
+    if (room.hostId !== playerId) return { error: '방장만 승리 점수를 바꿀 수 있습니다.' };
+    if (room.phase !== 'lobby') return { error: '대기실에서만 승리 점수를 바꿀 수 있습니다.' };
+    const n = normalizeWinPoints(winPoints);
+    if (n === null) return { error: `승리 점수는 ${WIN_POINTS_MIN}~${WIN_POINTS_MAX}점 사이로 정하세요.` };
+    if (room.winPoints === n) return null;
+    room.winPoints = n;
+    // 점수가 바뀌면 다른 사람은 다시 확인하고 준비하도록 준비를 푼다.
+    for (const p of room.players) if (p.id !== room.hostId) p.ready = false;
+    this.changed();
+    return null;
+  }
+
   start(room: Room, playerId: string): RoomError | null {
     if (room.hostId !== playerId) return { error: '방장만 게임을 시작할 수 있습니다.' };
     if (room.phase !== 'lobby') return { error: '이미 게임이 진행 중입니다.' };
@@ -165,6 +183,7 @@ export class RoomManager {
     room.game = createGame(
       room.players.map((p) => p.id),
       secureRandom,
+      room.winPoints,
     );
     room.phase = 'game';
     for (const p of room.players) p.recent.clear();

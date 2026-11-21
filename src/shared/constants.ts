@@ -62,10 +62,18 @@ export function numberPips(n: number): number {
   return 6 - Math.abs(7 - n);
 }
 
-export const MIN_PLAYERS = 3;
+/** 2명이면 일대일 대결로 같은 규칙을 쓴다. */
+export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 4;
-/** 이 승점에 먼저 닿으면 이긴다 (자기 턴에 판정) */
+/** 이 승점에 먼저 닿으면 이긴다 (자기 턴에 판정). 방장이 방을 만들 때 WIN_POINTS_MIN~WIN_POINTS_MAX 사이로 바꿀 수 있다. */
 export const WIN_POINTS = 10;
+export const WIN_POINTS_MIN = 10;
+export const WIN_POINTS_MAX = 20;
+
+/** 승리 점수 입력값을 확인한다. 정수가 아니거나 범위를 벗어나면 null. */
+export function normalizeWinPoints(v: unknown): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= WIN_POINTS_MIN && v <= WIN_POINTS_MAX ? v : null;
+}
 /** 7이 나오면 자원이 이 수보다 많은 사람이 절반(내림)을 버린다 */
 export const DISCARD_LIMIT = 7;
 

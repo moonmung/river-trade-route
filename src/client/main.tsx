@@ -5,6 +5,10 @@ import { App } from './App';
 import '@fontsource-variable/hahmlet';
 import './styles.css';
 import './game.css';
+import { preloadCardArt } from './ui/art';
+
+// 카드·버튼 그림(작은 webp 13장)을 미리 받아 둔다.
+preloadCardArt();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

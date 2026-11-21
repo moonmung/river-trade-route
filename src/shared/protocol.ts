@@ -80,6 +80,8 @@ export interface GameView {
   trades: TradeView[];
   events: GameEvent[];
   result: GameResult | null;
+  /** 이 승점에 먼저 닿으면 이긴다 */
+  winPoints: number;
   version: number;
 }
 
@@ -94,6 +96,8 @@ export interface RoomView {
   gameNumber: number;
   minPlayers: number;
   maxPlayers: number;
+  /** 방장이 정한 승리 점수 (다음 게임에 쓴다) */
+  winPoints: number;
 }
 
 export interface RoomPeek {
@@ -174,7 +178,9 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  'room:create': (p: { nickname: string }, ack: Ack<SessionInfo>) => void;
+  'room:create': (p: { nickname: string; winPoints?: number }, ack: Ack<SessionInfo>) => void;
+  /** 방장: 대기실에서 승리 점수를 바꾼다 */
+  'room:settings': (p: { winPoints: number }, ack: Ack) => void;
   'room:join': (p: { code: string; nickname: string }, ack: Ack<SessionInfo>) => void;
   'room:peek': (p: { code: string }, ack: Ack<RoomPeek>) => void;
   /** 방장: 연결이 끊긴 자리를 넘길 코드를 만든다 */

@@ -20,7 +20,7 @@ function fakeRoom(): { room: Room; a: RoomPlayer; b: RoomPlayer } {
   });
   const a = player('pa', '강나루', 0);
   const b = player('pb', '버들', 1);
-  const room: Room = { code: 'TEST', hostId: a.id, players: [a, b], phase: 'lobby', game: null, gameNumber: 1, createdAt: 0, touchedAt: 0 };
+  const room: Room = { code: 'TEST', hostId: a.id, players: [a, b], phase: 'lobby', game: null, gameNumber: 1, winPoints: 10, createdAt: 0, touchedAt: 0 };
   return { room, a, b };
 }
 

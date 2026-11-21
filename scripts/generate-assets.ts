@@ -87,8 +87,8 @@ function propTextureJobs(): Record<PropTextureKey, () => TexJob> {
     plaster_color: () => ({ img: T.plaster(256).color, kind: 'color' }),
     roof_color: () => ({ img: T.shingles(256).color, kind: 'color' }),
     roof_normal: () => ({ img: T.heightToNormal(T.shingles(256).height, 256, 3), kind: 'normal' }),
-    foliage_color: () => ({ img: T.foliage(256, '#356a33', '#6aa04e', 91).color, kind: 'color' }),
-    leaf_color: () => ({ img: T.foliage(256, '#5a9038', '#b2d470', 95).color, kind: 'color' }),
+    foliage_color: () => ({ img: T.foliage(256, '#264d27', '#4f8540', 91).color, kind: 'color' }),
+    leaf_color: () => ({ img: T.foliage(256, '#3c6e2c', '#86b553', 95).color, kind: 'color' }),
   };
 }
 

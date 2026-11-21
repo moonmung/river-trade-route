@@ -16,7 +16,7 @@ export function Brand({ small = false }: { small?: boolean }) {
       </svg>
       <div>
         <div className="brand-title">데블스랜드</div>
-        {!small && <div className="brand-sub">같은 와이파이에서 3~4명이 함께하는 섬 교역 게임</div>}
+        {!small && <div className="brand-sub">같은 와이파이에서 2~4명이 함께하는 섬 교역 게임</div>}
       </div>
     </div>
   );

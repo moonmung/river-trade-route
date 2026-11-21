@@ -7,7 +7,7 @@ import BoardView from '../board/BoardView';
 import { FlatBoard } from '../board/FlatBoard';
 import type { PerfStats } from '../board/perf';
 import type { DevKind, PieceKind } from '../../shared/types';
-import { boardHighlights, buildBlocker, formatEvent, isScoreEvent, playDevBlocker, playerMap, roadStatus, spotAction, turnBlocker } from '../game/derive';
+import { boardHighlights, buildBlocker, formatScoreEvent, isScoreEvent, playDevBlocker, playerMap, roadStatus, spotAction, turnBlocker } from '../game/derive';
 import {
   DevPlayCard,
   DiscardDialog,
@@ -257,9 +257,9 @@ export default function Game({ view }: { view: RoomView }) {
               </button>
             </h3>
             <ol className="log log-mini">
-              {recent.length === 0 && <li className="log-empty">마을·도시, 기사, 달성 같은 점수 기록이 여기에 남습니다.</li>}
+              {recent.length === 0 && <li className="log-empty">마을·도시, 발전 카드, 달성처럼 점수와 이어진 일이 여기에 남습니다.</li>}
               {recent.map((e) => (
-                <li key={e.seq}>{formatEvent(e, players, view.you, g.numbers)}</li>
+                <li key={e.seq}>{formatScoreEvent(e, players, view.you, g.numbers)}</li>
               ))}
             </ol>
           </section>
