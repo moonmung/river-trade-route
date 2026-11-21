@@ -131,6 +131,8 @@ const TRADER_SCALE = 0.82;
 const TRADER_SPEED = 0.2;
 /** 교역인이 마을·도시 앞에서 돌아서는 거리 (집 몸통 바로 앞) */
 const TRADER_HOUSE_STOP = 0.3;
+/** 도시는 성벽이 넓게 둘러서 그 앞에서 돌아선다 */
+const TRADER_CITY_STOP = 0.42;
 /** 교역인 발 높이 (길 판자 윗면) */
 const TRADER_FOOT = PLATFORM_TOP + 0.004 + ROAD_DECK_TOP;
 /** 길 위에서 오른쪽으로 비켜 걷는 거리 (마주 오는 사람과 엇갈린다) */
@@ -149,10 +151,11 @@ const SMOKE_PUFFS = 5;
 const AMBIENT_FRAME_MS = 33;
 /**
  * 꼭짓점에 놓는 집(마을)·도시의 크기. 실제 보드게임 말처럼 평평한 판 위에 큼직하게 세워 멀리서도 누구 것인지 보인다.
- * 마을 집은 폭 약 0.5, 키 약 0.55 이고 도시는 그보다 조금 크며 탑이 높다 (변 하나는 1.32).
+ * 마을 집은 폭 약 0.5, 키 약 0.55 이다. 도시는 성벽 둘레가 폭 약 0.76, 깊이 약 0.64 이고 큰 탑 깃발까지 키가 약 1.0 이라
+ * 마을보다 한 둘레 크게 보인다 (변 하나는 1.32).
  */
 const VILLAGE_SCALE = 0.78;
-const CITY_SCALE = 0.86;
+const CITY_SCALE = 1;
 /** 마을·도시 위 소유자 문양 높이 (지붕·탑 꼭대기 바로 위) */
 const BADGE_LIFT = { village: VILLAGE_SCALE * 0.86, city: CITY_SCALE * 1.1 };
 /** 꼭짓점 판정에서 마을·도시가 서 있으면 몸통 크기만큼 넉넉히 더 잡는 거리 */
@@ -967,7 +970,10 @@ export class BoardRenderer {
    */
   private traderEnd(tr: Trader, v: string, len: number): { stop: number; kind: 'pass' | 'house' | 'turn' } {
     const b = this.buildingAtV.get(v);
-    if (b) return b.owner === tr.owner ? { stop: TRADER_HOUSE_STOP / len, kind: 'house' } : { stop: ROAD_GAP + 0.04, kind: 'turn' };
+    if (b) {
+      const wall = b.kind === 'city' ? TRADER_CITY_STOP / len : 0;
+      return b.owner === tr.owner ? { stop: Math.max(TRADER_HOUSE_STOP / len, wall), kind: 'house' } : { stop: Math.max(ROAD_GAP + 0.04, wall), kind: 'turn' };
+    }
     const roads = this.roadNet.get(tr.owner)?.get(v)?.length ?? 0;
     return roads >= 2 ? { stop: 0, kind: 'pass' } : { stop: ROAD_GAP + 0.05, kind: 'turn' };
   }
@@ -1856,7 +1862,7 @@ export class BoardRenderer {
               ? 'hover'
               : null;
         // 마을·도시가 선 자리는 고리가 집 밑에 숨지 않게 집 둘레만큼 키운다.
-        const around = built.get(v.id) === 'city' ? 1.75 : built.has(v.id) ? 1.6 : 1;
+        const around = built.get(v.id) === 'city' ? 2 : built.has(v.id) ? 1.6 : 1;
         const s = kind ? (selected ? 1.2 : 1) * around : 0;
         spotRing.setMatrixAt(i, compose(p.x, TILE_TOP + 0.03, p.z, 0, s, 1, s));
         spotFill.setMatrixAt(i, compose(p.x, TILE_TOP + 0.028, p.z, 0, kind && kind !== 'hover' ? s : 0, 1, kind && kind !== 'hover' ? s : 0));

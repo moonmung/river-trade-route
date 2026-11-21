@@ -185,6 +185,38 @@ class Kit {
   }
 }
 
+/** 도형을 받아 쌓는 쪽: 소품 전체(Kit)나 그 안의 한 자리(Frame) */
+interface Adder {
+  add(material: MaterialKey, source: THREE.BufferGeometry, opts?: AddOptions): unknown;
+}
+
+/**
+ * 소품 안의 한 자리에 y축으로 돌려 세운 좌표계. 도시 안의 집 여러 채처럼 같은 짜임을 자리·방향만 달리해 놓을 때 쓴다.
+ * 넘긴 위치·회전·크기는 이 자리 기준이고, 도형을 소품 좌표로 옮긴 뒤 Kit 에 넘기므로 음영 함수는 소품 좌표를 받는다.
+ */
+class Frame implements Adder {
+  private readonly matrix: THREE.Matrix4;
+
+  constructor(
+    private readonly kit: Kit,
+    at: Vec3,
+    yaw = 0,
+  ) {
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+    this.matrix = new THREE.Matrix4().compose(new THREE.Vector3(...at), q, new THREE.Vector3(1, 1, 1));
+  }
+
+  add(material: MaterialKey, source: THREE.BufferGeometry, opts: AddOptions = {}): this {
+    const s = opts.scale ?? 1;
+    const scale = typeof s === 'number' ? new THREE.Vector3(s, s, s) : new THREE.Vector3(...s);
+    const quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(...(opts.rotation ?? [0, 0, 0])));
+    const local = new THREE.Matrix4().compose(new THREE.Vector3(...(opts.position ?? [0, 0, 0])), quat, scale);
+    source.applyMatrix4(new THREE.Matrix4().multiplyMatrices(this.matrix, local));
+    this.kit.add(material, source, { ...opts, position: undefined, rotation: undefined, scale: undefined });
+    return this;
+  }
+}
+
 function ensureUV(g: THREE.BufferGeometry): THREE.BufferGeometry {
   if (!g.attributes.uv) boxProjectUV(g, 1);
   return g;
@@ -308,7 +340,7 @@ const TIMBER = '#7a5532';
 
 /** 지붕널을 단마다 겹쳐 덮은 경사면 한 쪽. 단 아래 끝이 살짝 들려 계단처럼 보인다. */
 function addShingles(
-  k: Kit,
+  k: Adder,
   material: MaterialKey,
   apex: Vec3,
   side: 1 | -1,
@@ -1694,62 +1726,298 @@ export function buildRoadJoint(): PropPart[] {
   return k.build(0.05, 0.78);
 }
 
-/** 도시: 돌로 쌓은 아래층 위에 회벽 위층, 색 지붕, 옆에 둥근 탑. 지붕과 탑 지붕에 플레이어 색이 곱해진다. */
-export function buildCity(): PropPart[] {
-  const rand = mulberry32(53);
-  const k = new Kit();
-  const W = 0.56;
-  const D = 0.42;
-  // 돌 아래층: 켜마다 밝기를 바꿔 돌을 쌓은 줄눈처럼 보이게 한다.
-  k.add('stone', box(W, 0.22, D, 3, 3, 3), {
-    position: [0, 0.11, 0],
-    flat: true,
-    faceShade: (c, n) => (Math.floor(c.y / 0.055) % 2 ? 0.9 : 1.02) * skyShade(n, 0.7, 1.06),
-  });
-  // 회벽 위층과 나무 기둥
-  k.add('plaster', box(W - 0.04, 0.17, D - 0.04), { position: [0, 0.305, 0], shade: (_p, n) => skyShade(n, 0.74, 1.04) });
-  for (const x of [-(W - 0.04) / 2, 0, (W - 0.04) / 2]) {
-    k.add('wood', box(0.026, 0.17, 0.012), { position: [x, 0.305, (D - 0.04) / 2 + 0.006], color: TIMBER });
+// ───────────────────────── 도시 ─────────────────────────
+// 집 한 채인 마을과 한눈에 갈리도록, 낮은 성벽이 둘러싼 안에 집 여러 채와 높은 탑을 몰아 세운다.
+// 앞(카메라 쪽)은 낮게, 뒤로 갈수록 높게 놓아 비스듬히 내려다봐도 지붕이 겹겹이 보인다.
+// 플레이어 색은 집 지붕, 성문 탑 고깔, 큰 탑 고깔과 깃발, 종탑 첨탑에 곱해진다.
+
+/** 성벽 둘레(타원 반지름), 높이, 두께. 마을 집보다 한 둘레 넓고 꼭짓점 자리를 크게 벗어나지 않는다. */
+const CITY_RX = 0.38;
+const CITY_RZ = 0.32;
+const CITY_WALL_H = 0.12;
+const CITY_WALL_T = 0.05;
+const CITY_TRIM = '#d8d0c2';
+const LIT_WINDOW = '#e0a052';
+
+/** 켜켜이 쌓은 돌: 높이 course 마다 밝기를 번갈아 바꾼다. 도형의 높이 칸을 course 에 맞춰 나눠 둬야 줄이 곧다. */
+function stoneCourses(course: number, y0 = 0): (c: THREE.Vector3, n: THREE.Vector3) => number {
+  return (c, n) => (Math.floor((c.y - y0) / course + 1e-4) % 2 ? 0.88 : 1.02) * skyShade(n, 0.68, 1.06);
+}
+
+interface TownHouse {
+  at: Vec3;
+  yaw: number;
+  /** 용마루 방향 길이 */
+  w: number;
+  /** 앞뒤 깊이 */
+  d: number;
+  /** 처마까지 벽 높이 */
+  wall: number;
+  /** 처마에서 용마루까지 */
+  rise: number;
+  /** 돌로 쌓은 아래층 높이 (0 이면 회벽만) */
+  stone: number;
+  /** 앞면에 창을 내는 층 수 */
+  floors: number;
+  /** 박공(옆면)에도 창을 낸다: 박공이 카메라 쪽을 보는 집 */
+  gableWindows?: boolean;
+  /** 회벽 색 (흰 바탕에 곱한다) */
+  tone?: string;
+  seed: number;
+}
+
+/** 성안의 좁고 높은 집: 돌 아래층, 나무 골조 회벽, 불 켜진 창, 지붕널을 덮은 맞배지붕 */
+function addTownHouse(k: Kit, h: TownHouse): void {
+  const f = new Frame(k, h.at, h.yaw);
+  const { w, d, wall, rise, stone } = h;
+  const fz = d / 2 + 0.004;
+  if (stone > 0) {
+    f.add('stone', box(w + 0.012, stone, d + 0.012, 1, 2, 1), { position: [0, stone / 2, 0], flat: true, faceShade: stoneCourses(stone / 2) });
   }
-  k.add('wood', box(W - 0.02, 0.022, 0.012), { position: [0, 0.39, (D - 0.04) / 2 + 0.006], color: TIMBER });
-  // 맞배지붕 (두 장)
-  const roofY = 0.39;
-  const half = D / 2 + 0.05;
-  const rise = 0.2;
-  const slope = Math.atan2(rise, half);
-  const len = Math.hypot(rise, half) + 0.03;
-  for (const side of [1, -1] as const) {
-    k.add('roof', box(W + 0.08, 0.04, len), {
-      position: [0, roofY + rise / 2 + 0.02, (side * half) / 2],
-      rotation: [side * slope, 0, 0],
-      flat: true,
-      faceShade: (_c, n) => skyShade(n, 0.66, 1.06),
+  f.add('plaster', box(w, wall - stone, d, 2, 2, 2), {
+    position: [0, stone + (wall - stone) / 2, 0],
+    color: h.tone,
+    shade: (p, n) => skyShade(n, 0.76, 1.04) * (0.93 + 0.12 * wobble(p.x * 6, p.y * 6, p.z * 6, h.seed)),
+  });
+  const tri = new THREE.Shape();
+  tri.moveTo(-d / 2, 0);
+  tri.lineTo(d / 2, 0);
+  tri.lineTo(0, rise);
+  tri.closePath();
+  f.add('plaster', new THREE.ExtrudeGeometry(tri, { depth: w - 0.01, bevelEnabled: false }), {
+    position: [-(w - 0.01) / 2, wall, 0],
+    rotation: [0, Math.PI / 2, 0],
+    color: h.tone,
+  });
+
+  // 나무 골조: 앞면 모서리 기둥, 처마 보, 층 사이 보
+  const post = 0.016;
+  for (const x of [-w / 2, w / 2]) {
+    f.add('wood', box(post, wall - stone, post), { position: [x, stone + (wall - stone) / 2, d / 2], color: TIMBER });
+  }
+  f.add('wood', box(w + post, post, post * 0.7), { position: [0, wall - post / 2, fz], color: TIMBER });
+  const floorH = (wall - stone) / h.floors;
+  for (let i = 1; i < h.floors; i++) {
+    f.add('wood', box(w + post, post * 0.8, post * 0.7), { position: [0, stone + floorH * i, fz], color: TIMBER });
+  }
+
+  // 창: 층마다 앞면에 불 켜진 창을 나란히. 맨 아래층(돌이 없을 때)은 문 하나를 낸다.
+  const cols = Math.max(1, Math.round(w / 0.075));
+  for (let i = 0; i < h.floors; i++) {
+    const y = stone + floorH * (i + 0.55);
+    for (let j = 0; j < cols; j++) {
+      const x = -w / 2 + (w / cols) * (j + 0.5);
+      if (i === 0 && stone === 0 && j === 0) {
+        f.add('wood', box(0.034, Math.min(0.07, floorH * 0.8), 0.008), { position: [x, Math.min(0.07, floorH * 0.8) / 2, fz], color: '#5a3b20' });
+        continue;
+      }
+      f.add('wood', box(0.034, 0.04, 0.006), { position: [x, y, fz], color: TIMBER });
+      f.add('paint', box(0.024, 0.03, 0.006), { position: [x, y, fz + 0.003], color: LIT_WINDOW });
+    }
+  }
+  if (stone > 0) f.add('wood', box(0.036, Math.min(stone * 0.85, 0.075), 0.008), { position: [w * 0.22, Math.min(stone * 0.85, 0.075) / 2, d / 2 + 0.01], color: '#5a3b20' });
+  if (h.gableWindows) {
+    // 박공 끝(-x 쪽 면)의 창과 박공 삼각 안의 작은 창
+    const gx = -w / 2 - 0.004;
+    for (let i = 0; i < h.floors; i++) {
+      const y = stone + floorH * (i + 0.55);
+      f.add('wood', box(0.006, 0.04, 0.034), { position: [gx, y, 0], color: TIMBER });
+      f.add('paint', box(0.006, 0.03, 0.024), { position: [gx - 0.003, y, 0], color: LIT_WINDOW });
+    }
+    f.add('paint', box(0.006, 0.022, 0.02), { position: [gx, wall + rise * 0.35, 0], color: LIT_WINDOW });
+  }
+
+  // 지붕 (플레이어 색): 용마루는 집의 길이 방향, 처마를 조금 내민다.
+  const slope = Math.atan2(rise, d / 2);
+  const slopeLen = Math.hypot(rise, d / 2) + 0.035;
+  const roofLen = w + 0.05;
+  const apex: Vec3 = [0, wall + rise + 0.022, 0];
+  for (const side of [1, -1] as const) addShingles(f, 'roof', apex, side, slope, slopeLen, roofLen, 3, h.seed * 2 + (side === 1 ? 0 : 1));
+  f.add('roof', box(roofLen + 0.012, 0.028, 0.036), { position: [0, apex[1] + 0.006, 0], color: '#d8d8d8' });
+}
+
+/** 성벽 둘레의 꼭짓점 (앞쪽 가운데가 평평한 변이 되게 돌린 팔각형). 0번과 마지막이 성문 양옆이다. */
+function cityWallCorners(n = 8): Vec3[] {
+  const corners: Vec3[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = Math.PI / 2 + Math.PI / n + (i * 2 * Math.PI) / n;
+    corners.push([Math.cos(a) * CITY_RX, 0, Math.sin(a) * CITY_RZ]);
+  }
+  return corners;
+}
+
+/** 성벽: 꼭짓점마다 작은 망루, 변마다 총안(톱니 모양 여장), 앞쪽 가운데는 성문과 고깔 지붕을 얹은 문탑 둘 */
+function addCityWall(k: Kit): void {
+  const H = CITY_WALL_H;
+  const T = CITY_WALL_T;
+  const corners = cityWallCorners();
+  const n = corners.length;
+  // 앞쪽 변(마지막 → 0번)은 성문이 차지한다.
+  for (let i = 0; i < n - 1; i++) {
+    const a = corners[i];
+    const b = corners[i + 1];
+    const dx = b[0] - a[0];
+    const dz = b[2] - a[2];
+    const len = Math.hypot(dx, dz);
+    const f = new Frame(k, [(a[0] + b[0]) / 2, 0, (a[2] + b[2]) / 2], Math.atan2(-dz, dx));
+    f.add('stone', box(len, H, T, 1, 3, 1), { position: [0, H / 2, 0], flat: true, faceShade: stoneCourses(H / 3) });
+    const m = Math.max(2, Math.round(len / 0.062));
+    for (let j = 0; j < m; j++) {
+      f.add('stone', box(0.026, 0.026, T), {
+        position: [-len / 2 + (len / m) * (j + 0.5), H + 0.013, 0],
+        faceShade: (_c, nn) => skyShade(nn, 0.7, 1.08),
+      });
+    }
+  }
+  // 모서리 망루 (성문 양옆은 문탑이 선다)
+  for (let i = 1; i < n - 1; i++) {
+    const [x, , z] = corners[i];
+    k.add('stone', new THREE.CylinderGeometry(0.05, 0.054, 0.16, 10, 4), { position: [x, 0.08, z], flat: true, faceShade: stoneCourses(0.04) });
+    k.add('stone', cyl(0.06, 0.054, 0.022, 10), { position: [x, 0.171, z], color: CITY_TRIM });
+    for (let j = 0; j < 4; j++) {
+      const a = (j / 4) * Math.PI * 2 + i;
+      k.add('stone', box(0.024, 0.026, 0.024), {
+        position: [x + Math.cos(a) * 0.044, 0.195, z + Math.sin(a) * 0.044],
+        rotation: [0, -a, 0],
+        faceShade: (_c, nn) => skyShade(nn, 0.7, 1.08),
+      });
+    }
+  }
+
+  // 성문: 앞쪽 변을 막는 문루, 아치 모양으로 뚫린 문, 활짝 연 나무 문짝
+  const left = corners[0];
+  const right = corners[n - 1];
+  const gz = left[2];
+  const gw = right[0] - left[0];
+  const gh = 0.15;
+  const gd = T + 0.03;
+  k.add('stone', box(gw, gh, gd, 1, 4, 1), { position: [0, gh / 2, gz], flat: true, faceShade: stoneCourses(gh / 4) });
+  for (let j = 0; j < 4; j++) {
+    k.add('stone', box(0.03, 0.03, gd), { position: [-gw / 2 + (gw / 4) * (j + 0.5), gh + 0.015, gz], faceShade: (_c, nn) => skyShade(nn, 0.7, 1.08) });
+  }
+  const fz = gz + gd / 2 + 0.003;
+  const archW = 0.074;
+  const archH = 0.07;
+  k.add('stone', box(archW + 0.024, archH, 0.006), { position: [0, archH / 2, fz - 0.001], color: CITY_TRIM });
+  k.add('stone', new THREE.CylinderGeometry(archW / 2 + 0.012, archW / 2 + 0.012, 0.006, 12, 1, false, Math.PI / 2, Math.PI), {
+    position: [0, archH, fz - 0.001],
+    rotation: [Math.PI / 2, 0, 0],
+    color: CITY_TRIM,
+  });
+  k.add('dark', box(archW, archH, 0.006), { position: [0, archH / 2, fz + 0.001] });
+  k.add('dark', new THREE.CylinderGeometry(archW / 2, archW / 2, 0.006, 12, 1, false, Math.PI / 2, Math.PI), {
+    position: [0, archH, fz + 0.001],
+    rotation: [Math.PI / 2, 0, 0],
+  });
+  for (const s of [-1, 1]) {
+    k.add('wood', box(archW / 2, archH * 1.05, 0.008), {
+      position: [s * (archW / 2 + 0.012), archH * 0.525, fz + 0.016],
+      rotation: [0, s * 0.9, 0],
+      color: '#6b4a2a',
     });
   }
-  // 문과 창
-  k.add('wood', box(0.1, 0.15, 0.01), { position: [-0.12, 0.075, D / 2 + 0.006], color: '#5a3b20' });
-  for (const x of [0.06, 0.18]) {
-    k.add('paint', box(0.06, 0.07, 0.006), { position: [x, 0.13, D / 2 + 0.006], color: '#e0a052' });
-    k.add('paint', box(0.06, 0.06, 0.006), { position: [x - 0.12, 0.31, (D - 0.04) / 2 + 0.008], color: '#e0a052' });
+  // 문탑: 둥근 돌탑에 플레이어 색 고깔 지붕, 활 쏘는 창
+  for (const [x, , z] of [left, right]) {
+    k.add('stone', new THREE.CylinderGeometry(0.056, 0.06, 0.22, 10, 5), { position: [x, 0.11, z], flat: true, faceShade: stoneCourses(0.044) });
+    k.add('stone', cyl(0.068, 0.061, 0.024, 10), { position: [x, 0.232, z], color: CITY_TRIM });
+    k.add('roof', new THREE.ConeGeometry(0.078, 0.13, 10), { position: [x, 0.244 + 0.065, z], flat: true, faceShade: (_c, nn) => skyShade(nn, 0.66, 1.08) });
+    k.add('dark', box(0.012, 0.044, 0.006), { position: [x, 0.14, z + 0.06] });
   }
-  // 둥근 탑: 돌 원통 + 총안 + 원뿔 지붕 + 깃대
-  const tx = W / 2 - 0.02;
-  const tz = -D / 2 + 0.04;
-  const towerH = 0.62;
-  k.add('stone', cyl(0.1, 0.11, towerH, 12), {
-    position: [tx, towerH / 2, tz],
-    flat: true,
-    faceShade: (c, n) => (Math.floor(c.y / 0.06) % 2 ? 0.9 : 1.02) * skyShade(n, 0.68, 1.06),
+}
+
+/** 성의 큰 탑: 높은 둥근 돌탑에 내민 돌띠, 플레이어 색 고깔 지붕과 깃발 */
+function addKeep(k: Kit, at: Vec3): void {
+  const f = new Frame(k, at);
+  const r = 0.09;
+  const h = 0.56;
+  f.add('stone', new THREE.CylinderGeometry(r * 0.94, r, h, 12, 8), { position: [0, h / 2, 0], flat: true, faceShade: stoneCourses(h / 8) });
+  f.add('stone', cyl(r + 0.016, r * 0.95, 0.036, 12), { position: [0, h + 0.018, 0], color: CITY_TRIM, faceShade: (_c, n) => skyShade(n, 0.7, 1.08) });
+  for (const [y, s] of [
+    [0.22, 1],
+    [0.4, 1.1],
+  ] as const) {
+    f.add('dark', box(0.024 * s, 0.05 * s, 0.01), { position: [0, y, r * 0.97] });
+    f.add('paint', box(0.016 * s, 0.04 * s, 0.006), { position: [0, y, r * 0.97 + 0.004], color: LIT_WINDOW });
+  }
+  const coneH = 0.27;
+  const roofY = h + 0.036;
+  f.add('roof', new THREE.ConeGeometry(r + 0.03, coneH, 12), { position: [0, roofY + coneH / 2, 0], flat: true, faceShade: (_c, n) => skyShade(n, 0.66, 1.08) });
+  // 깃대와 깃발: 높이 달려 바람에 흔드는 재질이면 깃대에서 떨어져 나가므로, 물결 모양으로 굳힌 지붕 재질(플레이어 색)로 만든다.
+  const poleY = roofY + coneH - 0.02;
+  const poleH = 0.17;
+  f.add('wood', cyl(0.006, 0.007, poleH, 5), { position: [0, poleY + poleH / 2, 0], color: '#5a3b20' });
+  const FW = 0.12;
+  const FH = 0.065;
+  const flag = warp(box(FW, FH, 0.006, 8, 1, 1), (v) => {
+    const x = v.x + FW / 2;
+    v.z += Math.sin(x * 34) * 0.012 * (x / FW);
+    v.y -= x * 0.1;
   });
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    k.add('stone', box(0.04, 0.05, 0.04), { position: [tx + Math.cos(a) * 0.1, towerH + 0.02, tz + Math.sin(a) * 0.1], rotation: [0, -a, 0] });
+  f.add('roof', flag, { position: [FW / 2 + 0.004, poleY + poleH - FH / 2 - 0.006, 0], shade: (p) => 0.86 + 0.16 * (0.5 + 0.5 * Math.cos((p.x - at[0]) * 34)) });
+  f.add('paint', new THREE.SphereGeometry(0.011, 6, 4), { position: [0, poleY + poleH + 0.006, 0], color: '#d6b25a' });
+}
+
+/** 종탑: 네모난 돌탑, 꼭대기에 사방으로 트인 종 칸, 플레이어 색 뾰족 첨탑과 금빛 꼭지 */
+function addBellTower(k: Kit, at: Vec3, yaw: number): void {
+  const f = new Frame(k, at, yaw);
+  const s = 0.11;
+  const h = 0.42;
+  f.add('stone', box(s, h, s, 1, 8, 1), { position: [0, h / 2, 0], flat: true, faceShade: stoneCourses(h / 8) });
+  f.add('stone', box(s + 0.02, 0.02, s + 0.02), { position: [0, h + 0.01, 0], color: CITY_TRIM, faceShade: (_c, n) => skyShade(n, 0.7, 1.08) });
+  f.add('stone', box(s + 0.016, 0.016, s + 0.016), { position: [0, h - 0.11, 0], color: CITY_TRIM });
+  // 종 칸: 네 면의 어두운 아치 창, 앞면 아래쪽에는 둥근 시계판
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2;
+    const o = s / 2 + 0.003;
+    f.add('dark', box(0.036, 0.06, 0.006), { position: [Math.sin(a) * o, h - 0.05, Math.cos(a) * o], rotation: [0, a, 0] });
   }
-  k.add('roof', new THREE.ConeGeometry(0.13, 0.22, 12), { position: [tx, towerH + 0.15, tz], flat: true, faceShade: (_c, n) => skyShade(n, 0.66, 1.08) });
-  k.add('paint', box(0.03, 0.05, 0.006), { position: [tx, towerH - 0.14, tz + 0.105], color: '#e0a052' });
-  k.add('wood', cyl(0.006, 0.006, 0.16, 5), { position: [tx, towerH + 0.32, tz], color: '#5a3b20' });
-  k.add('banner', box(0.1, 0.05, 0.004), { position: [tx + 0.05, towerH + 0.37, tz], rotation: [0, 0, (rand() - 0.5) * 0.1] });
-  return k.build(0.2, 0.62);
+  f.add('stone', cyl(0.028, 0.028, 0.008, 12), { position: [0, h - 0.16, s / 2 + 0.003], rotation: [Math.PI / 2, 0, 0], color: '#f4efe4' });
+  f.add('dark', box(0.004, 0.022, 0.004), { position: [0, h - 0.152, s / 2 + 0.009] });
+  f.add('dark', box(0.016, 0.004, 0.004), { position: [0.006, h - 0.16, s / 2 + 0.009] });
+  f.add('wood', box(0.036, 0.07, 0.008), { position: [0, 0.035, s / 2 + 0.003], color: '#5a3b20' });
+  // 첨탑: 꼭짓점 넷짜리 원뿔을 45° 돌려 네모 탑에 맞춘다.
+  const spireH = 0.28;
+  f.add('roof', new THREE.ConeGeometry(s * 0.8, spireH, 4), {
+    position: [0, h + 0.02 + spireH / 2, 0],
+    rotation: [0, Math.PI / 4, 0],
+    flat: true,
+    faceShade: (_c, n) => skyShade(n, 0.64, 1.08),
+  });
+  f.add('paint', new THREE.SphereGeometry(0.013, 6, 4), { position: [0, h + 0.02 + spireH + 0.004, 0], color: '#d6b25a' });
+}
+
+/**
+ * 도시: 낮은 성벽과 성문 안에 집 세 채, 둥근 큰 탑, 종탑을 몰아 세운 성읍.
+ * 마을(집 한 채)보다 둘레가 넓고 탑이 높아 멀리서도 도시인 줄 안다. 지붕·고깔·첨탑·깃발에 플레이어 색이 곱해진다.
+ */
+export function buildCity(): PropPart[] {
+  const k = new Kit();
+  // 성안 바닥: 돌을 깐 마당
+  k.add('stone', new THREE.CylinderGeometry(1, 1, 0.02, 16), {
+    position: [0, 0.01, 0],
+    scale: [CITY_RX - 0.02, 1, CITY_RZ - 0.02],
+    color: '#c9bea8',
+  });
+  addCityWall(k);
+  // 앞줄은 낮은 집 둘(오른쪽 집은 박공이 앞을 본다), 뒷줄은 높은 집과 탑 둘
+  addTownHouse(k, { at: [-0.155, 0, 0.09], yaw: 0.08, w: 0.2, d: 0.15, wall: 0.17, rise: 0.09, stone: 0.06, floors: 1, seed: 3 });
+  addTownHouse(k, {
+    at: [0.165, 0, 0.075],
+    yaw: Math.PI / 2 - 0.06,
+    w: 0.18,
+    d: 0.15,
+    wall: 0.22,
+    rise: 0.1,
+    stone: 0,
+    floors: 2,
+    gableWindows: true,
+    tone: '#f3dcc0',
+    seed: 5,
+  });
+  addTownHouse(k, { at: [0, 0, -0.07], yaw: -0.04, w: 0.28, d: 0.17, wall: 0.3, rise: 0.12, stone: 0.1, floors: 2, seed: 7 });
+  addKeep(k, [-0.18, 0, -0.13]);
+  addBellTower(k, [0.2, 0, -0.13], 0.12);
+  return k.build(0.1, 0.72);
 }
 
 // ───────────────────────── 날아가는 생산물, 길 위 교역인 ─────────────────────────
