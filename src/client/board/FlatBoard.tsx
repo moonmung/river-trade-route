@@ -1,6 +1,8 @@
 // WebGL 2 를 쓸 수 없는 기기를 위한 2D 보드. 3D 보드와 같은 타일·꼭짓점·변 ID 와 강조 규칙을 쓴다.
 // 타일은 육각형과 숫자 패, 마을·도시는 꼭짓점의 작은 집 모양, 길은 변 위의 굵은 선, 기사단 동상은 방패 모양으로 그린다.
+// 아직 길이 없는 변은 3D 보드의 샛길처럼 희끄무레하고 살짝 굽은 가는 선으로 그린다.
 import { useMemo } from 'react';
+import { mulberry32, hashString } from './art/rng';
 import { boardGeometry, edgeLabel, tileCenterUnit, vertexLabel } from '../../shared/board';
 import { RESOURCE_LABEL, TILE_KIND_LABEL, numberPips } from '../../shared/constants';
 import type { TileDef } from '../../shared/types';
@@ -43,6 +45,25 @@ export function FlatBoard({ tiles, state, onTap }: { tiles: readonly TileDef[]; 
     const b = state.buildings.find((x) => x.vertexId === v);
     return b ? b.owner === owner : (roadCount.get(`${v}:${owner}`) ?? 0) >= 2;
   };
+  // 빈 변의 샛길: 변마다 휘는 정도를 달리한 곡선을 한 경로로 묶어 그린다.
+  const roadEdges = new Set(state.roads.map((r) => r.edgeId));
+  const trails = geo.edges
+    .filter((e) => !roadEdges.has(e.id))
+    .map((e) => {
+      const a = geo.vertexMap[e.a];
+      const b = geo.vertexMap[e.b];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const rand = mulberry32(hashString(e.id) + 41);
+      const o1 = (rand() - 0.5) * 0.07;
+      const o2 = (rand() - 0.5) * 0.07;
+      const f = (n: number) => n.toFixed(3);
+      return `M${f(a.x)} ${f(a.y)}C${f(a.x + dx / 3 + nx * o1)} ${f(a.y + dy / 3 + ny * o1)} ${f(a.x + (dx * 2) / 3 + nx * o2)} ${f(a.y + (dy * 2) / 3 + ny * o2)} ${f(b.x)} ${f(b.y)}`;
+    })
+    .join('');
   const sel = state.selected;
   const isSel = (kind: BoardSelection['kind'], id: string) => sel?.kind === kind && sel.id === id;
   const robber = state.robber !== undefined ? state.robber : (tiles.find((t) => t.kind === 'plaza')?.id ?? null);
@@ -113,6 +134,7 @@ export function FlatBoard({ tiles, state, onTap }: { tiles: readonly TileDef[]; 
             </text>
           );
         })}
+        <path d={trails} className="flat-trail" />
         {geo.edges.map((e) => {
           const a = geo.vertexMap[e.a];
           const b = geo.vertexMap[e.b];

@@ -1191,8 +1191,19 @@ h2 {
   pointer-events: none;
 }
 
+/* 빈 변: 3D 보드의 샛길처럼 희끄무레한 오솔길. 플레이어 색 길은 이보다 훨씬 굵어 바로 구별된다. */
+.flat-trail {
+  fill: none;
+  stroke: #f1e8d2;
+  stroke-width: 0.05;
+  stroke-linecap: round;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+/* 안내 점선은 희끄무레한 샛길 위에 그려지므로 진한 적갈색으로 칠한다 (3D 보드의 안내 점과 같은 색). */
 .flat-hint-line {
-  stroke: #fff4cf;
+  stroke: #8f3f10;
   stroke-width: 0.08;
   stroke-dasharray: 0.06 0.12;
   stroke-linecap: round;

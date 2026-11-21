@@ -200,10 +200,19 @@ const TILE_SIDE: Record<TileKind, string> = {
   stone: '#857f72',
   plaza: '#9d8a6a',
 };
-/** 타일 사이 흙길 띠 폭 (타일 사이 틈보다 넓어 양쪽 끝은 타일 밑에 숨는다) */
-const ROAD_STRIP_WIDTH = 0.4;
-/** 흙길 텍스처 한 장이 덮는 길이 */
-const ROAD_TEX_LENGTH = 1.0;
+/**
+ * 빈 변의 샛길: 타일 사이 흙 땅(틈 폭 약 0.31) 한가운데로 난 희끄무레한 오솔길.
+ * 반폭은 판자 길(폭 0.22)보다 좁아 길을 놓으면 판자에 거의 가리고, 구불거림은 틈 밖으로 나가지 않을 만큼만 준다.
+ */
+const PATH_HALF = 0.046;
+/** 샛길 중심선이 변에서 옆으로 벗어나는 최대 거리 (변 가운데에서 가장 크고 꼭짓점에서는 0) */
+const PATH_WANDER = 0.04;
+/** 샛길 거리장 텍스처에 담는 거리 (중심선에서 이보다 먼 곳은 모두 같은 값) */
+const PATH_FIELD_REACH = 0.22;
+/** 거리장 텍스처의 1 단위당 화소 수 */
+const PATH_FIELD_PPU = 40;
+/** 갈림길에서 세 갈래를 부드럽게 합치는 정도 (작을수록 날카롭다) */
+const PATH_JOIN = 0.02;
 /** 바닷가 변에서 흙 땅이 바다 쪽으로 더 나간 폭 */
 const LAND_MARGIN = 0.3;
 /** 모래밭 윗면 높이 (흙 땅보다 낮다). 흙 땅 가장자리 밑에서 이 높이로 시작해 바다 쪽으로 비스듬히 내려간다. */
@@ -437,6 +446,34 @@ function scaleUV(g: THREE.BufferGeometry, su: number, sv = su): THREE.BufferGeom
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * su, uv.getY(i) * sv);
   return g;
 }
+
+/** 흙 땅 윗면에 샛길을 칠하는 셰이더 조각 (paintMaterial 이 선언한 vPaintWorld·uPaintNoise 를 쓴다) */
+const FOOTPATH_UNIFORMS = /* glsl */ `
+uniform sampler2D uPathField;
+uniform vec4 uPathBox;
+uniform float uPathReach;
+uniform float uPathHalf;
+uniform vec3 uPathLight;
+uniform vec3 uPathDark;
+uniform vec3 uPathVerge;`;
+
+const FOOTPATH_FRAGMENT = /* glsl */ `
+  {
+    // 샛길 중심선까지의 거리. 넓은 흔들림과 잔 알갱이를 더해 가장자리가 고르지 않고 폭도 들쭉날쭉하다.
+    float pathD = texture2D( uPathField, ( vPaintWorld.xz - uPathBox.xy ) * uPathBox.zw ).r * uPathReach;
+    vec4 pathWide = texture2D( uPaintNoise, vPaintWorld.xz * 0.21 + 0.13 );
+    float pathGrain = texture2D( uPaintNoise, vPaintWorld.xz * 0.83 + 0.37 ).r;
+    pathD += ( pathWide.b - 0.5 ) * 0.045 + ( pathGrain - 0.5 ) * 0.02;
+    // 경계를 넓게 풀어 후처리 먹선이 가장자리에 줄을 긋지 않게 한다.
+    float onPath = 1.0 - smoothstep( uPathHalf - 0.024, uPathHalf + 0.024, pathD );
+    // 길가: 사람이 밟고 다녀 풀이 눌린 짙은 흙
+    float verge = ( 1.0 - smoothstep( uPathHalf, uPathHalf + 0.11, pathD ) ) * ( 1.0 - onPath );
+    diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * uPathVerge, verge );
+    // 길 바닥: 희끄무레한 모래·자갈에 잔돌이 드문드문 박혔다.
+    float pebble = smoothstep( 0.72, 0.8, texture2D( uPaintNoise, vPaintWorld.xz * 1.3 + 0.71 ).r );
+    vec3 pathCol = mix( uPathLight, uPathDark, clamp( pathWide.g * 0.5 + pebble * 0.45, 0.0, 1.0 ) );
+    diffuseColor.rgb = mix( diffuseColor.rgb, pathCol, onPath );
+  }`;
 
 function easeOutBack(t: number): number {
   const c1 = 1.70158;
@@ -784,7 +821,9 @@ export class BoardRenderer {
     this.lastTraderTime = now;
     if (this.motion && this.traders.length) this.updateTraders(dt);
     if (this.motion && this.hintDots && (this.hintDots.count || this.hintRings?.count)) {
-      (this.hintDots.material as THREE.MeshBasicMaterial).opacity = 0.5 + 0.35 * (0.5 + 0.5 * Math.sin(t * 2.6));
+      const pulse = 0.5 + 0.35 * (0.5 + 0.5 * Math.sin(t * 2.6));
+      (this.hintDots.material as THREE.MeshBasicMaterial).opacity = pulse;
+      if (this.hintRings) (this.hintRings.material as THREE.MeshBasicMaterial).opacity = pulse;
     }
     // 양: 자기 자리 둘레의 둥근 길을 따라 목초지를 거닌다. 걷다가 멈춰 고개를 숙여 풀을 뜯고 다시 걷는다.
     // 걷는 방향으로 몸을 돌리고, 양마다 길 모양과 박자가 다르다.
@@ -1087,7 +1126,7 @@ export class BoardRenderer {
     const m = this.metrics;
     // 보드 바깥은 무늬 없는 물이다. 장면 배경색(WATER_COLOR)이 그 역할을 하므로 따로 그리지 않는다.
 
-    // 땅: 바깥 타일 둘레(바닷가 변)를 따라 조금 넓힌 흙 땅. 타일 사이 틈이 흙길이 되고, 둘레는 모래밭과 얕은 물로 이어진다.
+    // 땅: 바깥 타일 둘레(바닷가 변)를 따라 조금 넓힌 흙 땅. 타일 사이 틈은 흙 땅 위로 샛길이 나고, 둘레는 모래밭과 얕은 물로 이어진다.
     const coast = this.coastLoop();
     const shapeOf = (pts: Pt[]) => new THREE.Shape(pts.map((q) => new THREE.Vector2(q.x, -q.z)));
     // 바다: 흙 땅 → 물 밑으로 비스듬히 잠기는 모래밭 → 옥빛 얕은 물 → 차츰 짙어지는 깊은 물.
@@ -1097,13 +1136,12 @@ export class BoardRenderer {
     const land = offsetLoop(coast, LAND_MARGIN);
     const landGeo = this.own(new THREE.ExtrudeGeometry(shapeOf(land), { depth: PLATFORM_TOP, bevelEnabled: false }).rotateX(-Math.PI / 2));
     scaleUV(landGeo, 0.5);
-    const dirtTop = this.groundMaterial('ground_dirt', GROUND_FALLBACK.dirt);
+    // 윗면에는 빈 변마다 희끄무레한 샛길을 함께 칠한다 (따로 그리는 띠가 없어 그리기 호출이 늘지 않는다).
+    const dirtTop = this.withFootpaths(this.groundMaterial('ground_dirt', GROUND_FALLBACK.dirt));
     const dirtSide = this.own(paintMaterial({ color: '#9a7752', map: this.art?.ground('ground_dirt') ?? null }));
     this.scene.add(new THREE.Mesh(landGeo, [dirtTop, dirtSide]));
 
-    this.buildRoadStrips();
-
-    // 육각 타일 판 (종류별로 하나의 InstancedMesh). 옆면은 지형마다 흙·풀 둑 색이라 흙길보다 한 뼘 높은 둑처럼 보인다.
+    // 육각 타일 판 (종류별로 하나의 InstancedMesh). 옆면은 지형마다 흙·풀 둑 색이라 샛길보다 한 뼘 높은 둑처럼 보인다.
     const slabGeo = this.own(new THREE.CylinderGeometry(HEX_RADIUS, HEX_RADIUS + 0.035, TILE_THICKNESS, 6));
     const kinds: TileKind[] = [...RESOURCES, 'plaza'];
     for (const kind of kinds) {
@@ -1243,53 +1281,145 @@ export class BoardRenderer {
   }
 
   /**
-   * 타일 사이 흙길: 변마다 수레바퀴 자국이 길을 따라 난 흙길 띠를 깐다. 텍스처 가로가 길 방향이라 자국이 변을 따라 이어지고,
-   * 띠는 교차점까지 조금 더 뻗어 세 갈래가 겹치며 갈림길이 된다. 띠마다 높이를 아주 조금씩 달리해 겹친 곳이 깜박이지 않는다.
+   * 빈 변의 샛길 중심선: 변 양 끝(꼭짓점)에서는 꼭짓점에 딱 붙고, 가운데로 갈수록 옆으로 조금 휘었다 돌아온다.
+   * 변마다 휘는 방향·박자가 달라 정리되지 않은 오솔길처럼 보인다.
    */
-  private buildRoadStrips(): void {
-    const tex = this.art?.ground('ground_road') ?? null;
-    if (tex) {
-      tex.wrapT = THREE.ClampToEdgeWrapping;
-      tex.needsUpdate = true;
+  private footpathLine(e: { id: string; a: string; b: string }): Pt[] {
+    const a = this.vertexWorld(e.a)!;
+    const b = this.vertexWorld(e.b)!;
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    const nx = -(b.z - a.z) / len;
+    const nz = (b.x - a.x) / len;
+    const rand = mulberry32(hashString(e.id) + 41);
+    const big = PATH_WANDER * (0.7 + 0.3 * rand());
+    const small = PATH_WANDER * (0.18 + 0.12 * rand());
+    const f1 = 1 + rand();
+    const f2 = 2.3 + 1.2 * rand();
+    const p1 = rand() * Math.PI * 2;
+    const p2 = rand() * Math.PI * 2;
+    const n = 20;
+    const pts: Pt[] = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const env = Math.sin(Math.PI * t);
+      const off = env * (big * Math.sin(Math.PI * f1 * t + p1) + small * Math.sin(Math.PI * 2 * f2 * t + p2));
+      pts.push({ x: a.x + (b.x - a.x) * t + nx * off, z: a.z + (b.z - a.z) * t + nz * off });
     }
-    const pos: number[] = [];
-    const uv: number[] = [];
-    const idx: number[] = [];
-    const hw = ROAD_STRIP_WIDTH / 2;
-    const ext = 0.08;
-    this.geo.edges.forEach((e, k) => {
-      const a = this.vertexWorld(e.a)!;
-      const b = this.vertexWorld(e.b)!;
-      const len = Math.hypot(b.x - a.x, b.z - a.z);
-      const tx = (b.x - a.x) / len;
-      const tz = (b.z - a.z) / len;
-      const nx = -tz;
-      const nz = tx;
-      const ax = a.x - tx * ext;
-      const az = a.z - tz * ext;
-      const bx = b.x + tx * ext;
-      const bz = b.z + tz * ext;
-      const y = PLATFORM_TOP + 0.003 + (k % 24) * 0.0004;
-      const u0 = (hashString(e.id) % 1000) / 1000;
-      const u1 = u0 + (len + ext * 2) / ROAD_TEX_LENGTH;
-      const base = pos.length / 3;
-      pos.push(ax + nx * hw, y, az + nz * hw, bx + nx * hw, y, bz + nz * hw, bx - nx * hw, y, bz - nz * hw, ax - nx * hw, y, az - nz * hw);
-      uv.push(u0, 1, u1, 1, u1, 0, u0, 0);
-      idx.push(base, base + 2, base + 1, base, base + 3, base + 2);
-    });
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    // 위에서 보이도록 앞면을 위로
-    if (g.attributes.normal.getY(0) < 0) {
-      g.setIndex(idx.map((_, i) => idx[i - (i % 3) + (2 - (i % 3))]));
-      g.computeVertexNormals();
+    return pts;
+  }
+
+  /**
+   * 샛길 거리장: 바닥 좌표마다 가장 가까운 샛길 중심선까지의 거리를 담은 한 채널 텍스처.
+   * 갈래끼리는 부드러운 최솟값으로 합쳐 갈림길이 조금 넓게 다져진 빈터처럼 이어진다. 보드를 만들 때 한 번만 계산한다.
+   */
+  private footpathField(): { texture: THREE.DataTexture; box: THREE.Vector4 } {
+    const lines = this.geo.edges.map((e) => this.footpathLine(e));
+    const reach = PATH_FIELD_REACH;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const line of lines)
+      for (const p of line) {
+        minX = Math.min(minX, p.x - reach);
+        maxX = Math.max(maxX, p.x + reach);
+        minZ = Math.min(minZ, p.z - reach);
+        maxZ = Math.max(maxZ, p.z + reach);
+      }
+    const ppu = PATH_FIELD_PPU;
+    const w = Math.ceil((maxX - minX) * ppu);
+    const h = Math.ceil((maxZ - minZ) * ppu);
+    // 갈래마다 exp(-d/k) 를 더해 두었다가 -k·ln 으로 되돌리면 부드러운 최솟값이 된다.
+    const acc = new Float32Array(w * h);
+    const k = PATH_JOIN;
+    for (const line of lines) {
+      let lx0 = Infinity;
+      let lx1 = -Infinity;
+      let lz0 = Infinity;
+      let lz1 = -Infinity;
+      for (const p of line) {
+        lx0 = Math.min(lx0, p.x);
+        lx1 = Math.max(lx1, p.x);
+        lz0 = Math.min(lz0, p.z);
+        lz1 = Math.max(lz1, p.z);
+      }
+      const i0 = Math.max(0, Math.floor((lx0 - reach - minX) * ppu));
+      const i1 = Math.min(w - 1, Math.ceil((lx1 + reach - minX) * ppu));
+      const j0 = Math.max(0, Math.floor((lz0 - reach - minZ) * ppu));
+      const j1 = Math.min(h - 1, Math.ceil((lz1 + reach - minZ) * ppu));
+      // 변(곧은 선) 기준 좌표로 먼저 걸러 내고, 중심선은 변을 따라 고르게 나뉘어 있으니 가까운 마디 몇 개만 본다.
+      const a = line[0];
+      const ax = line[line.length - 1].x - a.x;
+      const az = line[line.length - 1].z - a.z;
+      const len = Math.hypot(ax, az);
+      const segs = line.length - 1;
+      const band = reach + PATH_WANDER * 1.5;
+      for (let j = j0; j <= j1; j++) {
+        const z = minZ + (j + 0.5) / ppu;
+        for (let i = i0; i <= i1; i++) {
+          const x = minX + (i + 0.5) / ppu;
+          const along = ((x - a.x) * ax + (z - a.z) * az) / len;
+          const across = Math.abs((x - a.x) * az - (z - a.z) * ax) / len;
+          if (across > band || along < -reach || along > len + reach) continue;
+          const c = Math.max(0, Math.min(segs - 1, Math.floor((along / len) * segs)));
+          let best = Infinity;
+          for (let s = Math.max(0, c - 3); s <= Math.min(segs - 1, c + 3); s++) {
+            const p = line[s];
+            const q = line[s + 1];
+            const dx = q.x - p.x;
+            const dz = q.z - p.z;
+            const t = Math.max(0, Math.min(1, ((x - p.x) * dx + (z - p.z) * dz) / (dx * dx + dz * dz)));
+            const ex = p.x + dx * t - x;
+            const ez = p.z + dz * t - z;
+            best = Math.min(best, ex * ex + ez * ez);
+          }
+          const d = Math.sqrt(best);
+          if (d < reach) acc[j * w + i] += Math.exp(-d / k);
+        }
+      }
     }
-    this.own(g);
-    const mat = this.own(paintMaterial({ map: tex, color: tex ? '#ffffff' : '#c4a273', wash: 0.7 }));
-    this.scene.add(new THREE.Mesh(g, mat));
+    const data = new Uint8Array(w * h);
+    for (let i = 0; i < acc.length; i++) {
+      const d = acc[i] > 0 ? -k * Math.log(acc[i]) : reach;
+      data[i] = Math.round(Math.max(0, Math.min(1, d / reach)) * 255);
+    }
+    const tex = this.own(new THREE.DataTexture(data, w, h, THREE.RedFormat, THREE.UnsignedByteType));
+    tex.unpackAlignment = 1;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
+    tex.generateMipmaps = false;
+    tex.colorSpace = THREE.NoColorSpace;
+    tex.needsUpdate = true;
+    return { texture: tex, box: new THREE.Vector4(minX, minZ, ppu / w, ppu / h) };
+  }
+
+  /**
+   * 흙 땅 윗면 재질에 샛길을 더 칠한다. 희끄무레한 길 바닥이 짙어진 길가 흙 위로 떠올라 빈 변이 어디인지 보이고,
+   * 플레이어 색 판자 길은 그 위에 도드라진다. 길 판자가 놓이면 판자가 샛길을 덮는다.
+   */
+  private withFootpaths(m: THREE.MeshToonMaterial): THREE.MeshToonMaterial {
+    const field = this.footpathField();
+    const uniforms = {
+      uPathField: { value: field.texture },
+      uPathBox: { value: field.box },
+      uPathReach: { value: PATH_FIELD_REACH },
+      uPathHalf: { value: PATH_HALF },
+      uPathLight: { value: new THREE.Color('#f1ead9') },
+      uPathDark: { value: new THREE.Color('#cdc1a7') },
+      uPathVerge: { value: new THREE.Color('#c2ad8c') },
+    };
+    const base = m.onBeforeCompile;
+    m.onBeforeCompile = (shader, renderer) => {
+      base.call(m, shader, renderer);
+      Object.assign(shader.uniforms, uniforms);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>${FOOTPATH_UNIFORMS}`)
+        .replace('#include <map_fragment>', `#include <map_fragment>${FOOTPATH_FRAGMENT}`);
+    };
+    const key = m.customProgramCacheKey();
+    m.customProgramCacheKey = () => `${key}-footpath`;
+    return m;
   }
 
   /** 바깥 꼭짓점은 검정 반투명, 안쪽은 투명인 육각 띠 (꼭짓점 RGBA 색) */
@@ -1496,7 +1626,10 @@ export class BoardRenderer {
     }
     // 안내 표식: 변마다 점 세 개(점선), 꼭짓점마다 가는 고리. 은은하게 숨 쉬듯 밝아졌다 어두워진다.
     const hintMat = this.own(new THREE.MeshBasicMaterial({ color: '#fff4cf', transparent: true, opacity: 0.7, depthWrite: false, toneMapped: false }));
-    this.hintDots = new THREE.InstancedMesh(this.own(new THREE.CircleGeometry(0.042, 12).rotateX(-Math.PI / 2)), hintMat, ne * 3);
+    // 점은 희끄무레한 샛길 위에 찍히므로 고리보다 진한 적갈색으로 칠해 길 바닥에 묻히지 않게 한다.
+    const hintDotMat = this.own(hintMat.clone());
+    hintDotMat.color.set('#8f3f10');
+    this.hintDots = new THREE.InstancedMesh(this.own(new THREE.CircleGeometry(0.042, 12).rotateX(-Math.PI / 2)), hintDotMat, ne * 3);
     this.hintRings = new THREE.InstancedMesh(this.own(new THREE.RingGeometry(0.1, 0.135, 24).rotateX(-Math.PI / 2)), hintMat, nv);
     this.traceMark = new THREE.InstancedMesh(
       this.own(new THREE.PlaneGeometry(1, 0.2).rotateX(-Math.PI / 2)),
@@ -1906,10 +2039,12 @@ export class BoardRenderer {
       let nd = 0;
       for (const id of hints?.edges ?? []) {
         if (he.has(id) || same(sel, 'edge', id)) continue;
-        const ew = this.edgeWorld(id);
-        if (!ew) continue;
+        const e = this.geo.edgeMap[id];
+        if (!e) continue;
+        // 점은 구불구불한 샛길 중심선을 따라 찍는다.
+        const line = this.footpathLine(e);
         for (const t of [0.3, 0.5, 0.7]) {
-          const p = ew.a.clone().lerp(ew.b, t);
+          const p = line[Math.round(t * (line.length - 1))];
           this.hintDots.setMatrixAt(nd++, compose(p.x, PLATFORM_TOP + 0.09, p.z, 0, 1.3, 1, 1.3));
         }
       }
