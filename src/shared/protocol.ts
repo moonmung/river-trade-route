@@ -112,6 +112,23 @@ export interface SessionInfo {
   nickname: string;
 }
 
+/** 연결이 끊긴 자리를 다른 기기로 넘기는 일회용 코드 (방장이 만들고, 새 기기에서 참가 화면에 넣는다) */
+export interface SeatHandover {
+  playerId: string;
+  /** 숫자 SEAT_CODE_LENGTH 자리 */
+  code: string;
+  expiresAt: number;
+}
+
+export const SEAT_CODE_LENGTH = 6;
+
+/** 자리 넘기기 코드 입력값을 숫자만 남겨 확인한다. 형식이 맞지 않으면 null. */
+export function normalizeSeatCode(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const digits = v.replace(/[\s-]/g, '');
+  return new RegExp(`^\\d{${SEAT_CODE_LENGTH}}$`).test(digits) ? digits : null;
+}
+
 export interface LanAddress {
   address: string;
   name: string;
@@ -160,6 +177,10 @@ export interface ClientToServerEvents {
   'room:create': (p: { nickname: string }, ack: Ack<SessionInfo>) => void;
   'room:join': (p: { code: string; nickname: string }, ack: Ack<SessionInfo>) => void;
   'room:peek': (p: { code: string }, ack: Ack<RoomPeek>) => void;
+  /** 방장: 연결이 끊긴 자리를 넘길 코드를 만든다 */
+  'seat:handover': (p: { playerId: string }, ack: Ack<SeatHandover>) => void;
+  /** 새 기기: 받은 코드로 그 자리를 넘겨받는다 */
+  'seat:claim': (p: { code: string; seatCode: string }, ack: Ack<SessionInfo>) => void;
   'room:ready': (p: { ready: boolean }, ack: Ack) => void;
   'room:start': (p: Record<string, never>, ack: Ack) => void;
   'room:leave': (p: Record<string, never>, ack: Ack) => void;

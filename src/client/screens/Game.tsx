@@ -29,6 +29,7 @@ import { ChatBox, ChatDock, EmoteBar } from '../ui/chat';
 import { Emblem } from '../ui/icons';
 import { showToast } from '../ui/toast';
 import { SpectacleHost } from '../ui/spectacle';
+import { DiceTray } from '../dice/DiceTray';
 
 const DEFAULT_SETTINGS: GameSettings = { quality: 'auto', flat: false, perf: false };
 
@@ -364,6 +365,7 @@ export default function Game({ view }: { view: RoomView }) {
       {g.phase === 'playing' && g.step === 'discard' && g.discards[view.you] > 0 && <DiscardDialog key={`d-${g.turn}`} view={view} />}
       {myTurn && g.step === 'steal' && <StealDialog view={view} players={players} />}
       <SpectacleHost />
+      <DiceTray view={view} paused={dialog !== null} />
       {g.phase === 'finished' && showResult && <ResultOverlay view={view} players={players} onClose={() => setShowResult(false)} />}
       {g.phase === 'finished' && !showResult && (
         <button className="btn btn-primary result-reopen" onClick={() => setShowResult(true)}>

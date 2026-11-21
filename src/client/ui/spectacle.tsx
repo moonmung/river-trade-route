@@ -1,16 +1,10 @@
-// 큰 연출: 주사위 굴림과 달성(최장 교역로·최강 기사단) 공지. 토스트와 같은 방식의 작은 전역 저장소로 띄운다.
+// 큰 연출: 주사위 굴림(dice/ 의 3D 주사위가 멈춘 뒤 합계)과 달성(최장 교역로·최강 기사단) 공지. 토스트와 같은 방식의 작은 전역 저장소로 띄운다.
 import { useSyncExternalStore, type CSSProperties } from 'react';
+import { DiceShowHost } from '../dice/DiceShow';
 import { colorWord } from '../game/derive';
-import { DieFace, AwardIcon } from '../game/panels';
+import { AwardIcon } from '../game/panels';
 import { playerColor } from '../theme';
 import { Emblem } from './icons';
-
-export interface DiceShow {
-  id: number;
-  dice: [number, number];
-  who: string;
-  colorIndex: number;
-}
 
 export interface AwardWho {
   colorIndex: number;
@@ -31,26 +25,13 @@ const AWARD_LABEL: Record<AwardShow['award'], string> = { longest_road: '최장 
 const AWARD_MS = 4200;
 
 interface State {
-  dice: DiceShow | null;
   award: AwardShow | null;
 }
 
-let state: State = { dice: null, award: null };
+let state: State = { award: null };
 let nextId = 1;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((fn) => fn());
-
-/** 주사위 두 개가 굴러가다 멈추는 연출 (약 1.4초) */
-export function showDice(dice: [number, number], who: string, colorIndex: number): void {
-  const id = nextId++;
-  state = { ...state, dice: { id, dice, who, colorIndex } };
-  emit();
-  window.setTimeout(() => {
-    if (state.dice?.id !== id) return;
-    state = { ...state, dice: null };
-    emit();
-  }, 1700);
-}
 
 /** 달성 공지: 화면 위쪽에 "빨강 플레이어 최장 교역로 달성"을 그 색으로 크게 띄운다 (약 4초) */
 export function showAward(award: AwardShow['award'], who: AwardWho): void {
@@ -72,25 +53,9 @@ export function SpectacleHost() {
     },
     () => state,
   );
-  const total = s.dice ? s.dice.dice[0] + s.dice.dice[1] : 0;
   return (
     <>
-      {s.dice && (
-        <div className="dice-show" key={s.dice.id} aria-live="polite" aria-label={`주사위 ${s.dice.dice[0]}와 ${s.dice.dice[1]}, 합 ${total}`}>
-          <div className="dice-pair">
-            <span className="dice-roll d1">
-              <DieFace value={s.dice.dice[0]} size={64} />
-            </span>
-            <span className="dice-roll d2">
-              <DieFace value={s.dice.dice[1]} size={64} />
-            </span>
-          </div>
-          <div className={`dice-total ${total === 7 ? 'dice-seven' : ''}`}>
-            <Emblem colorIndex={s.dice.colorIndex} size={18} /> {s.dice.who} · {total}
-            {total === 7 && <small> 기사단 동상이 움직입니다</small>}
-          </div>
-        </div>
-      )}
+      <DiceShowHost />
       {s.award && <AwardBanner key={s.award.id} show={s.award} />}
     </>
   );

@@ -61,6 +61,11 @@ export function deviceSessionFor(roomCode: string): StoredSession | null {
   return loadDeviceSessions()[roomCode] ?? null;
 }
 
+/** 이 기기에서 들어갔던 방들 (최근 것부터). 처음 화면의 "진행 중인 게임으로 돌아가기"에 쓴다. */
+export function listDeviceSessions(): StoredSession[] {
+  return Object.values(loadDeviceSessions()).sort((a, b) => b.savedAt - a.savedAt);
+}
+
 export function saveSession(s: Omit<StoredSession, 'savedAt'>): StoredSession {
   const full: StoredSession = { ...s, savedAt: Date.now() };
   write(tab, TAB_KEY, full);

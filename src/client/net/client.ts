@@ -6,6 +6,7 @@ import type {
   HandshakeAuth,
   RoomPeek,
   RoomView,
+  SeatHandover,
   ServerToClientEvents,
   SessionInfo,
 } from '../../shared/protocol';
@@ -155,6 +156,23 @@ export class GameClient {
 
   peek(code: string): Promise<AckResult<RoomPeek>> {
     return this.emit<RoomPeek>('room:peek', { code });
+  }
+
+  /** 방장: 연결이 끊긴 자리를 다른 기기로 넘길 일회용 코드를 받는다. */
+  handover(playerId: string): Promise<AckResult<SeatHandover>> {
+    return this.emit<SeatHandover>('seat:handover', { playerId });
+  }
+
+  /** 새 기기: 방장에게 받은 코드로 그 자리를 넘겨받는다. */
+  async claimSeat(code: string, seatCode: string): Promise<AckResult<SessionInfo>> {
+    let res = await this.emit<SessionInfo>('seat:claim', { code, seatCode });
+    // QR 로 열자마자 보내면 첫 연결이 자리를 잡는 사이에 끊겨 응답을 못 받을 수 있다. 다시 연결되면 한 번 더 보낸다.
+    for (let attempt = 0; attempt < 2 && !res.ok && (res.code === 'TIMEOUT' || res.code === 'OFFLINE'); attempt++) {
+      if (!(await this.waitConnected(10_000))) break;
+      res = await this.emit<SessionInfo>('seat:claim', { code, seatCode });
+    }
+    if (res.ok) this.adopt(res);
+    return res;
   }
 
   /** 저장된 참가 토큰으로 자리를 되찾는다. 연결을 새로 맺으면서 토큰을 보낸다. */

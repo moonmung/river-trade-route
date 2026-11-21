@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NICKNAME_MAX } from '../../shared/constants';
-import type { RoomPeek } from '../../shared/protocol';
+import { SEAT_CODE_LENGTH, normalizeSeatCode, type RoomPeek } from '../../shared/protocol';
 import { normalizeNickname, normalizeRoomCode } from '../../shared/validate';
 import { client } from '../net/client';
 import { useClient } from '../net/hooks';
@@ -17,11 +17,25 @@ export function Join({ code: rawCode }: { code: string }) {
   const [peekError, setPeekError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const previous = code ? deviceSessionFor(code) : null;
+  // 방장 화면의 자리 넘기기 QR 코드로 열면 주소에 ?seat=123456 이 붙어 온다.
+  const [linkSeat] = useState(() => normalizeSeatCode(new URLSearchParams(window.location.search).get('seat')));
+  const [seatCode, setSeatCode] = useState(linkSeat ?? '');
+  const triedLinkSeat = useRef(false);
 
   // 이 탭이 이미 이 방에 들어가 있으면 바로 방 화면으로 간다.
   useEffect(() => {
     if (code && snap.session?.roomCode === code) navigate(`/room/${code}`, true);
   }, [code, snap.session]);
+
+  // 자리 넘기기 QR 로 열었으면 서버에 연결되자마자 한 번 자동으로 자리를 받는다.
+  useEffect(() => {
+    if (!code || !linkSeat || snap.conn !== 'connected' || triedLinkSeat.current) return;
+    triedLinkSeat.current = true;
+    void client.claimSeat(code, linkSeat).then((res) => {
+      if (res.ok) navigate(`/room/${code}`, true);
+      else setError(res.error);
+    });
+  }, [code, linkSeat, snap.conn]);
 
   useEffect(() => {
     if (!code || snap.conn !== 'connected') return;
@@ -70,6 +84,17 @@ export function Join({ code: rawCode }: { code: string }) {
     navigate(`/room/${code}`);
   };
 
+  const claim = async () => {
+    setError(null);
+    const seat = normalizeSeatCode(seatCode);
+    if (!seat) return setError(`자리 넘기기 코드는 숫자 ${SEAT_CODE_LENGTH}자리입니다.`);
+    const res = await client.claimSeat(code, seat);
+    if (!res.ok) return setError(res.error);
+    navigate(`/room/${code}`, true);
+  };
+
+  const inGame = peek?.phase === 'game';
+
   return (
     <main className="page">
       <div className="card hero">
@@ -116,8 +141,31 @@ export function Join({ code: rawCode }: { code: string }) {
         )}
         {peek && !peek.joinable && !previous && (
           <div className="notice notice-warn">
-            {peek.phase === 'game' ? '이미 게임이 시작되어 새로 참가할 수 없습니다.' : '방이 가득 찼습니다.'}
+            {inGame ? '이미 게임이 시작되어 새로 참가할 수 없습니다.' : '방이 가득 찼습니다.'}
           </div>
+        )}
+        {inGame && (
+          <>
+            <Field
+              label="자리 넘기기 코드"
+              hint={`다른 브라우저나 기기로 옮겨 왔다면 방장에게 '끊긴 자리 넘기기'를 눌러 달라고 하고, 받은 숫자 ${SEAT_CODE_LENGTH}자리를 넣으세요.`}
+            >
+              <input
+                className="input code-input"
+                value={seatCode}
+                maxLength={SEAT_CODE_LENGTH + 2}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                enterKeyHint="go"
+                placeholder="123456"
+                onChange={(e) => setSeatCode(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && void claim()}
+              />
+            </Field>
+            <AsyncButton className={previous ? 'btn btn-wide' : 'btn btn-primary btn-wide'} onClick={claim} disabled={snap.conn !== 'connected'}>
+              이 코드의 자리로 들어가기
+            </AsyncButton>
+          </>
         )}
         {error && <div className="notice notice-error">{error}</div>}
         {snap.conn !== 'connected' && (

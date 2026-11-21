@@ -3,6 +3,7 @@ import { DEV_COST, DEV_LABEL, PIECE_COST, PIECE_LIMIT, PIECE_POINTS, RESOURCES, 
 import type { RoomView } from '../../shared/protocol';
 import { pieceCount } from '../../shared/rules';
 import type { Bundle, PieceKind } from '../../shared/types';
+import { throwDice } from '../dice';
 import { playerColor } from '../theme';
 import { Emblem, ResourceIcon } from '../ui/icons';
 import { DevIcon, MiniHand } from './hand';
@@ -330,7 +331,8 @@ export function ActionBar({ view, tradeOpen, onTrade }: { view: RoomView; tradeO
           blocker={null}
           onClick={async () => {
             setRolling(true);
-            if (!(await sendAction({ type: 'roll' }))) setRolling(false);
+            // 3D 주사위를 던지고 서버에 굴리기를 보낸다 (주사위는 값이 오기 전부터 날아간다).
+            if (!(await throwDice())) setRolling(false);
           }}
           icon={
             <span className="act-ico dice-ico">

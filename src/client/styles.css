@@ -945,23 +945,26 @@ h2 {
   }
 }
 
-/* 해상 교역로 표지: 앞에 아이콘(자원, 3:1 은 물음표)과 비율만. 3:1 은 푸른빛 바탕 */
+/* 해상 교역로 표지: 앞에 아이콘(자원, 3:1 은 물음표)과 비율만. 3:1 은 푸른빛 바탕.
+   부두 위에 작게 떠서 배와 짐을 가리지 않는다 (아이콘은 18px 로 만들어 14px 로 줄여 그린다). */
 .harbor-label {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 7px 2px 3px;
-  border-radius: 12px;
-  background: rgba(244, 233, 207, 0.95);
-  border: 1px solid rgba(58, 42, 31, 0.6);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-  font: 700 12px/1 'Palatino Linotype', Palatino, Georgia, var(--font-title);
+  gap: 2px;
+  padding: 1px 5px 1px 2px;
+  border-radius: 9px;
+  background: rgba(244, 233, 207, 0.93);
+  border: 1px solid rgba(58, 42, 31, 0.55);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  font: 700 10px/1 'Palatino Linotype', Palatino, Georgia, var(--font-title);
   color: #2c2018;
   white-space: nowrap;
 }
 
 .harbor-label svg {
   display: block;
+  width: 14px;
+  height: 14px;
 }
 
 .harbor-any {

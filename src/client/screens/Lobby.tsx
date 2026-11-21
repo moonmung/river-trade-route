@@ -13,7 +13,7 @@ import { showToast } from '../ui/toast';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
-function useServerInfo(): ServerInfo | null {
+export function useServerInfo(): ServerInfo | null {
   const [info, setInfo] = useState<ServerInfo | null>(null);
   useEffect(() => {
     let alive = true;
@@ -32,7 +32,7 @@ function useServerInfo(): ServerInfo | null {
  * 초대 링크 주소. 방장이 이 PC에서 localhost 로 열었다면 휴대폰이 접속할 수 있는 사설 IP로 바꾼다.
  * 이미 사설 IP로 접속한 화면(휴대폰 등)은 지금 주소를 그대로 쓴다.
  */
-function inviteBase(info: ServerInfo | null, chosen: string | null): { base: string; local: boolean; missingLan: boolean } {
+export function inviteBase(info: ServerInfo | null, chosen: string | null): { base: string; local: boolean; missingLan: boolean } {
   const local = LOCAL_HOSTS.has(window.location.hostname);
   if (!local) return { base: window.location.origin, local, missingLan: false };
   const address = chosen ?? info?.lanAddresses[0]?.address ?? null;
@@ -40,7 +40,7 @@ function inviteBase(info: ServerInfo | null, chosen: string | null): { base: str
   return { base: `http://${address}:${info.port}`, local, missingLan: false };
 }
 
-function QrCode({ text }: { text: string }) {
+export function QrCode({ text }: { text: string }) {
   const [svg, setSvg] = useState('');
   useEffect(() => {
     let alive = true;
