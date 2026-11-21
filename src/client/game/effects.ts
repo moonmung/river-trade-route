@@ -9,7 +9,7 @@ import { josa } from '../ui/josa';
 import { rollDice, settleDice } from '../dice';
 import { showAward } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
-import { flyCards, glowBoard, type FlyCard } from './cardFly';
+import { flyCards, type FlyCard } from './cardFly';
 import { bundleText, tileName, type PlayerInfo } from './derive';
 import { RESOURCES } from '../../shared/constants';
 
@@ -99,7 +99,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             if (blocked.length) showToast(`${blocked.join(', ')} 칸은 기사단 동상에 막혀 생산하지 않았습니다.`, 'warn', 3200);
             if (!animate) return;
             rendererRef.current?.playRoll(e.tiles, e.blocked, items);
-            // 생산물이 마을·도시에 닿을 즈음 카드가 그 자리에서 손으로 날아든다. 내 것이 있으면 맵이 한 번 밝아진다.
+            // 내 자원이 나온 칸만 환해지고, 생산물이 마을·도시에 닿을 즈음 카드가 그 자리에서 손으로 날아든다.
             const cards: FlyCard[] = [];
             let n = 0;
             items.forEach((it) => {
@@ -109,7 +109,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
                 n++;
               }
             });
-            if (cards.some((c) => c.mine)) glowBoard();
+            rendererRef.current?.glowTiles(items.filter((it) => it.owner === me).map((it) => it.tileId));
             flyCards(cards, { reduced: reducedMotion() });
           });
           break;
@@ -125,7 +125,9 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
               delay: 450 + i * 150,
               mine: e.player === me,
             }));
-            if (e.player === me && cards.length) glowBoard();
+            if (e.player === me && cards.length) {
+              rendererRef.current?.glowTiles((VERTEX_MAP[e.vertexId]?.tiles ?? []).filter((t) => TILE_MAP[t]?.kind !== 'plaza'));
+            }
             flyCards(cards, { reduced: reducedMotion() });
           }
           break;

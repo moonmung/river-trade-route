@@ -32,7 +32,7 @@ import {
   type Placement,
 } from './layout';
 import { hashString, mulberry32, smoothstep } from './art/rng';
-import { PaintedRenderer, greyWhenLocked, paintLock, paintMaterial, paintTime } from './paint';
+import { GLOW_SLOTS, PaintedRenderer, greyWhenLocked, paintGlow, paintLock, paintMaterial, paintTime } from './paint';
 import { PerfMeter, type PerfRecording, type PerfStats } from './perf';
 
 export type HighlightKind = 'buildable' | 'placeable';
@@ -564,6 +564,10 @@ export class BoardRenderer {
   private lockGen = 0;
   /** 생산·막힘 때 칸 테두리를 빛내는 고리 */
   private flashRing: THREE.InstancedMesh | null = null;
+  /** 빛나는 칸 자리 (paintGlow 슬롯마다 칸 ID) */
+  private glowSlots: (string | null)[] = Array.from({ length: GLOW_SLOTS }, () => null);
+  private glowTokens: number[] = Array.from({ length: GLOW_SLOTS }, () => 0);
+  private glowSeq = 0;
   private overlayScale = 0;
 
   constructor(
@@ -579,6 +583,9 @@ export class BoardRenderer {
     paintLock.apothem.value = LOCK_APOTHEM;
     paintLock.amount.value = 0;
     paintLock.reach.value = 0;
+    // 빛나는 칸도 같다.
+    paintGlow.apothem.value = HEX_APOTHEM;
+    for (const v of paintGlow.tiles.value) v.set(0, 0, 0);
     this.quality = options.quality ?? 'auto';
     this.tileLabelsVisible = options.showTileLabels ?? true;
     this.motion = options.motion ?? true;
@@ -2512,6 +2519,44 @@ export class BoardRenderer {
     });
   }
 
+  /**
+   * 내 자원이 나온 칸만 바닥이 따뜻한 빛으로 환해졌다가 천천히 돌아온다 (약 1.6초).
+   * 보드 전체가 아니라 그 칸만 밝아져 어디서 자원이 나왔는지 보인다.
+   */
+  glowTiles(tileIds: readonly string[], delay = 0): void {
+    if (!this.ready) return;
+    for (const id of new Set(tileIds)) {
+      const tile = this.tileById.get(id);
+      if (!tile) continue;
+      // 같은 칸이 이미 빛나는 중이면 그 자리를, 아니면 빈 자리를 쓴다 (모자라면 건너뛴다).
+      let slot = this.glowSlots.indexOf(id);
+      if (slot < 0) slot = this.glowSlots.indexOf(null);
+      if (slot < 0) continue;
+      this.glowSlots[slot] = id;
+      // 같은 칸이 다시 빛나면 나중 연출만 값을 바꾼다.
+      const token = ++this.glowSeq;
+      this.glowTokens[slot] = token;
+      const c = tileCenter(tile, this.metrics);
+      const v = paintGlow.tiles.value[slot];
+      v.set(c.x, c.z, v.z);
+      this.addAnim({
+        delay,
+        duration: 1600,
+        update: (t) => {
+          if (this.glowTokens[slot] !== token) return;
+          // 빨리 차오르고 천천히 빠진다.
+          v.z = t < 0.15 ? smoothstep(0, 0.15, t) : 1 - smoothstep(0.35, 1, t);
+        },
+        done: () => {
+          if (this.glowTokens[slot] !== token) return;
+          v.z = 0;
+          this.glowSlots[slot] = null;
+        },
+      });
+    }
+    this.requestRender();
+  }
+
   /** 숫자 패를 한 번 크게 튀긴다 (CSS 연출) */
   private pulseToken(tileId: string, cls: 'num-roll' | 'num-blocked'): void {
     const item = this.numberTokens.get(tileId);
@@ -3307,6 +3352,7 @@ export class BoardRenderer {
     for (const m of this.owned.materials) m.dispose();
     for (const t of this.owned.textures) t.dispose();
     paintLock.amount.value = 0;
+    for (const v of paintGlow.tiles.value) v.z = 0;
     this.scene.traverse((o) => {
       if ((o as THREE.InstancedMesh).isInstancedMesh) (o as THREE.InstancedMesh).dispose();
     });

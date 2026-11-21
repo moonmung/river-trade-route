@@ -3420,19 +3420,7 @@
   }
 }
 
-/* 내 생산이 있을 때 맵이 한 번 환하게 밝아진다 */
-.board-glow canvas {
-  animation: board-glow 1.25s ease-out;
-}
-
-@keyframes board-glow {
-  25% {
-    filter: brightness(1.22) saturate(1.12);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .board-glow canvas,
   .fly-catch,
   .order-dice-rolling .die,
   .turn-timer-low.turn-timer-mine {

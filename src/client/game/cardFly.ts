@@ -1,5 +1,5 @@
 // 자원 카드가 보드에서 손으로 날아드는 연출.
-// 내 생산은 맵이 한 번 밝아지면서 카드가 보드에서 내 손의 그 자원 카드 자리로 슉슉 날아들고, 다른 사람의 생산은 그 사람 상태 창
+// 내 생산은 자원이 나온 칸이 환해진 뒤 카드가 보드에서 내 손의 그 자원 카드 자리로 슉슉 날아들고, 다른 사람의 생산은 그 사람 상태 창
 // 오른쪽 아래(손 카드 뭉치)로 작은 카드가 슈루룩 빨려 들어간다. 여러 장이면 그만큼 날아간다.
 // 날아가는 동안 그 카드는 손 장수에서 빼 두었다가(hold) 닿는 순간 하나씩 더한다(release). 그래서 숫자가 카드가 닿을 때 올라간다.
 import { useSyncExternalStore } from 'react';
@@ -149,14 +149,4 @@ function launch(card: FlyCard, target: Element, onLand: () => void): void {
   };
   anim.onfinish = finish;
   anim.oncancel = finish;
-}
-
-/** 맵이 한 번 환하게 밝아진다 (내 생산이 있을 때) */
-export function glowBoard(): void {
-  const el = document.querySelector('.board-layer');
-  if (!el) return;
-  el.classList.remove('board-glow');
-  void (el as HTMLElement).offsetWidth;
-  el.classList.add('board-glow');
-  window.setTimeout(() => el.classList.remove('board-glow'), 1300);
 }
