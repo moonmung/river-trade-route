@@ -112,6 +112,72 @@ export const PAINT_SATURATION = 1.3;
 /** 바람 흔들림에 쓰는 시간(초). BoardRenderer 가 움직임을 켜 둔 동안 매 프레임 올린다. 모든 재질이 같은 값을 본다. */
 export const paintTime = { value: 0 };
 
+/**
+ * 기사단 동상이 선 칸. 이 육각형(꼭짓점이 앞뒤 ±z 를 향함) 안은 빛을 받은 뒤의 색에서 채도를 모두 빼 무채색으로 칠한다.
+ * 모든 재질이 같은 값을 보며 BoardRenderer 가 동상을 옮길 때 바꾼다.
+ * - center: 칸 중심 (세계 x, z), apothem: 중심에서 변까지 거리
+ * - reach: 칸 중심에서 잿빛이 번진 반지름. 늘리면 가운데부터 색이 빠지고 줄이면 가장자리부터 색이 돌아온다.
+ * - amount: 0 이면 잠긴 칸 없음
+ */
+export const paintLock = {
+  center: { value: new THREE.Vector2() },
+  apothem: { value: 1 },
+  reach: { value: 0 },
+  amount: { value: 0 },
+};
+
+const LOCK_UNIFORMS = /* glsl */ `
+uniform vec2 uLockCenter;
+uniform float uLockApothem;
+uniform float uLockReach;
+uniform float uLockAmount;
+float paintLockGrey( vec3 w ) {
+  vec2 p = w.xz - uLockCenter;
+  vec2 q = abs( p );
+  float hex = max( q.x, dot( q, vec2( 0.5, 0.8660254 ) ) );
+  float inside = 1.0 - smoothstep( uLockApothem - 0.02, uLockApothem + 0.03, hex );
+  float reach = 1.0 - smoothstep( uLockReach - 0.35, uLockReach, length( p ) );
+  return uLockAmount * inside * reach;
+}`;
+
+/** 빛까지 다 칠한 색을 밝기만 남긴 회색으로 바꾼다 (잠긴 칸이 또렷이 죽어 보이도록 조금 어둡게). */
+const LOCK_FRAGMENT = /* glsl */ `
+  float lockGrey = paintLockGrey( vPaintWorld );
+  outgoingLight = mix( outgoingLight, vec3( dot( outgoingLight, vec3( 0.2126, 0.7152, 0.0722 ) ) * 0.93 ), lockGrey );
+  #include <opaque_fragment>`;
+
+const WORLD_VERTEX = /* glsl */ `#include <project_vertex>
+  vec4 paintWorld = vec4( transformed, 1.0 );
+  #ifdef USE_INSTANCING
+    paintWorld = instanceMatrix * paintWorld;
+  #endif
+  vPaintWorld = ( modelMatrix * paintWorld ).xyz;`;
+
+function bindLockUniforms(shader: THREE.WebGLProgramParametersWithUniforms): void {
+  shader.uniforms.uLockCenter = paintLock.center;
+  shader.uniforms.uLockApothem = paintLock.apothem;
+  shader.uniforms.uLockReach = paintLock.reach;
+  shader.uniforms.uLockAmount = paintLock.amount;
+}
+
+/**
+ * 만화 음영이 아닌 재질(접촉 그림자, 타일 가장자리 그늘)도 잠긴 칸 안에서 무채색이 되게 한다.
+ * 그림자가 보라빛 물감이라 그대로 두면 잿빛 칸 위에 색이 남는다.
+ */
+export function greyWhenLocked<T extends THREE.MeshBasicMaterial>(m: T): T {
+  m.onBeforeCompile = (shader) => {
+    bindLockUniforms(shader);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vPaintWorld;')
+      .replace('#include <project_vertex>', WORLD_VERTEX);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nvarying vec3 vPaintWorld;${LOCK_UNIFORMS}`)
+      .replace('#include <opaque_fragment>', LOCK_FRAGMENT);
+  };
+  m.customProgramCacheKey = () => 'paint-lock-basic';
+  return m;
+}
+
 export interface PaintOptions {
   color?: THREE.ColorRepresentation;
   map?: THREE.Texture | null;
@@ -122,6 +188,19 @@ export interface PaintOptions {
   wash?: number;
   /** 바람에 흔들리는 세기 (0 이면 고정). 소품 바닥은 그대로 두고 높이 올라갈수록 많이 흔들린다. */
   sway?: number;
+  /**
+   * 기사단 동상이 선 칸 안에서 무채색이 되는지 (기본 켬). 플레이어 조각, 동상·사슬·자물쇠, 길 위 교역인,
+   * 날아가는 생산물처럼 칸 위에서도 제 색을 지켜야 하는 것은 끈다.
+   */
+  lock?: boolean;
+}
+
+const optionsOf = new WeakMap<THREE.Material, PaintOptions>();
+
+/** paintMaterial 로 만든 재질을 옵션만 바꿔 새로 만든다 (같은 소품의 색 지키는 판 등). 다른 재질이면 그대로 돌려준다. */
+export function paintVariant(m: THREE.Material, overrides: PaintOptions): THREE.Material {
+  const o = optionsOf.get(m);
+  return o ? paintMaterial({ ...o, ...overrides }) : m;
 }
 
 /** 만화 음영 + 물감 얼룩 재질. 인스턴싱·인스턴스 색(플레이어 색)·꼭짓점 색을 모두 쓸 수 있다. */
@@ -134,8 +213,10 @@ export function paintMaterial(o: PaintOptions = {}): THREE.MeshToonMaterial {
     side: o.side ?? THREE.FrontSide,
     gradientMap: toonRamp(),
   });
+  optionsOf.set(m, { ...o });
   const wash = o.wash ?? 1;
   const sway = o.sway ?? 0;
+  const lock = o.lock ?? true;
   if (sway > 0) m.defines = { ...(m.defines ?? {}), PAINT_SWAY: '' };
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uPaintNoise = { value: paintNoise() };
@@ -143,6 +224,7 @@ export function paintMaterial(o: PaintOptions = {}): THREE.MeshToonMaterial {
     shader.uniforms.uPaintSaturation = { value: PAINT_SATURATION };
     shader.uniforms.uTime = paintTime;
     shader.uniforms.uSway = { value: sway };
+    if (lock) bindLockUniforms(shader);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vPaintWorld;\nuniform float uTime;\nuniform float uSway;')
       .replace(
@@ -161,17 +243,12 @@ export function paintMaterial(o: PaintOptions = {}): THREE.MeshToonMaterial {
     transformed.z += cos( swayPhase * 0.83 + 0.7 ) * swayBend * 0.55;
   #endif`,
       )
-      .replace(
-        '#include <project_vertex>',
-        `#include <project_vertex>
-  vec4 paintWorld = vec4( transformed, 1.0 );
-  #ifdef USE_INSTANCING
-    paintWorld = instanceMatrix * paintWorld;
-  #endif
-  vPaintWorld = ( modelMatrix * paintWorld ).xyz;`,
-      );
+      .replace('#include <project_vertex>', WORLD_VERTEX);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform sampler2D uPaintNoise;\nuniform float uPaintWash;\nuniform float uPaintSaturation;\nvarying vec3 vPaintWorld;')
+      .replace(
+        '#include <common>',
+        `#include <common>\nuniform sampler2D uPaintNoise;\nuniform float uPaintWash;\nuniform float uPaintSaturation;\nvarying vec3 vPaintWorld;${lock ? LOCK_UNIFORMS : ''}`,
+      )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
@@ -184,8 +261,10 @@ export function paintMaterial(o: PaintOptions = {}): THREE.MeshToonMaterial {
   float paintLuma = dot( diffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );
   diffuseColor.rgb = max( mix( vec3( paintLuma ), diffuseColor.rgb, uPaintSaturation ), 0.0 );`,
       );
+    if (lock) shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', LOCK_FRAGMENT);
   };
-  m.customProgramCacheKey = () => (sway > 0 ? 'paint-v3-sway' : 'paint-v3');
+  const cacheKey = `paint-v4${sway > 0 ? '-sway' : ''}${lock ? '-lock' : ''}`;
+  m.customProgramCacheKey = () => cacheKey;
   return m;
 }
 

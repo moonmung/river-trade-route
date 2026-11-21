@@ -51,7 +51,9 @@ export type PropKey =
   | 'padlock'
   | 'pier'
   | 'brickrows'
-  | 'roadjoint';
+  | 'roadjoint'
+  | 'goods'
+  | 'trader';
 
 type Vec3 = [number, number, number];
 /** 밝기 배율. 숫자 하나는 밝기만 바꾸고, 세 값은 색조까지 바꾼다 (이끼 낀 돌처럼). */
@@ -1745,6 +1747,159 @@ export function buildCity(): PropPart[] {
   return k.build(0.2, 0.62);
 }
 
+// ───────────────────────── 날아가는 생산물, 길 위 교역인 ─────────────────────────
+
+/** 도형을 바운딩 박스 가운데가 원점에 오게 옮긴다 (날아가며 제자리에서 구르는 소품) */
+function centerParts(parts: PropPart[]): PropPart[] {
+  const bounds = new THREE.Box3();
+  for (const p of parts) {
+    p.geometry.computeBoundingBox();
+    bounds.union(p.geometry.boundingBox!);
+  }
+  const c = bounds.getCenter(new THREE.Vector3());
+  for (const p of parts) {
+    p.geometry.translate(-c.x, -c.y, -c.z);
+    p.geometry.computeBoundingBox();
+    p.geometry.computeBoundingSphere();
+  }
+  return parts;
+}
+
+/** 생산물 소품 번호: 칸에서 마을·도시로 날아가는 자원 모양 (자원 이름은 shared 의 Resource 와 같다) */
+export const GOODS_VARIANT = { wood: 0, grain: 1, wool: 2, brick: 3, stone: 4 } as const;
+
+/**
+ * 칸에서 마을·도시로 날아가는 생산물. 0 통나무, 1 끈으로 묶은 볏단, 2 작은 양, 3 벽돌 세 장, 4 돌덩이.
+ * 가운데가 원점이라 날아가며 제자리에서 구른다. 가장 긴 쪽이 0.25 안팎이다.
+ */
+export function buildGoods(variant = 0): PropPart[] {
+  const rand = mulberry32(variant * 53 + 11);
+  const k = new Kit();
+  switch (variant) {
+    case 0: {
+      // 껍질 붙은 통나무 한 토막과 잘린 잔가지. 날아가며 앞뒤로 뒤집혀 밝은 나이테 단면이 번갈아 보인다.
+      // 작게 그려도 검은 덩어리로 뭉개지지 않게 껍질을 밝게 칠하고 세로 결마다 밝기를 달리한다.
+      const r = 0.064;
+      const len = 0.22;
+      k.add('bark', cyl(r, r * 0.94, len, 10, true), {
+        position: [0, r, 0],
+        rotation: alongX(),
+        uv: 'native',
+        uvScale: 0.6,
+        color: new THREE.Color(1.35, 1.22, 1.1),
+        faceShade: (c, n) => (Math.floor((Math.atan2(c.z, c.y - r) + Math.PI) * 1.6) % 2 ? 0.86 : 1.04) * skyShade(n, 0.72, 1.1),
+      });
+      addLogEnd(k, r * 0.98, [len / 2, r, 0], [0, Math.PI / 2, 0], 1.08);
+      addLogEnd(k, r * 0.93, [-len / 2, r, 0], [0, -Math.PI / 2, 0], 1.02);
+      k.add('bark', cyl(0.013, 0.017, 0.05, 6), { position: [0.03, r * 2 + 0.012, 0.012], rotation: aim(0.35, 1, 0.2), uv: 'native', color: new THREE.Color(1.3, 1.2, 1.1) });
+      return centerParts(k.build(0.03, 0.85));
+    }
+    case 1: {
+      // 허리를 끈으로 묶은 볏단: 아래는 줄기, 위로 이삭이 부채처럼 벌어진다.
+      const h = 0.16;
+      const stalks = warp(new THREE.CylinderGeometry(0.036, 0.042, h, 10, 6), (v) => {
+        const t = (v.y + h / 2) / h;
+        const waist = 1 - 0.28 * Math.exp(-((t - 0.55) * (t - 0.55)) / 0.02);
+        v.x *= waist;
+        v.z *= waist;
+      });
+      stalks.translate(0, h / 2, 0);
+      k.add('wheat', stalks, { uv: 'native', shade: (p) => 0.7 + 0.36 * smoothstep(0, h, p.y) });
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2 + rand() * 0.4;
+        const out = 0.4 + rand() * 0.3;
+        k.add('wheat', new THREE.OctahedronGeometry(0.016, 0), {
+          position: [Math.cos(a) * 0.03, h + 0.025 + rand() * 0.015, Math.sin(a) * 0.03],
+          rotation: aim(Math.cos(a) * out, 1, Math.sin(a) * out),
+          scale: [0.8, 2.7, 0.8],
+          flat: true,
+          color: new THREE.Color('#ffffff').multiplyScalar(1.02 + rand() * 0.14),
+        });
+      }
+      k.add('cloth', new THREE.TorusGeometry(0.033, 0.008, 5, 12), { position: [0, h * 0.55, 0], rotation: [Math.PI / 2, 0, 0], color: '#a8875a' });
+      return centerParts(k.build(0.04, 0.8));
+    }
+    case 2:
+      // 양모는 고개 든 작은 양이 통째로 날아간다.
+      return centerParts(buildSheep(1));
+    case 3: {
+      // 구운 벽돌 세 장: 아래 두 장을 나란히, 위에 한 장을 엇갈려 얹었다.
+      const bw = 0.13;
+      const bh = 0.045;
+      const bd = 0.06;
+      const bricks: [number, number, number, number][] = [
+        [0, bh / 2, -0.033, 0.03],
+        [0.006, bh / 2, 0.033, -0.04],
+        [0, bh * 1.5 + 0.003, 0, Math.PI / 2 + 0.12],
+      ];
+      for (const [x, y, z, ry] of bricks) {
+        k.add('brick', box(bw, bh, bd), {
+          position: [x, y, z],
+          rotation: [0, ry, 0],
+          color: new THREE.Color('#ffffff').multiplyScalar(0.88 + rand() * 0.18),
+          flat: true,
+          faceShade: (_c, n) => skyShade(n, 0.68, 1.08),
+        });
+      }
+      return centerParts(k.build(0.03, 0.85));
+    }
+    default: {
+      // 쪼아 낸 돌덩이: 큰 덩이에 작은 조각이 붙어 있다.
+      k.add('stone', rock(0.085, 1, 31, 0.42), {
+        position: [0, 0.07, 0],
+        scale: [1.25, 0.85, 1],
+        flat: true,
+        color: '#ece7dd',
+        faceShade: (_c, n) => 0.72 + 0.4 * smoothstep(-0.3, 0.9, n.y),
+      });
+      k.add('stone', rock(0.045, 0, 47, 0.4), {
+        position: [0.09, 0.04, 0.03],
+        flat: true,
+        color: '#ddd7cc',
+        faceShade: (_c, n) => 0.72 + 0.4 * smoothstep(-0.3, 0.9, n.y),
+      });
+      return centerParts(k.build(0.04, 0.8));
+    }
+  }
+}
+
+/**
+ * 길 위를 오가는 교역인: 플레이어 색 두건 달린 겉옷(지붕 재질이라 플레이어 색이 곱해진다)에 큰 봇짐을 지고 지팡이를 짚었다.
+ * 원점 = 발 사이 바닥, 얼굴은 +x 쪽을 본다 (길 방향 회전을 그대로 쓴다). 키는 약 0.21.
+ */
+export function buildTrader(): PropPart[] {
+  const k = new Kit();
+  const round = (_p: THREE.Vector3, n: THREE.Vector3) => skyShade(n, 0.7, 1.08);
+  // 다리와 신발
+  for (const z of [-0.014, 0.014]) {
+    k.add('dark', cyl(0.01, 0.011, 0.06, 6), { position: [0, 0.03, z] });
+    k.add('dark', box(0.03, 0.012, 0.018), { position: [0.007, 0.006, z] });
+  }
+  // 겉옷: 아래로 퍼지는 웃옷과 허리띠
+  k.add('roof', cyl(0.027, 0.042, 0.09, 10), { position: [0, 0.105, 0], shade: round });
+  k.add('dark', cyl(0.031, 0.031, 0.01, 10), { position: [0, 0.112, 0] });
+  // 팔: 앞쪽 손이 지팡이를 쥔다.
+  for (const z of [-0.036, 0.036]) {
+    k.add('roof', cyl(0.009, 0.011, 0.055, 6), { position: [0.008, 0.118, z], rotation: [z > 0 ? -0.18 : 0.18, 0, z > 0 ? -0.5 : 0.1], shade: round });
+  }
+  k.add('paint', new THREE.SphereGeometry(0.01, 6, 5), { position: [0.03, 0.098, 0.04], color: '#e2b48c' });
+  // 얼굴과 두건
+  k.add('paint', new THREE.SphereGeometry(0.024, 10, 8), { position: [0.003, 0.172, 0], color: '#e9c29a', shade: round });
+  k.add('dark', new THREE.SphereGeometry(0.004, 4, 3), { position: [0.025, 0.177, 0.009] });
+  k.add('dark', new THREE.SphereGeometry(0.004, 4, 3), { position: [0.025, 0.177, -0.009] });
+  // 두건은 얼굴 쪽(+x, 구의 phi = π)만 비워 둔다.
+  const hood = new THREE.SphereGeometry(0.029, 10, 8, Math.PI * 1.25, Math.PI * 1.5, 0, Math.PI * 0.6);
+  k.add('roof', hood, { position: [-0.002, 0.176, 0], shade: round });
+  k.add('roof', new THREE.ConeGeometry(0.016, 0.04, 6), { position: [-0.016, 0.205, 0], rotation: [0, 0, 0.55], shade: round });
+  // 등에 진 봇짐: 둥근 짐 꾸러미와 위에 말아 얹은 담요, 짐을 맨 나무 틀
+  k.add('cloth', blob(0.04, 1, 21, 0.25), { position: [-0.045, 0.14, 0], scale: [0.85, 1.15, 1], color: '#d9c49a', shade: round });
+  k.add('cloth', cyl(0.016, 0.016, 0.075, 8), { position: [-0.045, 0.192, 0], rotation: [Math.PI / 2, 0, 0], color: '#9c6b4a', shade: round });
+  for (const z of [-0.03, 0.03]) k.add('wood', box(0.008, 0.11, 0.008), { position: [-0.022, 0.13, z], color: '#7a5532' });
+  // 지팡이
+  k.add('wood', cyl(0.004, 0.005, 0.2, 5), { position: [0.034, 0.1, 0.045], rotation: [0, 0, -0.12], color: '#8a6238' });
+  return k.build(0.06, 0.78);
+}
+
 /** 소품 종류별로 만들 수 있는 변형 개수 (시드) */
 export const PROP_VARIANTS: Record<PropKey, number> = {
   house: 1,
@@ -1784,6 +1939,8 @@ export const PROP_VARIANTS: Record<PropKey, number> = {
   pier: 1,
   brickrows: 1,
   roadjoint: 1,
+  goods: 5,
+  trader: 1,
 };
 
 export function buildProp(key: PropKey, variant = 0): PropPart[] {
@@ -1863,6 +2020,10 @@ export function buildProp(key: PropKey, variant = 0): PropPart[] {
       return buildBrickRows();
     case 'roadjoint':
       return buildRoadJoint();
+    case 'goods':
+      return buildGoods(variant);
+    case 'trader':
+      return buildTrader();
   }
 }
 
