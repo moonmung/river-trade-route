@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   const lan = getLanAddresses();
   const lines = [
     '',
-    `  강줄기 교역로 서버가 실행 중입니다${dev ? ' (개발 모드)' : ''}.`,
+    `  데블스랜드 서버가 실행 중입니다${dev ? ' (개발 모드)' : ''}.`,
     '',
     `  이 PC에서 열기:        http://localhost:${server.port}`,
     ...(lan.length

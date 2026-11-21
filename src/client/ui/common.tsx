@@ -15,8 +15,8 @@ export function Brand({ small = false }: { small?: boolean }) {
         <path d="M33 11 L42 13.5 L38.5 15 L42 16.5 L33 18 Z" fill="#c9962f" stroke="#3a2a1f" strokeWidth="1.2" strokeLinejoin="round" />
       </svg>
       <div>
-        <div className="brand-title">강줄기 교역로</div>
-        {!small && <div className="brand-sub">같은 와이파이에서 3~4명이 함께하는 강변 교역 게임</div>}
+        <div className="brand-title">데블스랜드</div>
+        {!small && <div className="brand-sub">같은 와이파이에서 3~4명이 함께하는 섬 교역 게임</div>}
       </div>
     </div>
   );
