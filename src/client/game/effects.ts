@@ -102,6 +102,10 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             buzz(180);
           }
           break;
+        case 'bank_trade':
+          // 해상 교역로(3:1·2:1)로 바꿨으면 그 사람의 교역로 부두에 배가 들어와 짐을 주고받는다 (부두는 렌더러가 비율로 고른다).
+          if (animate && e.harbor) rendererRef.current?.playHarborTrade(e.player, e.give, e.get);
+          break;
         case 'trade_proposed':
           if (e.to.includes(me)) {
             showToast(`${josa(name(e.from), '이/가')} 교환을 제안했습니다.`, 'warn', 4000);

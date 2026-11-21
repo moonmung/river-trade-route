@@ -9,8 +9,9 @@ import { EDGES, EDGE_MAP, boardGeometry, type BoardGeometry } from '../../shared
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { RESOURCES, RESOURCE_LABEL, numberPips } from '../../shared/constants';
 import { longestRoadPath } from '../../shared/rules';
-import type { Harbor, Resource, TileDef, TileKind } from '../../shared/types';
-import { GOODS_VARIANT, type PropKey } from './art/builders';
+import type { Bundle, Harbor, Resource, TileDef, TileKind } from '../../shared/types';
+import { GOODS_VARIANT, ROAD_DECK_TOP, type PropKey } from './art/builders';
+import { harborLegs } from './harborTrade';
 import { loadArtLibrary, type ArtLibrary, type ArtReport, type GroundTextureKey, type LoadProgress } from './assets';
 import {
   DAIS_HEIGHT,
@@ -124,26 +125,40 @@ const SPARKLE_MAX = 120;
 const TRADER_ROADS_EACH = 2.5;
 const TRADER_MAX_EACH = 5;
 const TRADER_MAX = 18;
-/** 교역인 크기: 키 약 0.29 로 마을 집(약 0.38)보다 조금 작고 양보다 크다. 비스듬히 내려다봐도 사람 모양이 보이게 장난감처럼 키웠다. */
-const TRADER_SCALE = 1.3;
+/** 교역인 크기: 키 약 0.17 로 마을 집(약 0.55)의 3분의 1쯤이다. 굵은 길 위에서 장식으로만 보이게 작게 둔다. */
+const TRADER_SCALE = 0.82;
 /** 교역인이 걷는 빠르기 (초당 거리, 변 하나는 1.32) */
 const TRADER_SPEED = 0.2;
 /** 교역인이 마을·도시 앞에서 돌아서는 거리 (집 몸통 바로 앞) */
-const TRADER_HOUSE_STOP = 0.2;
+const TRADER_HOUSE_STOP = 0.3;
 /** 교역인 발 높이 (길 판자 윗면) */
-const TRADER_FOOT = PLATFORM_TOP + 0.072;
+const TRADER_FOOT = PLATFORM_TOP + 0.004 + ROAD_DECK_TOP;
 /** 길 위에서 오른쪽으로 비켜 걷는 거리 (마주 오는 사람과 엇갈린다) */
-const TRADER_KEEP_RIGHT = 0.024;
+const TRADER_KEEP_RIGHT = 0.042;
 type BoardPieceKind = 'village' | 'city' | 'road' | 'joint';
+/** 해상 교역 배: 한꺼번에 뜰 수 있는 수, 크기(길이 약 0.55), 연출 길이(들어옴 → 짐 주고받기 → 떠남) */
+const SHIP_MAX = 4;
+const SHIP_SCALE = 0.55;
+const SHIP_MS = 2800;
+/** 배가 들어오기를 마치는 때와 떠나기 시작하는 때 (연출 길이 대비) */
+const SHIP_IN = 0.3;
+const SHIP_OUT = 0.72;
 /** 가마 하나에서 동시에 피어오르는 연기 공 수 */
 const SMOKE_PUFFS = 5;
 /** 바람·양·연기만 움직일 때 프레임 간격 (약 30fps) */
 const AMBIENT_FRAME_MS = 33;
-/** 꼭짓점에 놓는 집(마을)·도시의 크기. 타일 사이 흙길 교차점에 서도록 작게 줄인다. */
-const VILLAGE_SCALE = 0.54;
-const CITY_SCALE = 0.56;
-/** 길 판자가 변 길이에서 차지하는 비율 (양 끝은 마을 자리로 비워 둔다) */
-const ROAD_FRACTION = 0.7;
+/**
+ * 꼭짓점에 놓는 집(마을)·도시의 크기. 실제 보드게임 말처럼 평평한 판 위에 큼직하게 세워 멀리서도 누구 것인지 보인다.
+ * 마을 집은 폭 약 0.5, 키 약 0.55 이고 도시는 그보다 조금 크며 탑이 높다 (변 하나는 1.32).
+ */
+const VILLAGE_SCALE = 0.78;
+const CITY_SCALE = 0.86;
+/** 마을·도시 위 소유자 문양 높이 (지붕·탑 꼭대기 바로 위) */
+const BADGE_LIFT = { village: VILLAGE_SCALE * 0.86, city: CITY_SCALE * 1.1 };
+/** 꼭짓점 판정에서 마을·도시가 서 있으면 몸통 크기만큼 넉넉히 더 잡는 거리 */
+const PIECE_PICK_BONUS = { village: 0.36 * VILLAGE_SCALE, city: 0.36 * CITY_SCALE };
+/** 길 판자가 변 길이에서 차지하는 비율 (양 끝은 마을 자리로 비워 둔다. 커진 집이 들어설 만큼) */
+const ROAD_FRACTION = 0.64;
 /** 판자가 꼭짓점까지 늘어나지 않은 쪽 끝에 비워 둔 몫 (변 길이 대비) */
 const ROAD_GAP = (1 - ROAD_FRACTION) / 2;
 const HIGHLIGHT_COLOR: Record<HighlightKind | 'selected' | 'hover', string> = {
@@ -268,6 +283,10 @@ interface PropInstance {
   index: number;
   /** 접촉 그림자 인스턴스 번호 (없으면 -1) */
   shadow: number;
+  /** 제자리에서 옮겨 그린 몫 (거니는 양). 눌려 튈 때도 이 자리와 방향에서 튄다. */
+  pose?: { dx: number; dy: number; dz: number; rot: number };
+  /** 그림자를 제자리에서 옮겨 둔 상태인지 (제자리로 돌릴 때 그림자도 함께 돌린다) */
+  shadowMoved?: boolean;
 }
 
 /** 날아가는 생산물 하나 */
@@ -294,6 +313,20 @@ interface Sparkle {
   size: number;
   spin: number;
   rise: number;
+}
+
+/** 해상 교역로 교환 때 부두에 들어왔다 떠나는 배 하나 */
+interface Ship {
+  /** 연출 진행 (0~1) */
+  t: number;
+  /** 바다에서 나타나는 곳, 부두 옆에 대는 곳, 떠나서 사라지는 곳 */
+  sea: THREE.Vector3;
+  berth: THREE.Vector3;
+  away: THREE.Vector3;
+  /** 부두에 댄 동안 뱃머리 방향 (바닷가와 나란히) */
+  dockYaw: number;
+  colorIndex: number;
+  seed: number;
 }
 
 /** 길 위를 오가는 교역인 한 명 */
@@ -409,6 +442,8 @@ export class BoardRenderer {
   private multiTouch = false;
   private width = 1;
   private height = 1;
+  /** 캔버스 크기를 한 번이라도 맞췄는지 */
+  private sized = false;
   private insets: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
   private quality: QualityMode;
   private pixelStep = 0;
@@ -443,6 +478,8 @@ export class BoardRenderer {
   private sparkleMesh: THREE.InstancedMesh | null = null;
   private sparkles: Sparkle[] = [];
   /** 길 위 교역인 */
+  private shipParts: { mesh: THREE.InstancedMesh; tint: boolean }[] = [];
+  private ships: Ship[] = [];
   private traderParts: { mesh: THREE.InstancedMesh; tint: boolean }[] = [];
   private traderShadow: THREE.InstancedMesh | null = null;
   private traders: Trader[] = [];
@@ -455,6 +492,8 @@ export class BoardRenderer {
   private instances: PropInstance[] = [];
   private instancesByTile = new Map<string, PropInstance[]>();
   private sheep: PropInstance[] = [];
+  /** 양마다 걸음 시계(초). 눌려 튀는 동안은 멈췄다가 이어 가서 튄 자리에서 다시 걷는다. */
+  private sheepClock: number[] = [];
   /** 양마다 거닐 수 있는 반지름 (울타리 칸 가장자리와 숫자 패·동상 빈터를 넘지 않게) */
   private sheepRoam: number[] = [];
   private propShadows: THREE.InstancedMesh | null = null;
@@ -595,6 +634,7 @@ export class BoardRenderer {
       { key: 'crate' as PropKey, variant: 0 },
       ...RESOURCES.map((r) => ({ key: 'goods' as PropKey, variant: GOODS_VARIANT[r] })),
       { key: 'trader' as PropKey, variant: 0 },
+      { key: 'ship' as PropKey, variant: 0 },
     ];
     const art = await loadArtLibrary(this.renderer, propList, (p) => {
       if (!this.disposed) this.options.onLoadProgress?.(p);
@@ -611,6 +651,7 @@ export class BoardRenderer {
     this.buildAwardFx();
     this.buildGoods();
     this.buildTraders();
+    this.buildShips();
     this.buildSmoke();
     this.buildTileLabels();
     this.buildStatue();
@@ -664,13 +705,15 @@ export class BoardRenderer {
       mesh.setMatrixAt(inst.index, m);
       mesh.instanceMatrix.needsUpdate = true;
     }
-    if (inst.shadow >= 0 && this.propShadows && (dx || dz)) {
+    const moved = !!(dx || dz);
+    if (inst.shadow >= 0 && this.propShadows && (moved || inst.shadowMoved)) {
       const r = p.shadow * p.scale * 2;
       this.propShadows.setMatrixAt(
         inst.shadow,
         compose(p.x + dx + SHADOW_SHIFT.x * p.scale, p.y + 0.004, p.z + dz + SHADOW_SHIFT.y * p.scale, p.rotY + drot, r * (p.shadowAspect ?? 1), 1, r),
       );
       this.propShadows.instanceMatrix.needsUpdate = true;
+      inst.shadowMoved = moved;
     }
   }
 
@@ -701,16 +744,18 @@ export class BoardRenderer {
     }
     // 양: 자기 자리 둘레의 둥근 길을 따라 목초지를 거닌다. 걷다가 멈춰 고개를 숙여 풀을 뜯고 다시 걷는다.
     // 걷는 방향으로 몸을 돌리고, 양마다 길 모양과 박자가 다르다.
+    // 양마다 따로 도는 걸음 시계를 쓴다. 칸이 눌려 튀는 동안은 시계를 멈춰 그 자리에서 튀고, 끝나면 그 자리에서 이어 걷는다.
     for (let i = 0; i < this.sheep.length; i++) {
       const s = this.sheep[i];
-      if (this.bouncing.has(s.p.tile ?? '')) continue;
       if (!this.motion) continue;
+      if (this.bouncing.has(s.p.tile ?? '')) continue;
+      const st = (this.sheepClock[i] = (this.sheepClock[i] ?? 0) + dt);
       const seed = i * 1.618 + s.p.x * 2.3;
       const r = this.sheepRoam[i] ?? 0.05;
       // 걷기·멈춤: 늘였다 줄인 시간(빠르기 0~2배, 평균 1배)
       const w = 0.45 + (i % 3) * 0.08;
-      const tau = t + Math.sin(t * w + seed) / w;
-      const speed = 1 + Math.cos(t * w + seed);
+      const tau = st + Math.sin(st * w + seed) / w;
+      const speed = 1 + Math.cos(st * w + seed);
       const a = 0.16 + (i % 2) * 0.05;
       const b = 0.11 + ((i + 1) % 3) * 0.03;
       const dx = r * 0.95 * Math.sin(a * tau + seed);
@@ -723,7 +768,8 @@ export class BoardRenderer {
       turn = Math.atan2(Math.sin(turn), Math.cos(turn));
       const moving = Math.min(1, speed);
       const graze = -0.007 * (1 - moving);
-      const step = 0.004 * Math.abs(Math.sin(t * 7 + seed)) * moving;
+      const step = 0.004 * Math.abs(Math.sin(st * 7 + seed)) * moving;
+      s.pose = { dx, dy: graze + step, dz, rot: turn };
       this.setInstance(s, dx, graze + step, dz, turn);
     }
     // 가마 연기
@@ -744,6 +790,7 @@ export class BoardRenderer {
       smoke.instanceMatrix.needsUpdate = true;
     }
     // 눌린 타일: 소품이 가운데부터 바깥으로 차례로 눌렸다가 톡 튄다. 바위·벽돌 더미는 조금 흔들린다.
+    // 거니는 양은 제자리가 아니라 지금 선 자리와 보는 방향(pose)에서 튄다.
     for (const [tile, start] of this.bouncing) {
       const list = this.instancesByTile.get(tile) ?? [];
       const tileDef = this.tileById.get(tile);
@@ -756,10 +803,15 @@ export class BoardRenderer {
         const k = Math.sin(u * Math.PI * 2) * (1 - u);
         const heavy = inst.p.key === 'boulder' || inst.p.key === 'bricks' || inst.p.key === 'blocks' || inst.p.key === 'kiln';
         const wobble = heavy ? 0.12 * Math.sin(u * Math.PI * 3) * (1 - u) : 0;
-        this.setInstance(inst, 0, 0.05 * Math.sin(u * Math.PI) * (1 - u) * (heavy ? 0.4 : 1), 0, wobble, 1 - 0.07 * k, 1 + 0.18 * k, 1 - 0.07 * k);
+        const o = inst.pose;
+        const hop = 0.05 * Math.sin(u * Math.PI) * (1 - u) * (heavy ? 0.4 : 1);
+        this.setInstance(inst, o?.dx ?? 0, (o?.dy ?? 0) + hop, o?.dz ?? 0, (o?.rot ?? 0) + wobble, 1 - 0.07 * k, 1 + 0.18 * k, 1 - 0.07 * k);
       }
       if (done) {
-        for (const inst of list) if (!(this.motion && inst.p.key === 'sheep')) this.setInstance(inst);
+        for (const inst of list) {
+          const o = inst.pose;
+          this.setInstance(inst, o?.dx, o?.dy, o?.dz, o?.rot);
+        }
         this.bouncing.delete(tile);
       }
     }
@@ -771,7 +823,10 @@ export class BoardRenderer {
     if (this.motion === on) return;
     this.motion = on;
     if (!on) {
-      for (const s of this.sheep) this.setInstance(s);
+      for (const s of this.sheep) {
+        s.pose = undefined;
+        this.setInstance(s);
+      }
       paintTime.value = 0;
       if (this.smokeMesh) this.smokeMesh.count = 0;
       this.placeTraders();
@@ -1365,6 +1420,18 @@ export class BoardRenderer {
     this.scene.add(this.traderShadow);
   }
 
+  /** 해상 교역 배: 부품마다 인스턴스 메시 하나, 돛(깃발 재질)에 플레이어 색을 곱한다. 연출할 때만 보인다. */
+  private buildShips(): void {
+    for (const part of this.art!.prop('ship', 0, true).parts) {
+      const mesh = new THREE.InstancedMesh(part.geometry, part.material, SHIP_MAX);
+      mesh.count = 0;
+      if (part.tint) for (let i = 0; i < SHIP_MAX; i++) mesh.setColorAt(i, new THREE.Color('#ffffff'));
+      mesh.frustumCulled = false;
+      this.shipParts.push({ mesh, tint: part.tint });
+      this.scene.add(mesh);
+    }
+  }
+
   private buildTileLabels(): void {
     for (const t of this.options.tiles) {
       const el = document.createElement('div');
@@ -1419,7 +1486,7 @@ export class BoardRenderer {
         item = { el, world: p.clone(), anchor: 'translate(-50%, -100%)' };
         this.badges.set(b.vertexId, item);
       }
-      item.world.set(p.x, p.y + (b.kind === 'city' ? 0.62 : 0.46), p.z);
+      item.world.set(p.x, p.y + BADGE_LIFT[b.kind], p.z);
       const key = `${b.owner}:${b.colorIndex}:${b.kind}`;
       if (item.el.dataset.key !== key) {
         item.el.dataset.key = key;
@@ -1543,8 +1610,11 @@ export class BoardRenderer {
       for (const b of this.state.buildings) {
         const p = this.vertexWorld(b.vertexId);
         if (!p || i >= this.pieceShadow.instanceMatrix.count) continue;
-        const g = (this.growing.get(`b:${b.vertexId}`) ?? 1) * (b.kind === 'city' ? 0.7 : 0.52);
-        this.pieceShadow.setMatrixAt(i, compose(p.x + SHADOW_SHIFT.x * 0.6, TILE_TOP + 0.006, p.z + SHADOW_SHIFT.y * 0.6, 0, 0.98 * g, 1, 0.8 * g));
+        // 그림자는 집 크기에 맞춰 커진다 (마을 0.96배, 도시는 탑까지 덮게 1.25배).
+        const base = b.kind === 'city' ? CITY_SCALE * 1.25 : VILLAGE_SCALE * 0.96;
+        const g = (this.growing.get(`b:${b.vertexId}`) ?? 1) * base;
+        const shift = base * 1.1;
+        this.pieceShadow.setMatrixAt(i, compose(p.x + SHADOW_SHIFT.x * shift, TILE_TOP + 0.006, p.z + SHADOW_SHIFT.y * shift, 0, 0.98 * g, 1, 0.8 * g));
         i++;
       }
       this.pieceShadow.count = i;
@@ -1566,7 +1636,7 @@ export class BoardRenderer {
       if (key.startsWith('r:')) {
         const ew = this.edgeWorld(id);
         if (!ew) continue;
-        mesh.setMatrixAt(i, compose(ew.mid.x, PLATFORM_TOP + 0.095, ew.mid.z, ew.angle, ew.length * 1.1, 1, 0.52));
+        mesh.setMatrixAt(i, compose(ew.mid.x, PLATFORM_TOP + ROAD_DECK_TOP + 0.02, ew.mid.z, ew.angle, ew.length * 1.1, 1, 0.66));
       } else if (key === 's') {
         const at = this.statue?.position;
         if (!at || !this.statue?.visible) continue;
@@ -1574,8 +1644,9 @@ export class BoardRenderer {
       } else {
         const p = this.vertexWorld(id);
         if (!p) continue;
-        const s = key.startsWith('b:') ? 1.05 : 0.5;
-        mesh.setMatrixAt(i, compose(p.x, TILE_TOP + 0.012, p.z, 0, s, 1, s));
+        // 커진 마을·도시를 둘러쌀 만큼 둥글게 번진다. 이음목(v:)은 길 폭만큼.
+        const s = key.startsWith('b:') ? 1.45 : 0.62;
+        mesh.setMatrixAt(i, compose(p.x, key.startsWith('b:') ? TILE_TOP + 0.012 : PLATFORM_TOP + ROAD_DECK_TOP + 0.02, p.z, 0, s, 1, s));
       }
       mesh.setColorAt(i, color.copy(gold).multiplyScalar(1.2 * g));
       i++;
@@ -1631,6 +1702,7 @@ export class BoardRenderer {
     const spotRing = this.spotRing;
     const spotFill = this.spotFill;
     if (spotRing && spotFill) {
+      const built = new Map(this.state.buildings.map((b) => [b.vertexId, b.kind]));
       this.geo.vertices.forEach((v, i) => {
         const p = this.vertexWorld(v.id)!;
         const selected = same(sel, 'vertex', v.id);
@@ -1641,7 +1713,9 @@ export class BoardRenderer {
             : same(hov, 'vertex', v.id)
               ? 'hover'
               : null;
-        const s = kind ? (selected ? 1.2 : 1) : 0;
+        // 마을·도시가 선 자리는 고리가 집 밑에 숨지 않게 집 둘레만큼 키운다.
+        const around = built.get(v.id) === 'city' ? 1.75 : built.has(v.id) ? 1.6 : 1;
+        const s = kind ? (selected ? 1.2 : 1) * around : 0;
         spotRing.setMatrixAt(i, compose(p.x, TILE_TOP + 0.03, p.z, 0, s, 1, s));
         spotFill.setMatrixAt(i, compose(p.x, TILE_TOP + 0.028, p.z, 0, kind && kind !== 'hover' ? s : 0, 1, kind && kind !== 'hover' ? s : 0));
         if (kind) {
@@ -1657,12 +1731,17 @@ export class BoardRenderer {
     }
     const edgeMark = this.edgeMark;
     if (edgeMark) {
+      const roadEdges = new Set(this.state.roads.map((r) => r.edgeId));
       this.geo.edges.forEach((e, i) => {
         const ew = this.edgeWorld(e.id)!;
         const selected = same(sel, 'edge', e.id);
         const kind: keyof typeof HIGHLIGHT_COLOR | null = selected ? 'selected' : he.has(e.id) && hl ? hl.kind : same(hov, 'edge', e.id) ? 'hover' : null;
         const len = kind ? ew.length * 0.66 : 0;
-        edgeMark.setMatrixAt(i, compose(ew.mid.x, PLATFORM_TOP + 0.09, ew.mid.z, ew.angle, len, 1, kind ? (selected ? 1.4 : 1) : 0));
+        // 빈 변은 길 판자 높이에 띠를 그린다. 길이 놓인 변은 판자 아래에 더 넓게 깔아 판자 둘레로 빛 테두리가 비친다.
+        const road = roadEdges.has(e.id);
+        const wide = kind ? (selected ? 1.3 : 1) * (road ? 3.4 : 1.6) : 0;
+        const y = road ? PLATFORM_TOP + 0.02 : PLATFORM_TOP + ROAD_DECK_TOP + 0.012;
+        edgeMark.setMatrixAt(i, compose(ew.mid.x, y, ew.mid.z, ew.angle, road ? ew.length * 0.74 : len, 1, wide));
         if (kind) edgeMark.setColorAt(i, color.set(HIGHLIGHT_COLOR[kind]));
       });
       edgeMark.instanceMatrix.needsUpdate = true;
@@ -1678,7 +1757,7 @@ export class BoardRenderer {
         if (!ew) continue;
         for (const t of [0.3, 0.5, 0.7]) {
           const p = ew.a.clone().lerp(ew.b, t);
-          this.hintDots.setMatrixAt(nd++, compose(p.x, PLATFORM_TOP + 0.09, p.z, 0, 1, 1, 1));
+          this.hintDots.setMatrixAt(nd++, compose(p.x, PLATFORM_TOP + 0.09, p.z, 0, 1.3, 1, 1.3));
         }
       }
       this.hintDots.count = nd;
@@ -1698,7 +1777,7 @@ export class BoardRenderer {
       for (const id of this.state.trace ?? []) {
         const ew = this.edgeWorld(id);
         if (!ew) continue;
-        this.traceMark.setMatrixAt(nt++, compose(ew.mid.x, PLATFORM_TOP + 0.08, ew.mid.z, ew.angle, ew.length * 0.82, 1, 1));
+        this.traceMark.setMatrixAt(nt++, compose(ew.mid.x, PLATFORM_TOP + ROAD_DECK_TOP + 0.01, ew.mid.z, ew.angle, ew.length * 0.82, 1, 1.45));
       }
       this.traceMark.count = nt;
       this.traceMark.instanceMatrix.needsUpdate = true;
@@ -1752,10 +1831,10 @@ export class BoardRenderer {
       const at = this.vertexWorld(item.vertexId);
       if (!at) return;
       for (let k = 0; k < item.amount; k++) {
-        const from = at.clone().add(new THREE.Vector3((k - (item.amount - 1) / 2) * 0.22, 0.45, 0.08));
+        const from = at.clone().add(new THREE.Vector3((k - (item.amount - 1) / 2) * 0.24, 0.6, 0.08));
         this.launchGoods(item.resource, from, from.clone().add(new THREE.Vector3(0, 0.85, 0)), now + idx * 90 + k * 140, 1100, 0);
       }
-      this.spawnFloating(at.clone().add(new THREE.Vector3(0, 0.95, 0)), `+${item.amount}`, `float-label float-${item.resource}`, idx * 90);
+      this.spawnFloating(at.clone().add(new THREE.Vector3(0, 1.1, 0)), `+${item.amount}`, `float-label float-${item.resource}`, idx * 90);
     });
     this.requestRender();
   }
@@ -1832,7 +1911,7 @@ export class BoardRenderer {
     if (!ew) return;
     for (let k = 0; k < count; k++) {
       const p = ew.a.clone().lerp(ew.b, 0.18 + Math.random() * 0.64);
-      p.set(p.x + (Math.random() - 0.5) * 0.1, PLATFORM_TOP + 0.12 + Math.random() * 0.12, p.z + (Math.random() - 0.5) * 0.1);
+      p.set(p.x + (Math.random() - 0.5) * 0.14, PLATFORM_TOP + ROAD_DECK_TOP + 0.05 + Math.random() * 0.12, p.z + (Math.random() - 0.5) * 0.14);
       this.spawnSparkle(p, delay + k * 70, 0.1);
     }
   }
@@ -2336,10 +2415,10 @@ export class BoardRenderer {
       const c = tileCenter(t, this.metrics);
       const from = new THREE.Vector3(c.x + TOKEN_SPOT.x, TILE_TOP + 0.3, c.z + TOKEN_SPOT.z);
       for (let k = 0; k < it.amount; k++) {
-        const target = to.clone().add(new THREE.Vector3((k - (it.amount - 1) / 2) * 0.18, 0.42, 0));
+        const target = to.clone().add(new THREE.Vector3((k - (it.amount - 1) / 2) * 0.2, 0.55, 0));
         this.launchGoods(it.resource, from.clone(), target, now + 420 + idx * 110 + k * 130, 950, 0.75);
       }
-      this.spawnFloating(to.clone().add(new THREE.Vector3(0, 0.95, 0)), `+${it.amount}`, `float-label float-${it.resource}`, 1000 + idx * 110);
+      this.spawnFloating(to.clone().add(new THREE.Vector3(0, 1.05, 0)), `+${it.amount}`, `float-label float-${it.resource}`, 1000 + idx * 110);
     });
     this.requestRender();
   }
@@ -2468,7 +2547,7 @@ export class BoardRenderer {
           this.glow.set(`b:${b.vertexId}`, g * fade);
           if (u >= 0 && !sparked.has(i)) {
             sparked.add(i);
-            this.sparkBurst(p.clone().add(new THREE.Vector3(0, b.kind === 'city' ? 0.42 : 0.34, 0)), 0, 5, 0.2);
+            this.sparkBurst(p.clone().add(new THREE.Vector3(0, BADGE_LIFT[b.kind] * 0.78, 0)), 0, 5, 0.28);
           }
         });
         if (statue) this.glow.set('s', Math.min(1, ms / 300) * fade);
@@ -2496,6 +2575,120 @@ export class BoardRenderer {
     });
     this.sparkBurst(base.clone().add(new THREE.Vector3(0, 0.95, 0)), 380, 7, 0.32, 0.12);
     this.spawnFloating(base.clone().add(new THREE.Vector3(0, 1.0, 0)), '최강 기사단', 'float-label float-award', 300);
+  }
+
+  /**
+   * 해상 교역로 교환 연출: 그 사람이 쓴 교역로(낸 자원마다 비율이 맞는 2:1·3:1 부두)마다 배가 들어와 짐을 주고받는다.
+   * give·get 은 게임 기록의 bank_trade 묶음 그대로다. 교역로를 쓰지 않은 몫(은행 4:1)은 배 없이 지나간다.
+   */
+  playHarborTrade(playerId: string, give: Bundle, get: Bundle): void {
+    if (!this.ready) return;
+    const owns = (edgeId: string) => {
+      const e = this.geo.edgeMap[edgeId];
+      return !!e && this.state.buildings.some((b) => b.owner === playerId && (b.vertexId === e.a || b.vertexId === e.b));
+    };
+    harborLegs(this.state.harbors ?? [], owns, give, get).forEach((leg, i) => this.playHarborShip(leg.edgeId, playerId, leg.give, leg.get, i * 420));
+  }
+
+  /**
+   * 교역로 부두 하나에 그 사람 색 돛을 단 배가 빠르게 들어와 옆에 대고, 낸 자원을 마을·도시에서 배로 싣고
+   * 받은 자원을 배에서 마을·도시로 내려 준 뒤 바다로 떠난다. 약 2.8초.
+   */
+  playHarborShip(edgeId: string, playerId: string, give: readonly Resource[] = [], get: readonly Resource[] = [], delay = 0): void {
+    if (!this.ready || !this.shipParts.length) return;
+    const spot = this.harborSpot(edgeId);
+    const e = this.geo.edgeMap[edgeId];
+    if (!spot || !e) return;
+    // 부두 바다 쪽 끝에 바닷가와 나란히 댄다. 붙박이 쪽배가 있는 교역로는 쪽배 반대쪽으로 조금 비켜 댄다.
+    const idx = (this.state.harbors ?? []).findIndex((h) => h.edgeId === edgeId);
+    const sgn = idx % 4 === 0 ? -1 : 1;
+    const side = new THREE.Vector3(spot.n.z, 0, -spot.n.x).multiplyScalar(sgn);
+    const berth = spot.dock.clone().addScaledVector(side, 0.14).addScaledVector(spot.n, 0.44).setY(0.02);
+    const sea = berth.clone().addScaledVector(spot.n, 1.9).addScaledVector(side, 0.8);
+    const away = berth.clone().addScaledVector(spot.n, 1.9).addScaledVector(side, -0.8);
+    const forward = side.clone().negate();
+    const home = this.state.buildings.find((b) => b.owner === playerId && (b.vertexId === e.a || b.vertexId === e.b));
+    const colorIndex = home?.colorIndex ?? this.state.buildings.find((b) => b.owner === playerId)?.colorIndex ?? 0;
+    const ship: Ship = {
+      t: 0,
+      sea,
+      berth,
+      away,
+      dockYaw: Math.atan2(-forward.z, forward.x),
+      colorIndex,
+      seed: (hashString(edgeId) % 100) / 10,
+    };
+    this.addAnim({
+      delay,
+      duration: SHIP_MS,
+      update: (t) => {
+        if (!this.ships.includes(ship)) this.ships.push(ship);
+        ship.t = t;
+        this.syncShips();
+      },
+      done: () => {
+        this.ships = this.ships.filter((s) => s !== ship);
+        this.syncShips();
+      },
+    });
+    // 짐: 배가 댄 뒤 낸 자원이 집에서 배로 날아가고, 이어서 받은 자원이 배에서 집으로 날아온다.
+    const deck = berth.clone().add(new THREE.Vector3(0, 0.26, 0));
+    const house = home ? this.vertexWorld(home.vertexId)!.add(new THREE.Vector3(0, 0.5, 0)) : spot.dock.clone().setY(0.4);
+    const docked = performance.now() + delay + SHIP_MS * SHIP_IN;
+    give.slice(0, 6).forEach((r, k) => this.launchGoods(r, house.clone(), deck.clone().add(new THREE.Vector3(0, 0, (k % 2) * 0.06)), docked + 40 + k * 70, 520, 0.38));
+    const unload = docked + 40 + Math.min(6, give.length) * 70 + 380;
+    get.slice(0, 4).forEach((r, k) => {
+      const to = house.clone().add(new THREE.Vector3((k - (Math.min(4, get.length) - 1) / 2) * 0.2, 0.05, 0));
+      this.launchGoods(r, deck.clone(), to, unload + k * 110, 620, 0.45);
+    });
+    if (home && get.length) {
+      const at = this.vertexWorld(home.vertexId)!.add(new THREE.Vector3(0, 1.05, 0));
+      this.spawnFloating(at, `+${get.length}`, `float-label float-${get[0]}`, Math.max(0, unload + 500 - performance.now()));
+    }
+  }
+
+  /** 떠 있는 배들을 그린다: 바다에서 미끄러져 들어와 부두에 나란히 대고, 다시 돌아 나가며 작아져 사라진다. */
+  private syncShips(): void {
+    const now = performance.now();
+    const color = new THREE.Color();
+    const pos = new THREE.Vector3();
+    const turnTo = (a: number, b: number, k: number) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k;
+    let i = 0;
+    for (const s of this.ships) {
+      if (i >= SHIP_MAX) break;
+      let yaw = s.dockYaw;
+      let scale = SHIP_SCALE;
+      if (s.t < SHIP_IN) {
+        const u = s.t / SHIP_IN;
+        pos.lerpVectors(s.sea, s.berth, 1 - (1 - u) ** 3);
+        const travel = Math.atan2(-(s.berth.z - s.sea.z), s.berth.x - s.sea.x);
+        yaw = turnTo(travel, s.dockYaw, smoothstep(0.55, 1, u));
+        scale *= Math.max(0.01, easeOutBack(Math.min(1, u / 0.3)));
+      } else if (s.t < SHIP_OUT) {
+        pos.copy(s.berth);
+      } else {
+        const u = (s.t - SHIP_OUT) / (1 - SHIP_OUT);
+        pos.lerpVectors(s.berth, s.away, u * u);
+        const travel = Math.atan2(-(s.away.z - s.berth.z), s.away.x - s.berth.x);
+        yaw = turnTo(s.dockYaw, travel, smoothstep(0, 0.45, u));
+        scale *= Math.max(0.01, 1 - smoothstep(0.62, 1, u));
+      }
+      // 물결에 살짝 오르내리며 옆으로 흔들린다.
+      pos.y += Math.sin(now * 0.006 + s.seed) * 0.012;
+      const roll = Math.sin(now * 0.0045 + s.seed) * 0.07;
+      tmpQ.setFromAxisAngle(yAxis, yaw).multiply(tmpQ2.setFromAxisAngle(xAxis, roll));
+      tmpM.compose(pos, tmpQ, tmpS.setScalar(scale));
+      for (const part of this.shipParts) {
+        part.mesh.setMatrixAt(i, tmpM);
+        if (part.tint) part.mesh.setColorAt(i, color.set(this.playerColor(s.colorIndex)));
+      }
+      i++;
+    }
+    for (const part of this.shipParts) {
+      part.mesh.count = i;
+      part.mesh.instanceMatrix.needsUpdate = true;
+      if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   /**
@@ -2567,7 +2760,7 @@ export class BoardRenderer {
 
   /** 꼭짓점·변 가운데의 화면 좌표 (테스트·접근성용). 마을은 몸통 높이에서 잰다. */
   spotScreenPosition(kind: 'vertex' | 'edge', id: string): { x: number; y: number } | null {
-    const w = kind === 'vertex' ? this.vertexWorld(id)?.add(new THREE.Vector3(0, 0.08, 0)) : this.edgeWorld(id)?.mid.setY(PLATFORM_TOP + 0.06);
+    const w = kind === 'vertex' ? this.vertexWorld(id)?.add(new THREE.Vector3(0, 0.16, 0)) : this.edgeWorld(id)?.mid.setY(PLATFORM_TOP + ROAD_DECK_TOP);
     if (!w) return null;
     const p = w.project(this.camera);
     return { x: ((p.x + 1) / 2) * this.width, y: ((1 - p.y) / 2) * this.height };
@@ -2588,19 +2781,40 @@ export class BoardRenderer {
       this.renderer.setPixelRatio(ratio);
       this.renderer.setSize(this.width, this.height, false);
       this.painter.setSize(this.width, this.height, ratio);
+      // 자동 품질은 프레임을 다 그린 뒤 해상도를 낮춘다. 캔버스 크기를 바꾸면 그림이 지워지니 그 자리에서 다시 그린다.
+      this.drawNow();
     }
   }
 
+  /**
+   * 보드 칸의 크기가 바뀌었을 때. 캔버스 크기를 바꾸면 그려 둔 그림이 지워지는데, 크기 변경 알림(ResizeObserver)은
+   * 그 프레임의 그리기 예약(requestAnimationFrame)이 끝난 뒤에 오므로 다음 프레임까지 빈 캔버스가 비쳐 깜빡인다.
+   * 그래서 크기가 실제로 달라졌을 때만 캔버스를 바꾸고, 바꾼 자리에서 바로 한 장을 그린다.
+   */
   private resize(): void {
     const w = Math.max(1, this.container.clientWidth);
     const h = Math.max(1, this.container.clientHeight);
+    const ratio = this.pixelRatioTarget();
+    const same = this.sized && w === this.width && h === this.height && Math.abs(this.renderer.getPixelRatio() - ratio) < 0.01;
     this.width = w;
     this.height = h;
-    this.renderer.setPixelRatio(this.pixelRatioTarget());
-    this.renderer.setSize(w, h, false);
-    this.painter.setSize(w, h, this.renderer.getPixelRatio());
+    this.sized = true;
+    if (!same) {
+      this.renderer.setPixelRatio(ratio);
+      this.renderer.setSize(w, h, false);
+      this.painter.setSize(w, h, this.renderer.getPixelRatio());
+    }
     this.fitCamera();
+    if (!same) this.drawNow();
     this.requestRender();
+  }
+
+  /** 지금 바로 한 장을 그린다 (캔버스 크기를 바꾼 직후, 화면에 칠해지기 전에 다시 채운다). */
+  private drawNow(): void {
+    if (this.disposed) return;
+    this.renderer.info.reset();
+    this.painter.render(this.scene, this.camera);
+    this.updateOverlay();
   }
 
   /** 화면에서 HUD 가 가리지 않는 영역 안에 보드 전체가 들어오도록 직교 카메라 범위를 맞춘다. */
@@ -2644,17 +2858,18 @@ export class BoardRenderer {
   private onControlsChange = (): void => {
     this.clampTarget();
     this.requestRender();
+    // 보드를 실제로 끌어 움직이면 마우스 올림 표시와 알림을 닫는다 (위치가 맞지 않게 되므로).
+    // 누르기만 해서는 닫지 않는다. 누를 때마다 테두리가 꺼졌다 켜지면 화면이 깜빡여 보인다.
+    if (this.interacting && this.hovered) {
+      this.hovered = null;
+      this.updateHighlights();
+      this.emitHover();
+    }
   };
 
   private onControlsStart = (): void => {
     this.interacting = true;
     this.requestRender();
-    // 보드를 끌기 시작하면 마우스 올림 알림을 닫는다 (위치가 맞지 않게 되므로).
-    if (this.hovered) {
-      this.hovered = null;
-      this.updateHighlights();
-      this.emitHover();
-    }
   };
 
   private onControlsEnd = (): void => {
@@ -2673,19 +2888,26 @@ export class BoardRenderer {
     const ray = this.raycaster.ray;
     const low = new THREE.Vector3();
     const mid = new THREE.Vector3();
+    const high = new THREE.Vector3();
     if (!ray.intersectPlane(new THREE.Plane(yAxis, -TILE_TOP), low)) return null;
-    // 집·도시는 높이가 있어 몸통을 누르면 바닥보다 조금 뒤쪽이 맞는다. 꼭짓점은 그 높이에서 잰다.
-    ray.intersectPlane(new THREE.Plane(yAxis, -(TILE_TOP + 0.14)), mid);
+    // 집·도시는 높이가 있어 몸통이나 지붕을 누르면 바닥보다 뒤쪽이 맞는다. 꼭짓점은 몸통 높이에서도 재고,
+    // 마을·도시가 선 꼭짓점은 지붕 높이에서도 잰다.
+    ray.intersectPlane(new THREE.Plane(yAxis, -(TILE_TOP + 0.16)), mid);
+    ray.intersectPlane(new THREE.Plane(yAxis, -(TILE_TOP + 0.36)), high);
     const worldPerPixel = (this.camera.right - this.camera.left) / this.camera.zoom / Math.max(1, rect.width);
     // 손가락 크기(약 24px)로 잡되, 멀리 축소해도 이웃 꼭짓점(1.32 떨어짐)까지 넘보지 않게 상한을 둔다.
     const reach = Math.min(0.42, Math.max(0.16, 24 * worldPerPixel));
     const flat = (p: THREE.Vector3, q: THREE.Vector3) => Math.hypot(p.x - q.x, p.z - q.z);
+    const built = new Map(this.state.buildings.map((b) => [b.vertexId, b.kind]));
     const nearestVertex = (ids: readonly string[]) => {
       let best: { id: string; d: number } | null = null;
       for (const id of ids) {
         const p = this.vertexWorld(id);
         if (!p) continue;
-        const d = Math.min(flat(p, mid), flat(p, low));
+        let d = Math.min(flat(p, mid), flat(p, low));
+        // 커다란 마을·도시는 몸통 어디를 눌러도 그 꼭짓점이 잡히게 몸통 크기만큼 거리를 덜어 준다.
+        const kind = built.get(id);
+        if (kind) d = Math.max(0, Math.min(d, flat(p, high)) - PIECE_PICK_BONUS[kind]);
         if (!best || d < best.d) best = { id, d };
       }
       return best;

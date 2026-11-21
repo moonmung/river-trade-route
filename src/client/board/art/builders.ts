@@ -53,7 +53,8 @@ export type PropKey =
   | 'brickrows'
   | 'roadjoint'
   | 'goods'
-  | 'trader';
+  | 'trader'
+  | 'ship';
 
 type Vec3 = [number, number, number];
 /** 밝기 배율. 숫자 하나는 밝기만 바꾸고, 세 값은 색조까지 바꾼다 (이끼 낀 돌처럼). */
@@ -1648,45 +1649,49 @@ export function buildBrickRows(): PropPart[] {
 
 // ───────────────────────── 길과 도시 (플레이어 조각) ─────────────────────────
 
+/** 길 판자 윗면 높이 (BoardRenderer 의 교역인 발 높이·길 표식 높이가 이 값을 따른다) */
+export const ROAD_DECK_TOP = 0.1;
+
 /**
- * 길: x 방향 길이 1, 폭 0.13 의 판자길. 판자는 지붕 재질이라 플레이어 색이 곱해진다.
- * 양옆에 짙은 나무 테두리를 대서 흙길 위에서도 모양이 또렷하다.
+ * 길: x 방향 길이 1, 폭 0.22 의 굵은 판자길. 실제 보드게임의 나무 길 조각처럼 도톰하게 솟아 멀리서도 누구 길인지 보인다.
+ * 판자는 지붕 재질이라 플레이어 색이 곱해지고, 판자 사이 틈으로 짙은 받침목이 비쳐 판자 줄이 또렷하다.
  */
 export function buildRoad(): PropPart[] {
   const rand = mulberry32(77);
   const k = new Kit();
-  const n = 7;
+  // 짙은 받침목: 판자 틈과 아래 가장자리에 먹선처럼 비친다.
+  k.add('dark', box(1, 0.05, 0.19), { position: [0, 0.03, 0] });
+  const n = 6;
   const step = 1 / n;
+  const plankH = 0.05;
   for (let i = 0; i < n; i++) {
-    k.add('roof', box(step - 0.012, 0.035, 0.12), {
-      position: [-0.5 + step * (i + 0.5), 0.05, 0],
-      rotation: [0, (rand() - 0.5) * 0.05, (rand() - 0.5) * 0.03],
-      color: new THREE.Color('#ffffff').multiplyScalar(0.86 + rand() * 0.16),
+    k.add('roof', box(step - 0.018, plankH, 0.22), {
+      position: [-0.5 + step * (i + 0.5), ROAD_DECK_TOP - plankH / 2, (rand() - 0.5) * 0.008],
+      rotation: [0, (rand() - 0.5) * 0.04, (rand() - 0.5) * 0.02],
+      color: new THREE.Color('#ffffff').multiplyScalar((i % 2 ? 0.9 : 1.0) + rand() * 0.08),
       flat: true,
-      faceShade: (_c, nn) => skyShade(nn, 0.72, 1.06),
+      faceShade: (_c, nn) => skyShade(nn, 0.7, 1.06),
     });
   }
-  for (const z of [-0.07, 0.07]) {
-    k.add('wood', box(1, 0.045, 0.02), { position: [0, 0.032, z], color: '#6b4a2a' });
-  }
-  return k.build(0.06, 0.7);
+  return k.build(0.05, 0.78);
 }
 
 /**
  * 길 이음목: 같은 사람의 길이 꼭짓점에서 만나면 그 자리에 육각 판자 받침을 깔아 길이 끊기지 않고 이어져 보이게 한다.
- * 판자는 길과 같은 지붕 재질이라 플레이어 색이 곱해지고, 둘레에 짙은 나무 테를 둘렀다. 판자 윗면은 길 판자보다 아주 조금 높다.
+ * 판자는 길과 같은 지붕 재질이라 플레이어 색이 곱해지고, 둘레에 짙은 나무 테를 둘렀다. 굵어진 길 끝(폭 0.22)을 다 덮고
+ * 윗면은 길 판자보다 아주 조금 높다.
  */
 export function buildRoadJoint(): PropPart[] {
   const k = new Kit();
   const sector = (c: THREE.Vector3) => Math.floor((Math.atan2(c.z, c.x) + Math.PI) / (Math.PI / 3));
-  k.add('roof', cyl(0.1, 0.1, 0.035, 6), {
-    position: [0, 0.056, 0],
+  k.add('roof', cyl(0.13, 0.13, 0.05, 6), {
+    position: [0, ROAD_DECK_TOP + 0.005 - 0.025, 0],
     rotation: [0, Math.PI / 6, 0],
     flat: true,
-    faceShade: (c, n) => (sector(c) % 2 ? 0.9 : 1.0) * skyShade(n, 0.72, 1.06),
+    faceShade: (c, n) => (sector(c) % 2 ? 0.9 : 1.0) * skyShade(n, 0.7, 1.06),
   });
-  k.add('wood', cyl(0.112, 0.112, 0.03, 6), { position: [0, 0.036, 0], rotation: [0, Math.PI / 6, 0], color: '#6b4a2a' });
-  return k.build(0.06, 0.7);
+  k.add('dark', cyl(0.145, 0.145, 0.05, 6), { position: [0, 0.035, 0], rotation: [0, Math.PI / 6, 0] });
+  return k.build(0.05, 0.78);
 }
 
 /** 도시: 돌로 쌓은 아래층 위에 회벽 위층, 색 지붕, 옆에 둥근 탑. 지붕과 탑 지붕에 플레이어 색이 곱해진다. */
@@ -1864,40 +1869,60 @@ export function buildGoods(variant = 0): PropPart[] {
 }
 
 /**
- * 길 위를 오가는 교역인: 플레이어 색 두건 달린 겉옷(지붕 재질이라 플레이어 색이 곱해진다)에 큰 봇짐을 지고 지팡이를 짚었다.
- * 원점 = 발 사이 바닥, 얼굴은 +x 쪽을 본다 (길 방향 회전을 그대로 쓴다). 키는 약 0.21.
+ * 길 위를 오가는 교역인: 플레이어 색 옷(지붕 재질이라 플레이어 색이 곱해진다)을 입은 작은 사람.
+ * 굵은 길과 큰 집 사이에서 장식으로만 보이도록 다리, 통옷, 얼굴, 색 모자만 둔 단순한 모양이다.
+ * 원점 = 발 사이 바닥, 몸 앞쪽은 +x (길 방향 회전을 그대로 쓴다). 키는 약 0.21.
  */
 export function buildTrader(): PropPart[] {
   const k = new Kit();
   const round = (_p: THREE.Vector3, n: THREE.Vector3) => skyShade(n, 0.7, 1.08);
-  // 다리와 신발
-  for (const z of [-0.014, 0.014]) {
-    k.add('dark', cyl(0.01, 0.011, 0.06, 6), { position: [0, 0.03, z] });
-    k.add('dark', box(0.03, 0.012, 0.018), { position: [0.007, 0.006, z] });
+  for (const z of [-0.013, 0.013]) k.add('dark', cyl(0.011, 0.012, 0.05, 6), { position: [0, 0.025, z] });
+  // 통옷: 아래로 퍼지는 원뿔대 하나
+  k.add('roof', cyl(0.026, 0.042, 0.09, 10), { position: [0, 0.093, 0], shade: round });
+  k.add('paint', new THREE.SphereGeometry(0.027, 10, 8), { position: [0, 0.163, 0], color: '#e9c29a', shade: round });
+  // 색 모자: 위에서 내려다봐도 플레이어 색이 보인다.
+  k.add('roof', new THREE.ConeGeometry(0.027, 0.036, 10), { position: [-0.004, 0.206, 0], shade: round });
+  return k.build(0.05, 0.8);
+}
+
+/**
+ * 해상 교역 배: 교역로 부두에 짐을 싣고 들어오는 작은 돛배. 돛은 깃발 재질이라 플레이어 색이 곱해진다.
+ * 원점 = 물높이의 배 가운데, 뱃머리는 +x. 길이 약 1.
+ */
+export function buildShip(): PropPart[] {
+  const k = new Kit();
+  const hull = box(1.0, 0.16, 0.36, 12, 1, 2);
+  const pos = hull.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    // 뱃머리(+x)는 뾰족하고 고물(-x)은 조금 뭉툭하다. 위로 갈수록 양 끝이 솟는다.
+    const t = Math.abs(x) / 0.5;
+    const taper = x > 0 ? 1 - t * t * 0.92 : 1 - t * t * 0.55;
+    pos.setZ(i, pos.getZ(i) * taper);
+    if (pos.getY(i) > 0) pos.setY(i, pos.getY(i) + t * t * 0.07);
+    else pos.setZ(i, pos.getZ(i) * 0.65);
   }
-  // 겉옷: 아래로 퍼지는 웃옷과 허리띠
-  k.add('roof', cyl(0.027, 0.042, 0.09, 10), { position: [0, 0.105, 0], shade: round });
-  k.add('dark', cyl(0.031, 0.031, 0.01, 10), { position: [0, 0.112, 0] });
-  // 팔: 앞쪽 손이 지팡이를 쥔다.
-  for (const z of [-0.036, 0.036]) {
-    k.add('roof', cyl(0.009, 0.011, 0.055, 6), { position: [0.008, 0.118, z], rotation: [z > 0 ? -0.18 : 0.18, 0, z > 0 ? -0.5 : 0.1], shade: round });
-  }
-  k.add('paint', new THREE.SphereGeometry(0.01, 6, 5), { position: [0.03, 0.098, 0.04], color: '#e2b48c' });
-  // 얼굴과 두건
-  k.add('paint', new THREE.SphereGeometry(0.024, 10, 8), { position: [0.003, 0.172, 0], color: '#e9c29a', shade: round });
-  k.add('dark', new THREE.SphereGeometry(0.004, 4, 3), { position: [0.025, 0.177, 0.009] });
-  k.add('dark', new THREE.SphereGeometry(0.004, 4, 3), { position: [0.025, 0.177, -0.009] });
-  // 두건은 얼굴 쪽(+x, 구의 phi = π)만 비워 둔다.
-  const hood = new THREE.SphereGeometry(0.029, 10, 8, Math.PI * 1.25, Math.PI * 1.5, 0, Math.PI * 0.6);
-  k.add('roof', hood, { position: [-0.002, 0.176, 0], shade: round });
-  k.add('roof', new THREE.ConeGeometry(0.016, 0.04, 6), { position: [-0.016, 0.205, 0], rotation: [0, 0, 0.55], shade: round });
-  // 등에 진 봇짐: 둥근 짐 꾸러미와 위에 말아 얹은 담요, 짐을 맨 나무 틀
-  k.add('cloth', blob(0.04, 1, 21, 0.25), { position: [-0.045, 0.14, 0], scale: [0.85, 1.15, 1], color: '#d9c49a', shade: round });
-  k.add('cloth', cyl(0.016, 0.016, 0.075, 8), { position: [-0.045, 0.192, 0], rotation: [Math.PI / 2, 0, 0], color: '#9c6b4a', shade: round });
-  for (const z of [-0.03, 0.03]) k.add('wood', box(0.008, 0.11, 0.008), { position: [-0.022, 0.13, z], color: '#7a5532' });
-  // 지팡이
-  k.add('wood', cyl(0.004, 0.005, 0.2, 5), { position: [0.034, 0.1, 0.045], rotation: [0, 0, -0.12], color: '#8a6238' });
-  return k.build(0.06, 0.78);
+  hull.computeVertexNormals();
+  k.add('wood', hull, { position: [0, 0.05, 0], color: '#8f6236', shade: (p, n) => (p.y > 0.09 ? 1.06 : 0.86) * skyShade(n, 0.7, 1.06) });
+  k.add('wood', box(0.74, 0.012, 0.26), { position: [0, 0.12, 0], color: '#c49a68' });
+  // 뱃전 띠
+  k.add('dark', box(0.92, 0.02, 0.012), { position: [-0.02, 0.135, 0.15] });
+  k.add('dark', box(0.92, 0.02, 0.012), { position: [-0.02, 0.135, -0.15] });
+  // 짐: 통과 상자
+  k.add('wood', box(0.14, 0.12, 0.14), { position: [-0.27, 0.19, 0.02], rotation: [0, 0.3, 0], color: '#c7a070' });
+  addBarrel(k, [0.2, 0.125, -0.02], 0.65, 3);
+  // 돛대, 활대, 네모 돛 (플레이어 색), 꼭대기 작은 깃발
+  k.add('wood', cyl(0.014, 0.017, 0.78, 6), { position: [-0.04, 0.5, 0], color: '#6b4a2a' });
+  k.add('wood', cyl(0.009, 0.009, 0.5, 5), { position: [-0.02, 0.8, 0], rotation: [Math.PI / 2, 0, 0], color: '#6b4a2a' });
+  const sail = warp(new THREE.PlaneGeometry(0.46, 0.4, 6, 4), (v) => {
+    // 바람을 받아 앞으로 불룩하다.
+    const u = v.x / 0.23;
+    const w = (v.y + 0.2) / 0.4;
+    v.z = 0.07 * (1 - u * u) * Math.sin(w * Math.PI * 0.9 + 0.2);
+  });
+  k.add('banner', sail, { position: [-0.0, 0.58, 0], rotation: [0, Math.PI / 2, 0], shade: (_p, n) => 0.85 + 0.2 * Math.abs(n.x) });
+  k.add('banner', box(0.1, 0.05, 0.004), { position: [0.01, 0.92, 0] });
+  return k.build(0.12, 0.72);
 }
 
 /** 소품 종류별로 만들 수 있는 변형 개수 (시드) */
@@ -1941,6 +1966,7 @@ export const PROP_VARIANTS: Record<PropKey, number> = {
   roadjoint: 1,
   goods: 5,
   trader: 1,
+  ship: 1,
 };
 
 export function buildProp(key: PropKey, variant = 0): PropPart[] {
@@ -2024,6 +2050,8 @@ export function buildProp(key: PropKey, variant = 0): PropPart[] {
       return buildGoods(variant);
     case 'trader':
       return buildTrader();
+    case 'ship':
+      return buildShip();
   }
 }
 

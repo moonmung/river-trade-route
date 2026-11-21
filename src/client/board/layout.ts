@@ -365,13 +365,15 @@ function clayPit(rand: () => number): Local[] {
 
 /**
  * 마을 광장: 자원이 나지 않는 빈 땅. 가운데 둥근 돌 단 위에 기사단 동상이 처음 서 있고,
- * 둘레에는 작게 줄인 천막·우물·통·상자가 가장자리로 물러나 있다.
+ * 둘레에는 우물·통·상자가 가장자리로 물러나 있다. 뒤쪽 두 모서리는 낮은 덤불로 채워 뒤 변의 길을 가리지 않는다.
  */
 function plaza(): Local[] {
   return [
     { key: 'dais', variant: 0, x: PLAZA_STATUE_SPOT.x, z: PLAZA_STATUE_SPOT.z, rotY: 0, scale: 1, shadow: 0 },
-    { key: 'tent', variant: 0, x: -0.52, z: -0.58, rotY: 0.35, scale: 0.68, shadow: 0.3, shadowAspect: 1.3 },
-    { key: 'tent', variant: 1, x: 0.52, z: -0.6, rotY: -0.35, scale: 0.68, shadow: 0.3, shadowAspect: 1.3 },
+    { key: 'bush', variant: 1, x: -0.5, z: -0.56, rotY: 0.6, scale: 1.05, shadow: 0.16 },
+    { key: 'bush', variant: 0, x: -0.32, z: -0.72, rotY: 2.2, scale: 0.75, shadow: 0.14 },
+    { key: 'bush', variant: 0, x: 0.5, z: -0.58, rotY: -0.4, scale: 0.95, shadow: 0.16 },
+    { key: 'sack', variant: 1, x: 0.3, z: -0.7, rotY: 1.3, scale: 0.8, shadow: 0.1 },
     { key: 'well', variant: 0, x: 0.66, z: 0.32, rotY: 0.3, scale: 0.7, shadow: 0.16 },
     { key: 'barrel', variant: 0, x: 0.0, z: -0.9, rotY: 0.4, scale: 0.8, shadow: 0.1 },
     { key: 'crate', variant: 0, x: -0.72, z: 0.18, rotY: 0.2, scale: 0.8, shadow: 0.1 },
