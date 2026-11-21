@@ -3,7 +3,7 @@ import { DEV_COST, DEV_LABEL, PIECE_COST, PIECE_LIMIT, PIECE_POINTS, RESOURCES, 
 import type { RoomView } from '../../shared/protocol';
 import { pieceCount } from '../../shared/rules';
 import type { Bundle, PieceKind } from '../../shared/types';
-import { throwDice } from '../dice';
+import { throwDice, useDiceUi } from '../dice';
 import { playerColor } from '../theme';
 import { Emblem, ResourceIcon } from '../ui/icons';
 import { DevIcon, MiniHand } from './hand';
@@ -35,6 +35,7 @@ export function DieFace({ value, size = 26 }: { value: number; size?: number }) 
 
 export function TopBar({ view, players, onMenu }: { view: RoomView; players: Players; onMenu: () => void }) {
   const g = view.game!;
+  const dice = useDiceUi();
   const current = g.currentPlayerId ? players.get(g.currentPlayerId) : null;
   const placing = g.placementPlayerId ? players.get(g.placementPlayerId) : null;
   const mine = isMyTurn(view);
@@ -76,12 +77,17 @@ export function TopBar({ view, players, onMenu }: { view: RoomView; players: Pla
     );
   }
 
+  // 3D 주사위가 구르는 동안에는 결과를 미리 보여 주지 않는다 (주사위가 멈추면 그 값이 뜬다).
+  const rolling = dice.throwing || (dice.landedSeq !== null && g.events.some((e) => e.kind === 'roll' && e.seq > dice.landedSeq!));
+
   return (
     <div className="topbar">
       <div className="topbar-row">
         <div className="round-chip">{g.phase === 'placement' ? '시작 배치' : `${g.turn}턴`}</div>
         <div className="dice-now" aria-label="마지막 주사위">
-          {g.dice ? (
+          {rolling ? (
+            <span className="muted small">굴리는 중…</span>
+          ) : g.dice ? (
             <>
               <DieFace value={g.dice[0]} />
               <DieFace value={g.dice[1]} />

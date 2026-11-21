@@ -6,7 +6,7 @@ import type { RoomView } from '../../shared/protocol';
 import type { Resource } from '../../shared/types';
 import type { BoardRenderer } from '../board/BoardRenderer';
 import { josa } from '../ui/josa';
-import { rollDice } from '../dice';
+import { rollDice, settleDice } from '../dice';
 import { showAward } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
 import { bundleText, tileName, type PlayerInfo } from './derive';
@@ -42,6 +42,8 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
       lastSeq.current = maxSeq;
       lastGame.current = view.gameNumber;
       lastTurn.current = g.currentPlayerId ?? g.placementPlayerId;
+      // 이미 지난 굴림은 멈춘 것으로 쳐서 위쪽 줄에 바로 보이게 하고, 이후 굴림만 주사위가 멈출 때까지 감춘다.
+      settleDice(g.events.reduce((n, e) => (e.kind === 'roll' ? e.seq : n), 0), true);
       return;
     }
     const fresh = g.events.filter((e) => e.seq > lastSeq.current!);
@@ -69,7 +71,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           }
           // 3D 주사위가 서버가 정한 값으로 멈춘 뒤에 결과 알림과 보드 생산 연출을 낸다.
           const who = e.player === me ? '나' : name(e.player);
-          void rollDice(e.dice, { who, colorIndex: color(e.player), mine: e.player === me, animate }).then(() => {
+          void rollDice(e.dice, { who, colorIndex: color(e.player), mine: e.player === me, animate, seq: e.seq }).then(() => {
             if (total === 7) {
               if (discard) {
                 showToast(`7! 자원 ${discard}장을 버려야 합니다.`, 'warn', 4200);

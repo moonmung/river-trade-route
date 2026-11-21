@@ -56,6 +56,8 @@ body {
     var(--tex-water);
   background-attachment: fixed;
   -webkit-text-size-adjust: 100%;
+  /* 휴대폰 브라우저가 누를 때마다 칠하는 기본 강조색을 끈다 (빈 곳을 눌러도 화면 전체가 번쩍이던 것) */
+  -webkit-tap-highlight-color: transparent;
   line-height: 1.5;
 }
 
