@@ -1,4 +1,5 @@
 import { DevIcon, MiniHand } from './hand';
+import { throwDice } from '../dice';
 import { useEffect, useState } from 'react';
 import { DEV_COST, DEV_LABEL, PIECE_COST, PIECE_LABEL, PIECE_LIMIT, PIECE_POINTS, RESOURCES, RESOURCE_LABEL, WIN_POINTS } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
@@ -309,7 +310,8 @@ export function ActionBar({
           blocker={null}
           onClick={async () => {
             setRolling(true);
-            if (!(await sendAction({ type: 'roll' }))) setRolling(false);
+            // 3D 주사위를 던지고 서버에 굴리기를 보낸다 (주사위는 값이 오기 전부터 날아간다).
+            if (!(await throwDice())) setRolling(false);
           }}
           icon={
             <span className="act-ico dice-ico">
