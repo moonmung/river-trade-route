@@ -8,6 +8,7 @@ import path from 'node:path';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, ServerInfo, ServerToClientEvents } from '../shared/protocol';
 import { getLanAddresses } from './net';
+import { RoomStore, type PersistOptions } from './persist';
 import { RoomManager } from './rooms';
 import { attachSocketHandlers } from './socket';
 
@@ -18,6 +19,9 @@ export interface StartOptions {
   dev?: boolean;
   /** 빌드된 웹 앱 폴더 (dist/client). null 이면 웹 파일을 제공하지 않는다 (테스트용). */
   clientDir?: string | null;
+  /** 방과 게임 상태를 저장할 JSON 파일. 주면 시작할 때 되살리고 바뀔 때마다 저장한다. 없으면 메모리에만 둔다 (테스트용). */
+  dataFile?: string | null;
+  persist?: PersistOptions;
   log?: (msg: string) => void;
 }
 
@@ -25,6 +29,11 @@ export interface RunningServer {
   port: number;
   rooms: RoomManager;
   io: Server;
+  store: RoomStore | null;
+  /** 시작할 때 저장 파일에서 되살린 방 수 */
+  restored: number;
+  /** 기다리는 저장을 지금 바로 쓴다 (프로세스를 끝내기 직전에 부른다). */
+  flush(): void;
   close(): Promise<void>;
 }
 
@@ -52,6 +61,10 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     maxHttpBufferSize: 64 * 1024,
   });
   const rooms = new RoomManager();
+  // 연결을 받기 전에 저장해 둔 방을 되살린다. 브라우저가 저장된 참가 토큰으로 붙으면 같은 자리로 이어진다.
+  const store = opts.dataFile ? new RoomStore(rooms, opts.dataFile, { log, ...opts.persist }) : null;
+  const restored = store ? store.load() : 0;
+  store?.attach();
   attachSocketHandlers(io as never, rooms, log);
 
   let actualPort = opts.port;
@@ -109,8 +122,12 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     port: actualPort,
     rooms,
     io: io as never,
+    store,
+    restored,
+    flush: () => void store?.flush(),
     close: () =>
       new Promise<void>((resolve) => {
+        store?.close();
         io.close(() => resolve());
         httpServer.closeAllConnections?.();
       }),

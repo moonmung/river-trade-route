@@ -7,6 +7,7 @@ import type {
   ServerToClientEvents,
   SessionInfo,
 } from '../shared/protocol';
+import { SEAT_CODE_LENGTH, normalizeSeatCode } from '../shared/protocol';
 import { isRequestId, normalizeNickname, normalizeRoomCode, parseAction } from '../shared/validate';
 import { isRoomError, type Room, type RoomManager, type RoomPlayer } from './rooms';
 import { buildRoomView } from './view';
@@ -101,7 +102,10 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
         log(`[재접속] ${found.room.code} ${found.player.nickname}`);
       } else {
         socket.emit('session:invalid', {
-          reason: '방을 찾을 수 없습니다. 서버가 다시 시작되었거나 방이 닫혔을 수 있습니다.',
+          reason:
+            code && rooms.rooms.has(code)
+              ? '이 자리는 다른 기기로 넘어갔습니다. 이 기기에서 이어 하려면 방장에게 자리 넘기기 코드를 받으세요.'
+              : '방을 찾을 수 없습니다. 게임이 끝났거나 하루 넘게 쓰지 않아 방이 닫혔을 수 있습니다.',
         });
       }
     }
@@ -129,6 +133,35 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
       const info = rooms.peek(code);
       if (!info) return reply(fail('방을 찾을 수 없습니다. 방 코드를 확인하세요.', 'NO_ROOM'));
       reply({ ok: true, ...info });
+    });
+
+    // 자리 넘기기: 방장이 끊긴 자리의 일회용 코드를 만들고, 새 기기가 그 코드로 자리를 받는다.
+    socket.on('seat:handover', (payload, ack) => {
+      const reply = safeAck(ack);
+      const cur = current(socket);
+      if (!cur) return reply(fail('방에 연결되어 있지 않습니다.'));
+      const targetId = (payload as { playerId?: unknown } | undefined)?.playerId;
+      if (typeof targetId !== 'string') return reply(fail('잘못된 요청입니다.'));
+      const res = rooms.issueHandover(cur.room, cur.player.id, targetId);
+      if (isRoomError(res)) return reply(fail(res.error, res.code));
+      reply({ ok: true, ...res });
+    });
+
+    socket.on('seat:claim', (payload, ack) => {
+      const reply = safeAck(ack);
+      const p = (payload ?? {}) as { code?: unknown; seatCode?: unknown };
+      const code = normalizeRoomCode(p.code);
+      if (!code) return reply(fail('방 코드는 4자리입니다.'));
+      const seatCode = normalizeSeatCode(p.seatCode);
+      if (!seatCode) return reply(fail(`자리 넘기기 코드는 숫자 ${SEAT_CODE_LENGTH}자리입니다.`, 'SEAT_CODE'));
+      const prev = current(socket);
+      const res = rooms.claimHandover(code, seatCode);
+      if (isRoomError(res)) return reply(fail(res.error, res.code));
+      if (prev && prev.room.code !== code && rooms.closeIfLoneLobby(prev.room, prev.player.id)) unbind(socket);
+      bind(socket, res.room, res.player, false);
+      log(`[자리 넘김] ${code} ${res.player.nickname}`);
+      reply({ ok: true, ...sessionOf(res.room, res.player) });
+      broadcast(res.room);
     });
 
     socket.on('room:join', (payload, ack) => {
