@@ -4,57 +4,12 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { DEV_LABEL, RESOURCES, RESOURCE_LABEL } from '../../shared/constants';
 import type { Bundle, DevKind, Resource } from '../../shared/types';
+import { ArtImg, DEV_ART } from '../ui/art';
 import { ResourceIcon } from '../ui/icons';
 
-/** 발전 카드 그림: 기사(투구와 칼), 승점(왕관), 길 건설(갈래 길), 풍년(이삭 바구니), 독점(움켜쥔 손 대신 저울) */
+/** 발전 카드 그림: 기사(투구와 칼), 승점(왕관), 길 건설(엇갈린 판자), 풍년(곡식 바구니), 독점(저울) */
 export function DevIcon({ kind, size = 28 }: { kind: DevKind; size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden className="dev-icon">
-      <g stroke="#1d1a16" strokeWidth="1.1" strokeLinejoin="round" strokeLinecap="round">
-        {kind === 'knight' && (
-          <>
-            <path d="M6 21 L18 3" stroke="#e4e8ee" strokeWidth="2.2" />
-            <path d="M14.5 6.5 L17.5 9.5" stroke="#d0a83c" strokeWidth="2.2" />
-            <path d="M5 10 C5 5 9 3 12 3 C15 3 19 5 19 10 V15 H5 Z" fill="#a3aab3" />
-            <path d="M7 10 H17" stroke="#1d1a16" strokeWidth="1.6" />
-            <path d="M12 3 C11 1.6 13 1.2 13.4 2.4" fill="#c23a2e" />
-          </>
-        )}
-        {kind === 'victory' && (
-          <>
-            <path d="M3 17 L4.5 7 L9 11 L12 4.5 L15 11 L19.5 7 L21 17 Z" fill="#e3b23c" />
-            <rect x="3" y="17" width="18" height="3" rx="1" fill="#c9952a" />
-            <circle cx="12" cy="13" r="1.6" fill="#c23a2e" />
-          </>
-        )}
-        {kind === 'road_building' && (
-          <>
-            <path d="M4 21 C8 16 8 11 12 9 C15 7 17 5 20 3" stroke="#5e3f22" strokeWidth="4.6" fill="none" />
-            <path d="M4 21 C8 16 8 11 12 9 C15 7 17 5 20 3" stroke="#e2bf8a" strokeWidth="2.4" fill="none" strokeDasharray="2.4 1.6" />
-            <path d="M12 9 C15 11 18 13 21 17" stroke="#5e3f22" strokeWidth="4.6" fill="none" />
-            <path d="M12 9 C15 11 18 13 21 17" stroke="#e2bf8a" strokeWidth="2.4" fill="none" strokeDasharray="2.4 1.6" />
-          </>
-        )}
-        {kind === 'year_of_plenty' && (
-          <>
-            <path d="M4 12 H20 L18 20 H6 Z" fill="#b07a42" />
-            <path d="M5 15 H19" stroke="#7a5532" />
-            <ellipse cx="8.5" cy="9" rx="2" ry="3.4" fill="#f0c544" />
-            <ellipse cx="12" cy="7.6" rx="2" ry="4" fill="#e7b52c" />
-            <ellipse cx="15.5" cy="9" rx="2" ry="3.4" fill="#f0c544" />
-          </>
-        )}
-        {kind === 'monopoly' && (
-          <>
-            <path d="M12 3 V20 M7 20 H17" stroke="#d0a83c" strokeWidth="1.8" />
-            <path d="M4 7 H20" stroke="#d0a83c" strokeWidth="1.8" />
-            <path d="M4 7 L1.8 13 H6.2 Z M20 7 L17.8 13 H22.2 Z" fill="#e3b23c" />
-            <circle cx="12" cy="4" r="1.6" fill="#e3b23c" />
-          </>
-        )}
-      </g>
-    </svg>
-  );
+  return <ArtImg src={DEV_ART[kind]} size={size} className="dev-art" />;
 }
 
 /** 카드 그림을 먹으로 찍은 듯 가장자리를 살짝 번지게 하는 SVG 필터 (카드 CSS 의 filter: url(#hcard-ink)) */

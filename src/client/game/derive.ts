@@ -204,25 +204,39 @@ export function spotName(numbers: Record<string, number>, kind: 'vertex' | 'edge
 }
 
 /**
- * 오른쪽 '최근 기록'에 남기는 점수와 이어진 기록: 마을·도시, 최장 교역로·최강 기사단, 기사 사용, 승점 카드, 게임 끝.
- * 주사위·교환·길 같은 나머지는 메뉴의 전체 기록에서 본다.
+ * 오른쪽 '최근 기록'에 남기는 기록: 점수가 오르내리는 일(마을·도시, 최장 교역로·최강 기사단, 게임 끝)과 발전 카드(사기·쓰기)만.
+ * 시작 배치, 주사위, 생산, 교환, 길처럼 누가 무엇을 받았는지는 메뉴의 전체 기록에서 본다.
  */
 export function isScoreEvent(e: GameEvent): boolean {
   switch (e.kind) {
-    case 'placement':
     case 'award':
     case 'game_end':
+    case 'buy_dev':
+    case 'play_dev':
       return true;
     case 'build':
       return e.piece !== 'road';
-    case 'play_dev':
-      return e.card === 'knight';
-    case 'buy_dev':
-      // 승점 카드를 샀다는 내용은 산 사람 화면에만 온다.
-      return e.detail === 'victory';
     default:
       return false;
   }
+}
+
+/** '최근 기록' 한 줄: 점수와 발전 카드만 짧게 적는다 (받은 자원·가져간 장수는 빼고). */
+export function formatScoreEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: string, numbers: Record<string, number> = {}): string {
+  const name = (id: string) => (id === me ? '나' : (players.get(id)?.nickname ?? '?'));
+  const subj = (id: string) => (id === me ? '내가' : josa(name(id), '이/가'));
+  switch (e.kind) {
+    case 'build':
+      if (e.piece === 'city') return `${subj(e.player)} 마을을 도시로 올렸습니다 (+1점).`;
+      if (e.piece === 'village') return `${subj(e.player)} 마을을 지었습니다 (+1점).`;
+      break;
+    case 'buy_dev':
+      if (e.detail === 'victory') return `${subj(e.player)} 승점 카드를 뽑았습니다 (+1점, 나만 봅니다).`;
+      return `${subj(e.player)} 발전 카드를 샀습니다.`;
+    case 'play_dev':
+      return `${subj(e.player)} ${DEV_LABEL[e.card]} 카드를 썼습니다.`;
+  }
+  return formatEvent(e, players, me, numbers);
 }
 
 /** 기록 한 줄. 비공개 내용(detail)은 서버가 볼 수 있는 사람에게만 보낸다. */

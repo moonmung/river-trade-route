@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generatedBy": "scripts/generate-assets.ts",
-  "generatedAt": "2026-11-21T03:11:17.464Z",
+  "generatedAt": "2026-11-21T06:50:25.515Z",
   "note": "temporary: true 인 항목은 코드로 만든 임시 에셋입니다. 최종 모델·텍스처로 바꾸면 false 로 고치세요.",
   "models": {
     "house": {

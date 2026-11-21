@@ -190,9 +190,9 @@ const TILE_GROUND: Record<TileKind, GroundTextureKey> = {
 };
 /** 타일 옆면(둑) 색: 길보다 한 뼘 높은 풀·흙 둑처럼 보이게 지형마다 흙빛을 다르게 한다. */
 const TILE_SIDE: Record<TileKind, string> = {
-  wood: '#5f6e3c',
+  wood: '#4a5a2f',
   grain: '#94773f',
-  wool: '#748f46',
+  wool: '#8fa55e',
   brick: '#93593b',
   stone: '#857f72',
   plaza: '#9d8a6a',

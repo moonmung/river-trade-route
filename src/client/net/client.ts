@@ -142,8 +142,8 @@ export class GameClient {
     this.set({ session, view, interruption: null });
   }
 
-  async createRoom(nickname: string): Promise<AckResult<SessionInfo>> {
-    const res = await this.emit<SessionInfo>('room:create', { nickname });
+  async createRoom(nickname: string, winPoints?: number): Promise<AckResult<SessionInfo>> {
+    const res = await this.emit<SessionInfo>('room:create', { nickname, winPoints });
     if (res.ok) this.adopt(res);
     return res;
   }
@@ -189,6 +189,10 @@ export class GameClient {
 
   setReady(ready: boolean): Promise<AckResult> {
     return this.emit('room:ready', { ready });
+  }
+
+  setWinPoints(winPoints: number): Promise<AckResult> {
+    return this.emit('room:settings', { winPoints });
   }
 
   start(): Promise<AckResult> {

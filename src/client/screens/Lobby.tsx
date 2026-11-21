@@ -10,6 +10,7 @@ import { AsyncButton, Brand, copyText } from '../ui/common';
 import { Emblem } from '../ui/icons';
 import { RulesSummary } from '../ui/RulesSummary';
 import { showToast } from '../ui/toast';
+import { WinPointsStepper, saveWinPoints } from '../ui/WinPoints';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -125,6 +126,25 @@ export function Lobby({ view }: { view: RoomView }) {
             {local && !info && <div className="muted small">이 PC의 사설 IP를 확인하는 중…</div>}
           </div>
           <QrCode text={link} />
+        </section>
+
+        <section className="lobby-points">
+          <h2>승리 점수</h2>
+          {isHost ? (
+            <WinPointsStepper
+              value={view.winPoints}
+              onChange={async (p) => {
+                saveWinPoints(p);
+                const res = await client.setWinPoints(p);
+                if (!res.ok) showToast(res.error, 'error');
+              }}
+            />
+          ) : (
+            <div className="wp-fixed">
+              <b>{view.winPoints}</b>점
+            </div>
+          )}
+          <p className="muted small">{isHost ? '10~20점 사이로 정합니다. 바꾸면 다른 사람은 다시 준비해야 합니다.' : '방장이 정한 점수입니다. 이 점수에 먼저 닿으면 이깁니다.'}</p>
         </section>
 
         <section>

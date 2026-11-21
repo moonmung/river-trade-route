@@ -1,12 +1,13 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { DEV_COST, DEV_LABEL, PIECE_COST, PIECE_LIMIT, PIECE_POINTS, RESOURCES, RESOURCE_LABEL, WIN_POINTS } from '../../shared/constants';
+import { DEV_COST, DEV_LABEL, PIECE_COST, PIECE_LIMIT, PIECE_POINTS, RESOURCES, RESOURCE_LABEL } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
 import { pieceCount } from '../../shared/rules';
 import type { Bundle, PieceKind } from '../../shared/types';
 import { throwDice, useDiceUi } from '../dice';
+import { ArtImg, DEV_BACK_ART, PIECE_ART } from '../ui/art';
 import { playerColor } from '../theme';
 import { Emblem, ResourceIcon } from '../ui/icons';
-import { DevIcon, MiniHand } from './hand';
+import { MiniHand } from './hand';
 import { buildBlocker, buyDevBlocker, isMyTurn, shortfall, turnBlocker, type PlayerInfo } from './derive';
 import { canBankNow, tradeButtonBlocker } from './trade';
 import { ActionButton, sendAction } from './ui';
@@ -97,7 +98,7 @@ export function TopBar({ view, players, onMenu }: { view: RoomView; players: Pla
             <span className="muted small">아직 굴리지 않음</span>
           )}
         </div>
-        <div className="goal small muted">{WIN_POINTS}점 먼저 내면 승리</div>
+        <div className="goal small muted">{g.winPoints}점 먼저 내면 승리</div>
         <button className="icon-btn menu-btn" onClick={onMenu} aria-label="메뉴 열기">
           ☰
         </button>
@@ -306,7 +307,9 @@ export function BuildBar({ view, buildMode, onBuild }: { view: RoomView; buildMo
                 }
               }}
             >
-              <span className="bb-ico">{item.key === 'dev' ? <DevIcon kind="knight" size={26} /> : <PieceIcon kind={item.key} size={26} />}</span>
+              <span className="bb-ico">
+                <ArtImg src={item.key === 'dev' ? DEV_BACK_ART : PIECE_ART[item.key]} size={34} />
+              </span>
               <span className="bb-name">{active ? '그만두기' : item.label}</span>
               <CostRow cost={item.cost} have={g.myResources} />
             </button>

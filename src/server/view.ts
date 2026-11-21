@@ -83,6 +83,7 @@ export function buildGameView(g: GameState, viewer: string): GameView {
     trades: g.trades.map((t) => ({ id: t.id, from: t.from, to: [...t.to], give: { ...t.give }, get: { ...t.get }, responses: { ...t.responses } })),
     events: g.events.slice(-EVENT_WINDOW).map((e) => filterEventFor(e, viewer)),
     result: g.result ? structuredClone(g.result) : null,
+    winPoints: g.winPoints,
     version: g.version,
   };
 }
@@ -105,5 +106,6 @@ export function buildRoomView(room: Room, viewer: string): RoomView {
     gameNumber: room.gameNumber,
     minPlayers: MIN_PLAYERS,
     maxPlayers: MAX_PLAYERS,
+    winPoints: room.winPoints,
   };
 }

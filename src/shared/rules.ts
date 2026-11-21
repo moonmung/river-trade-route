@@ -28,6 +28,9 @@ import {
   TILES,
   TILE_MAP,
   WIN_POINTS,
+  WIN_POINTS_MAX,
+  WIN_POINTS_MIN,
+  normalizeWinPoints,
   bundleLabel,
   bundleTotal,
   emptyBundle,
@@ -99,6 +102,8 @@ export interface GameState {
   freeRoads: number;
   longestRoad: { holder: string | null; length: number };
   largestArmy: { holder: string | null; size: number };
+  /** 이 승점에 먼저 닿으면 이긴다 (방장이 정한 값, 10~20) */
+  winPoints: number;
   /** 열린 교환 제안 (차례인 사람이 낸 것, 최대 MAX_OPEN_TRADES 개, 낸 순서대로) */
   trades: TradeOffer[];
   tradeSeq: number;
@@ -144,7 +149,8 @@ export function shuffle<T>(items: T[], random: () => number): T[] {
   return a;
 }
 
-export function createGame(playerIds: string[], random: () => number = Math.random): GameState {
+export function createGame(playerIds: string[], random: () => number = Math.random, winPoints: number = WIN_POINTS): GameState {
+  if (normalizeWinPoints(winPoints) === null) throw new Error(`승리 점수는 ${WIN_POINTS_MIN}~${WIN_POINTS_MAX}점이어야 합니다.`);
   if (playerIds.length < MIN_PLAYERS || playerIds.length > MAX_PLAYERS) {
     throw new Error(`플레이어는 ${MIN_PLAYERS}~${MAX_PLAYERS}명이어야 합니다.`);
   }
@@ -175,6 +181,7 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     freeRoads: 0,
     longestRoad: { holder: null, length: 0 },
     largestArmy: { holder: null, size: 0 },
+    winPoints,
     trades: [],
     tradeSeq: 0,
     events: [],
@@ -986,10 +993,10 @@ function updateLargestArmy(s: GameState, playerId: string): void {
   }
 }
 
-/** 자기 턴에 승점(숨긴 승점 카드 포함)이 10점에 닿으면 바로 이긴다. */
+/** 자기 턴에 승점(숨긴 승점 카드 포함)이 승리 점수(기본 10점)에 닿으면 바로 이긴다. */
 function checkWin(s: GameState, playerId: string): void {
   if (s.phase !== 'playing' || currentPlayer(s) !== playerId) return;
-  if (victoryPoints(s, playerId, true) < WIN_POINTS) return;
+  if (victoryPoints(s, playerId, true) < s.winPoints) return;
   s.phase = 'finished';
   s.trades = [];
   s.result = computeResult(s, playerId);

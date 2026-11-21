@@ -123,7 +123,8 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
       // 혼자 있던 대기실을 두고 새 방을 만들면 이전 대기실은 닫는다 (빈 방이 쌓이지 않게).
       const prev = current(socket);
       if (prev && rooms.closeIfLoneLobby(prev.room, prev.player.id)) unbind(socket);
-      const res = rooms.create(nickname);
+      const winPoints = (payload as { winPoints?: unknown } | undefined)?.winPoints;
+      const res = rooms.create(nickname, winPoints ?? undefined);
       if (isRoomError(res)) return reply(fail(res.error, res.code));
       // 참가 토큰(응답)이 화면 정보보다 먼저 도착하도록 응답 후에 알린다.
       bind(socket, res.room, res.player, false);
@@ -194,6 +195,16 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
       const ready = (payload as { ready?: unknown } | undefined)?.ready;
       if (typeof ready !== 'boolean') return reply(fail('잘못된 요청입니다.'));
       const err = rooms.setReady(cur.room, cur.player.id, ready);
+      if (err) return reply(fail(err.error));
+      broadcast(cur.room);
+      reply({ ok: true });
+    });
+
+    socket.on('room:settings', (payload, ack) => {
+      const reply = safeAck(ack);
+      const cur = current(socket);
+      if (!cur) return reply(fail('방에 연결되어 있지 않습니다.'));
+      const err = rooms.setWinPoints(cur.room, cur.player.id, (payload as { winPoints?: unknown } | undefined)?.winPoints);
       if (err) return reply(fail(err.error));
       broadcast(cur.room);
       reply({ ok: true });

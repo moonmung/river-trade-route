@@ -5,6 +5,7 @@ import { boardGeometry, edgeLabel, tileCenterUnit, vertexLabel } from '../../sha
 import { RESOURCE_LABEL, TILE_KIND_LABEL, numberPips } from '../../shared/constants';
 import type { TileDef } from '../../shared/types';
 import { playerColor } from '../theme';
+import { RESOURCE_ART } from '../ui/art';
 import { ResourceIcon } from '../ui/icons';
 import type { BoardSelection, BoardState } from './BoardRenderer';
 
@@ -62,9 +63,13 @@ export function FlatBoard({ tiles, state, onTap }: { tiles: readonly TileDef[]; 
               aria-label={`${t.id} ${TILE_KIND_LABEL[t.kind]}${num ? ` 주사위 ${num}` : ''}${locked ? ' 기사단 동상에 막힘' : ''}`}
             >
               <polygon points={hexPoints(c.x, c.y, HEX_R)} />
-              <g transform={`translate(${c.x - 0.22}, ${c.y - 0.5})`}>
-                <ResourceIcon kind={t.kind} size={0.44} />
-              </g>
+              {t.kind === 'plaza' ? (
+                <g transform={`translate(${c.x - 0.22}, ${c.y - 0.5})`}>
+                  <ResourceIcon kind={t.kind} size={0.44} />
+                </g>
+              ) : (
+                <image href={RESOURCE_ART[t.kind]} x={c.x - 0.26} y={c.y - 0.58} width={0.52} height={0.52} />
+              )}
               {num ? (
                 <>
                   <circle cx={c.x} cy={c.y + 0.18} r={0.27} className="flat-num" />

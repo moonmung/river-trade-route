@@ -370,7 +370,7 @@ describe('대기실', () => {
     expect(await host.emit('room:leave', {})).toEqual({ ok: true });
     const v = await guests[0].waitFor((x) => x.players.length === 2);
     expect(v.hostId).toBe(guests[0].id);
-    expect(await guests[0].emit('room:start', {})).toMatchObject({ ok: false }); // 2명이라 시작 불가
+    expect(await guests[0].emit('room:start', {})).toEqual({ ok: true }); // 2명이면 일대일로 시작된다
     [host, dup, ...guests].forEach((c) => c.close());
   });
 });

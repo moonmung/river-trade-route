@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { DEV_HELP, DEV_LABEL, WIN_POINTS, bundleTotal, RESOURCES, RESOURCE_LABEL, emptyBundle } from '../../shared/constants';
+import { DEV_HELP, DEV_LABEL, bundleTotal, RESOURCES, RESOURCE_LABEL, emptyBundle } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
 import type { Bundle, DevKind, GameAction, Resource } from '../../shared/types';
 import { client } from '../net/client';
@@ -306,7 +306,7 @@ export function ResultOverlay({ view, players, onClose }: { view: RoomView; play
         </div>
         <h1>{`${josa(winners[0], '이/가')} 이겼습니다!`}</h1>
         <p className="muted small">
-          자기 차례에 승점 {WIN_POINTS}점에 먼저 닿았습니다. 숨겨 두었던 승점 카드도 이제 공개됩니다.
+          자기 차례에 승점 {view.game!.winPoints}점에 먼저 닿았습니다. 숨겨 두었던 승점 카드도 이제 공개됩니다.
         </p>
         <table className="result-table">
           <thead>

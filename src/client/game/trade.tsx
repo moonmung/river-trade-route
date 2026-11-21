@@ -212,7 +212,7 @@ export function TradePanel({
   ) : (
     <ActionButton
       className="btn btn-primary btn-wide trade-go"
-      label={`${draft.to ? `${name(draft.to)}에게` : '모두에게'} 제안 (${myOffers}/${MAX_OPEN_TRADES})`}
+      label={`${draft.to ? `${name(draft.to)}에게` : others.length === 1 ? `${name(others[0])}에게` : '모두에게'} 제안 (${myOffers}/${MAX_OPEN_TRADES})`}
       blocker={playerProblem}
       onClick={async () => {
         const to = draft.to && others.includes(draft.to) ? draft.to : undefined;
@@ -277,6 +277,10 @@ export function TradePanel({
             ) : (
               '마을이 교역로에 닿으면 3:1·2:1이 됩니다.'
             )}
+          </>
+        ) : others.length === 1 ? (
+          <>
+            일대일 대결입니다. {josa(name(others[0]), '이/가')} 수락하면 확정할 때 카드가 옮겨집니다. 증서는 {MAX_OPEN_TRADES}장까지 함께 열 수 있습니다.
           </>
         ) : (
           <>
@@ -394,16 +398,15 @@ function LedgerColumn({ title, bundle }: { title: string; bundle: Bundle }) {
   return (
     <div className="deed-col">
       <h4>{title}</h4>
-      <ul>
+      <div className="deed-cards">
         {items.map((r) => (
-          <li key={r} className={`res-${r}`}>
-            <ResourceIcon kind={r} size={16} />
-            <span className="deed-item">{RESOURCE_LABEL[r]}</span>
-            <i className="deed-leader" aria-hidden />
-            <b>{bundle[r]}</b>
-          </li>
+          <span key={r} className={`dcard dcard-${r}`} title={`${RESOURCE_LABEL[r]} ${bundle[r]}장`}>
+            <ResourceIcon kind={r} size={34} title={RESOURCE_LABEL[r]} />
+            <span className="dcard-name">{RESOURCE_LABEL[r]}</span>
+            <b className="dcard-n">×{bundle[r]}</b>
+          </span>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }

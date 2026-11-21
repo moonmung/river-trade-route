@@ -7,6 +7,7 @@ import { listDeviceSessions, loadNickname, type StoredSession } from '../net/ses
 import { navigate } from '../router';
 import { AsyncButton, Brand, Field } from '../ui/common';
 import { RulesSummary } from '../ui/RulesSummary';
+import { WinPointsStepper, loadWinPoints, saveWinPoints } from '../ui/WinPoints';
 
 /**
  * 이 브라우저에 참가 토큰이 남아 있고 서버에 아직 열려 있는 방.
@@ -35,13 +36,15 @@ export function Home() {
   const resumable = useResumable(snap);
   const [nickname, setNickname] = useState(loadNickname);
   const [code, setCode] = useState('');
+  const [winPoints, setWinPoints] = useState(loadWinPoints);
   const [error, setError] = useState<string | null>(null);
 
   const create = async () => {
     setError(null);
     const nick = normalizeNickname(nickname);
     if (!nick) return setError(`닉네임을 1~${NICKNAME_MAX}자로 입력하세요.`);
-    const res = await client.createRoom(nick);
+    saveWinPoints(winPoints);
+    const res = await client.createRoom(nick, winPoints);
     if (!res.ok) return setError(res.error);
     navigate(`/room/${res.roomCode}`);
   };
@@ -108,7 +111,11 @@ export function Home() {
         <div className="home-actions">
           <section>
             <h2>방 만들기</h2>
-            <p className="muted">이 PC가 방장입니다. 만든 뒤 초대 링크나 QR 코드를 같은 와이파이의 친구에게 보여 주세요.</p>
+            <p className="muted">이 PC가 방장입니다. 만든 뒤 초대 링크나 QR 코드를 같은 와이파이의 친구에게 보여 주세요. 2명이면 일대일로 겨룹니다.</p>
+            <div className="wp-row">
+              <span>승리 점수</span>
+              <WinPointsStepper value={winPoints} onChange={setWinPoints} />
+            </div>
             <AsyncButton className="btn btn-primary btn-wide" onClick={create} disabled={snap.conn !== 'connected'}>
               방 만들기
             </AsyncButton>
