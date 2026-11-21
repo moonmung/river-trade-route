@@ -1,7 +1,7 @@
 // 새로 들어온 게임 기록에 맞춰 연출과 알림을 낸다: 주사위, 칸 생산, 기사단 동상, 빼앗기, 달성 두루마리.
 import { useEffect, useRef } from 'react';
-import { VERTEX_MAP } from '../../shared/board';
-import { DEV_LABEL, RESOURCE_LABEL, TILE_MAP } from '../../shared/constants';
+import { boardOf } from '../../shared/board';
+import { DEV_LABEL, RESOURCE_LABEL } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
 import type { Resource } from '../../shared/types';
 import type { BoardRenderer } from '../board/BoardRenderer';
@@ -82,15 +82,15 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           const total = e.dice[0] + e.dice[1];
           const discard = g.discards[me];
           const mine = e.detail?.[me];
-          const blocked = e.blocked.map((t) => tileName(g.numbers, t));
+          const blocked = e.blocked.map((t) => tileName(g, t));
           // 숫자가 나온 칸에서 그 칸에 닿은 마을·도시로 자원이 솟아 날아간다 (공개 정보로 계산).
           const items: { tileId: string; vertexId: string; resource: Resource; amount: number; owner: string }[] = [];
           if (animate && total !== 7) {
             for (const tileId of e.tiles) {
-              const kind = TILE_MAP[tileId]?.kind;
+              const kind = boardOf(g).tileMap[tileId]?.kind;
               if (!kind || kind === 'plaza') continue;
               for (const b of g.buildings) {
-                if (!VERTEX_MAP[b.vertexId]?.tiles.includes(tileId)) continue;
+                if (!boardOf(g).vertexMap[b.vertexId]?.tiles.includes(tileId)) continue;
                 items.push({ tileId, vertexId: b.vertexId, resource: kind, amount: b.kind === 'city' ? 2 : 1, owner: b.owner });
               }
             }
@@ -147,7 +147,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
               mine: e.player === me,
             }));
             if (e.player === me && cards.length) {
-              rendererRef.current?.glowTiles((VERTEX_MAP[e.vertexId]?.tiles ?? []).filter((t) => TILE_MAP[t]?.kind !== 'plaza'));
+              rendererRef.current?.glowTiles((boardOf(g).vertexMap[e.vertexId]?.tiles ?? []).filter((t) => boardOf(g).tileMap[t]?.kind !== 'plaza'));
             }
             flyCards(cards, { reduced: reducedMotion() });
           }
@@ -165,7 +165,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
         case 'robber':
           // 3D 보드에서는 동상이 들려 날아가 내려앉는다. 내려앉은 뒤에 빼앗기 창과 버튼을 연다.
           startPaced('robber', e.seq)(animate && rendererRef.current ? ROBBER_FLIGHT_MS : 0);
-          if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} 기사단 동상을 ${tileName(g.numbers, e.tileId)} 칸으로 옮겼습니다.`, 'warn');
+          if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} 기사단 동상을 ${tileName(g, e.tileId)} 칸으로 옮겼습니다.`, 'warn');
           break;
         case 'steal':
           if (e.from === me) {

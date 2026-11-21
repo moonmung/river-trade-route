@@ -5,8 +5,17 @@ export type Resource = 'wood' | 'grain' | 'wool' | 'brick' | 'stone';
 /** 생산 칸 다섯 종류와 가운데 광장(아무것도 나지 않는 빈 땅, 기사단 동상이 처음 서는 곳) */
 export type TileKind = Resource | 'plaza';
 export type Bundle = Record<Resource, number>;
-/** 'A1' ~ 'E3' 형식의 고정 타일 ID. 맵을 만들고 바꿀 때 쓰는 코드이고, 게임 화면에는 주사위 숫자를 보여 준다. */
+/** 'A1' ~ 'E3' 형식의 타일 ID (줄 글자 + 줄 안 번호). 맵을 만들고 바꿀 때 쓰는 코드이고, 게임 화면에는 주사위 숫자를 보여 준다. */
 export type TileId = string;
+
+/** 맵 모양: 육각형 19칸, 왼쪽으로 기운 마름모 16칸 */
+export type MapShape = 'hex' | 'diamond';
+/** 맵 배치: 황금 배치는 땅·숫자·교역로가 정해진 기준 배치, 섞기는 게임마다 새로 섞는다 */
+export type MapArrange = 'golden' | 'shuffle';
+export interface MapConfig {
+  shape: MapShape;
+  arrange: MapArrange;
+}
 
 export interface TileDef {
   id: TileId;

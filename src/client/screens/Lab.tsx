@@ -4,7 +4,7 @@
 // 맵을 만들 때 쓰는 칸 코드(A1~E3)와 숫자 패를 함께 보고, 기사단 동상·주사위·달성 연출을 시험한다.
 // 실제 휴대폰에서 이 화면을 열어 측정값을 README 에 기록한다.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { HARBORS, assignNumbers, boardGeometry, edgeLabel, vertexLabel } from '../../shared/board';
+import { HARBORS, assignNumbers, boardFor, edgeLabel, vertexLabel } from '../../shared/board';
 import { RESOURCES, TILES, TILE_KIND_LABEL } from '../../shared/constants';
 import type { Bundle, DevKind, Harbor, Resource, TileDef } from '../../shared/types';
 import { mulberry32 } from '../board/art/rng';
@@ -113,7 +113,7 @@ function SceneLab({ onGame }: { onGame: () => void }) {
     };
   }, [playerView]);
 
-  const geo = useMemo(() => boardGeometry(tiles), [tiles]);
+  const geo = useMemo(() => boardFor(tiles), [tiles]);
   // 숫자 패는 고정 시드로 놓아 새로고침해도 같은 판이 나온다.
   const numbers = useMemo(() => assignNumbers(mulberry32(full ? 11 : 5), tiles), [tiles, full]);
   const harbors = useMemo<Harbor[]>(() => {
@@ -146,8 +146,8 @@ function SceneLab({ onGame }: { onGame: () => void }) {
     : selected.kind === 'tile'
       ? `${selected.id} · ${TILE_KIND_LABEL[tiles.find((t) => t.id === selected.id)!.kind]}`
       : selected.kind === 'vertex'
-        ? `꼭짓점 ${full ? vertexLabel(selected.id) : selected.id}`
-        : `변 ${full ? edgeLabel(selected.id) : selected.id}`;
+        ? `꼭짓점 ${full ? vertexLabel(geo, selected.id) : selected.id}`
+        : `변 ${full ? edgeLabel(geo, selected.id) : selected.id}`;
 
   /** 고른 꼭짓점은 빈 자리 → 마을 → 도시 → 빈 자리, 고른 변은 길을 놓고 치운다. 색은 놓을 때마다 돌아간다. */
   const togglePiece = () => {

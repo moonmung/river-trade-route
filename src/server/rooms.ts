@@ -16,9 +16,10 @@ import {
   normalizeTurnSeconds,
   normalizeWinPoints,
 } from '../shared/constants';
-import { SEAT_CODE_LENGTH, type AckResult, type RoomPeek, type RoomSettingsPatch, type SeatHandover } from '../shared/protocol';
+import { SEAT_CODE_LENGTH, type AckResult, type RoomPeek, type SeatHandover } from '../shared/protocol';
+import { DEFAULT_MAP, normalizeMapArrange, normalizeMapShape } from '../shared/maps';
 import { applyAction, autoPlay, clockKey, createGame, type GameState } from '../shared/rules';
-import type { GameAction } from '../shared/types';
+import type { GameAction, MapConfig } from '../shared/types';
 
 export interface RoomPlayer {
   id: string;
@@ -46,6 +47,8 @@ export interface Room {
   handLimit: number;
   /** 방장이 정한 한 차례 제한 시간 (초, 0 이면 제한 없음) */
   turnSeconds: number;
+  /** 방장이 정한 맵 모양과 땅 배치 (다음 게임부터 쓴다) */
+  map: MapConfig;
   createdAt: number;
   /** 마지막으로 상태가 바뀐 시각 (오래 비어 있는 방 정리용) */
   touchedAt: number;
@@ -81,6 +84,7 @@ export function blankRoom(code: string, now = Date.now()): Room {
     winPoints: WIN_POINTS,
     handLimit: DISCARD_LIMIT,
     turnSeconds: TURN_SECONDS,
+    map: { ...DEFAULT_MAP },
     createdAt: now,
     touchedAt: now,
   };
@@ -198,12 +202,12 @@ export class RoomManager {
     return this.setSettings(room, playerId, { winPoints });
   }
 
-  /** 방장이 대기실에서 규칙(승리 점수·자원 보유 한도·차례 시간)을 바꾼다. 보낸 값만 바꾸고, 하나라도 틀리면 아무것도 바꾸지 않는다. */
+  /** 방장이 대기실에서 규칙(승리 점수·자원 보유 한도·차례 시간·맵)을 바꾼다. 보낸 값만 바꾸고, 하나라도 틀리면 아무것도 바꾸지 않는다. */
   setSettings(room: Room, playerId: string, patch: unknown): RoomError | null {
     if (room.hostId !== playerId) return { error: '방장만 규칙을 바꿀 수 있습니다.' };
     if (room.phase !== 'lobby') return { error: '대기실에서만 규칙을 바꿀 수 있습니다.' };
     const p = (typeof patch === 'object' && patch !== null ? patch : {}) as Record<string, unknown>;
-    const next: Required<RoomSettingsPatch> = { winPoints: room.winPoints, handLimit: room.handLimit, turnSeconds: room.turnSeconds };
+    const next = { winPoints: room.winPoints, handLimit: room.handLimit, turnSeconds: room.turnSeconds, map: { ...room.map } };
     if (p.winPoints !== undefined) {
       const n = normalizeWinPoints(p.winPoints);
       if (n === null) return { error: `승리 점수는 ${WIN_POINTS_MIN}~${WIN_POINTS_MAX}점 사이로 정하세요.` };
@@ -219,7 +223,23 @@ export class RoomManager {
       if (n === null) return { error: '차례 시간은 고를 수 있는 값 중에서 정하세요.' };
       next.turnSeconds = n;
     }
-    if (next.winPoints === room.winPoints && next.handLimit === room.handLimit && next.turnSeconds === room.turnSeconds) return null;
+    if (p.mapShape !== undefined) {
+      const shape = normalizeMapShape(p.mapShape);
+      if (!shape) return { error: '맵 모양은 고를 수 있는 것 중에서 정하세요.' };
+      next.map.shape = shape;
+    }
+    if (p.mapArrange !== undefined) {
+      const arrange = normalizeMapArrange(p.mapArrange);
+      if (!arrange) return { error: '맵 배치는 황금 배치와 섞기 중에서 정하세요.' };
+      next.map.arrange = arrange;
+    }
+    const same =
+      next.winPoints === room.winPoints &&
+      next.handLimit === room.handLimit &&
+      next.turnSeconds === room.turnSeconds &&
+      next.map.shape === room.map.shape &&
+      next.map.arrange === room.map.arrange;
+    if (same) return null;
     Object.assign(room, next);
     // 규칙이 바뀌면 다른 사람은 다시 확인하고 준비하도록 준비를 푼다.
     for (const pl of room.players) if (pl.id !== room.hostId) pl.ready = false;
@@ -240,7 +260,7 @@ export class RoomManager {
     room.game = createGame(
       room.players.map((p) => p.id),
       secureRandom,
-      { winPoints: room.winPoints, handLimit: room.handLimit, rollForOrder: true },
+      { winPoints: room.winPoints, handLimit: room.handLimit, rollForOrder: true, map: { ...room.map } },
     );
     room.phase = 'game';
     for (const p of room.players) p.recent.clear();

@@ -28,5 +28,6 @@ export function buildRoomView(room: Room, viewer: string, deadline: number | nul
     winPoints: room.winPoints,
     handLimit: room.handLimit,
     turnSeconds: room.turnSeconds,
+    map: { ...room.map },
   };
 }

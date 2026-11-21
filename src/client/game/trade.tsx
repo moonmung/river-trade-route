@@ -4,7 +4,7 @@
 // 열린 제안은 화면 왼쪽 위에 중세 거래 증서처럼 쌓이고 모두에게 보인다 (차례인 사람이 동시에 3개까지).
 // 교환 창과 증서 모두 보는 사람 기준으로 내 쪽(내가 줄 것)을 아래, 상대 쪽(내가 받을 것)을 위에 둔다.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { harborVertices } from '../../shared/board';
+import { boardOf, harborVertices } from '../../shared/board';
 import { BANK_RATIO, MAX_OPEN_TRADES, MAX_TRADE_AMOUNT, RESOURCES, RESOURCE_LABEL, bundleTotal, emptyBundle } from '../../shared/constants';
 import type { RoomView, TradeView } from '../../shared/protocol';
 import { bankTradeProblem, bankUnits, validateTradeBundles } from '../../shared/rules';
@@ -155,7 +155,7 @@ export function TradePanel({
   const bank = draft.mode === 'bank';
   const myOffers = g.trades.filter((t) => t.from === view.you).length;
   const others = g.order.filter((id) => id !== view.you);
-  const myHarbors = g.harbors.filter((h) => harborVertices(h).some((v) => g.buildings.some((b) => b.vertexId === v && b.owner === view.you)));
+  const myHarbors = g.harbors.filter((h) => harborVertices(boardOf(g), h).some((v) => g.buildings.some((b) => b.vertexId === v && b.owner === view.you)));
 
   const giveSlots: SlotSpec[] = RESOURCES.map((r) => {
     const left = mine[r] - draft.give[r];

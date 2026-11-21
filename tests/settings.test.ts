@@ -1,6 +1,6 @@
 // 일대일(2명) 대결과 방장이 정하는 승리 점수(10~20점)
 import { describe, expect, it } from 'vitest';
-import { EDGES } from '../src/shared/board';
+import { EDGES, boardOf } from '../src/shared/board';
 import { DEV_COST, WIN_POINTS } from '../src/shared/constants';
 import { applyAction, createGame, placeableVertices, victoryPoints, type GameState } from '../src/shared/rules';
 import { RoomManager } from '../src/server/rooms';
@@ -19,7 +19,7 @@ function freeEdgeAt(s: GameState, v: string): string {
 function setup2(winPoints?: number): GameState {
   const s = createGame(['a', 'b'], noShuffle, winPoints);
   for (const p of ['a', 'b', 'b', 'a']) {
-    const v = placeableVertices(s.buildings)[0];
+    const v = placeableVertices(boardOf(s), s.buildings)[0];
     const r = applyAction(s, p, { type: 'place', vertexId: v, edgeId: freeEdgeAt(s, v) }, () => 0);
     if (!r.ok) throw new Error(r.message);
   }

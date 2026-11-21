@@ -1,7 +1,7 @@
 // 실험실 모의 게임의 봇. tests/helpers.ts 의 봇과 같은 규칙에 순서 주사위, 마을 → 길 시작 배치, 교환 응답을 더했다.
 // 화면 정보(RoomView)만 보고 고르므로 실제 참가자가 볼 수 있는 것 이상은 쓰지 않는다.
-import { VERTEX_MAP } from '../../shared/board';
-import { DEV_COST, PIECE_COST, PIECE_LIMIT, RESOURCES, TILES, emptyBundle, hasBundle, numberPips } from '../../shared/constants';
+import { boardOf } from '../../shared/board';
+import { DEV_COST, PIECE_COST, PIECE_LIMIT, RESOURCES, emptyBundle, hasBundle, numberPips } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
 import { buildableRoads, buildableVillages, pieceCount, placeableVertices, setupRoadEdges, upgradableVillages } from '../../shared/rules';
 import type { GameAction } from '../../shared/types';
@@ -35,17 +35,18 @@ export function botSideAction(v: RoomView, random: () => number = Math.random): 
 /** 차례인 봇의 다음 행동. 매 행동이 자원을 쓰거나 단계를 넘기므로 같은 턴에 끝없이 돌지 않는다. */
 export function botTurnAction(v: RoomView, seat: number, random: () => number = Math.random): GameAction | null {
   const g = v.game!;
+  const board = boardOf(g);
   const me = v.you;
   const r = g.myResources;
   if (g.phase === 'placement') {
     if (g.placementPlayerId !== me) return null;
     if (g.setupVillage) {
-      const edges = setupRoadEdges(g.roads, g.setupVillage);
+      const edges = setupRoadEdges(board, g.roads, g.setupVillage);
       return { type: 'place_road', edgeId: edges[Math.floor(random() * edges.length)] };
     }
     // 점(나올 확률)이 많은 자리 중에서 고른다
-    const free = placeableVertices(g.buildings);
-    const pips = (id: string) => VERTEX_MAP[id].tiles.reduce((n, t) => n + (g.numbers[t] ? numberPips(g.numbers[t]) : 0), 0);
+    const free = placeableVertices(board, g.buildings);
+    const pips = (id: string) => board.vertexMap[id].tiles.reduce((n, t) => n + (g.numbers[t] ? numberPips(g.numbers[t]) : 0), 0);
     const ranked = [...free].sort((a, b) => pips(b) - pips(a));
     const top = ranked.slice(0, Math.max(3, Math.ceil(ranked.length / 8)));
     return { type: 'place_village', vertexId: top[Math.floor(random() * top.length)] };
@@ -56,14 +57,14 @@ export function botTurnAction(v: RoomView, seat: number, random: () => number = 
   if (g.step === 'robber') {
     // 남의 마을이 많이 닿고 내 마을은 없는 칸
     const score = (tileId: string) =>
-      g.buildings.filter((b) => VERTEX_MAP[b.vertexId].tiles.includes(tileId)).reduce((n, b) => n + (b.owner === me ? -10 : 1), 0);
-    const tiles = TILES.map((t) => t.id).filter((id) => id !== g.robber);
+      g.buildings.filter((b) => board.vertexMap[b.vertexId].tiles.includes(tileId)).reduce((n, b) => n + (b.owner === me ? -10 : 1), 0);
+    const tiles = g.tiles.map((t) => t.id).filter((id) => id !== g.robber);
     const best = tiles.reduce((a, b) => (score(b) > score(a) ? b : a), tiles[(seat * 5) % tiles.length]);
     return { type: 'move_robber', tileId: best };
   }
   if (g.step === 'steal') return { type: 'steal', from: g.stealFrom[Math.floor(random() * g.stealFrom.length)] };
   if (g.step === 'road_building') {
-    const edges = buildableRoads(g.buildings, g.roads, me);
+    const edges = buildableRoads(board, g.buildings, g.roads, me);
     return edges.length ? { type: 'build_road', edgeId: edges[Math.floor(random() * edges.length)] } : { type: 'end_turn' };
   }
 
@@ -76,23 +77,23 @@ export function botTurnAction(v: RoomView, seat: number, random: () => number = 
 
   const count = (kind: 'road' | 'village' | 'city') => pieceCount(g.buildings, g.roads, me, kind);
   const playable = (kind: string) => !g.devPlayedThisTurn && g.myDevCards.some((c) => c.kind === kind && c.boughtTurn < g.turn);
-  if (playable('knight') && g.buildings.some((b) => b.owner === me && VERTEX_MAP[b.vertexId].tiles.includes(g.robber))) {
+  if (playable('knight') && g.buildings.some((b) => b.owner === me && board.vertexMap[b.vertexId].tiles.includes(g.robber))) {
     return { type: 'play_dev', kind: 'knight' };
   }
   if (hasBundle(r, PIECE_COST.city) && count('city') < PIECE_LIMIT.city) {
     const villages = upgradableVillages(g.buildings, me);
     if (villages.length) return { type: 'build_city', vertexId: villages[0] };
   }
-  const villageSpots = buildableVillages(g.buildings, g.roads, me);
+  const villageSpots = buildableVillages(board, g.buildings, g.roads, me);
   if (hasBundle(r, PIECE_COST.village) && count('village') < PIECE_LIMIT.village && villageSpots.length) {
     return { type: 'build_village', vertexId: villageSpots[0] };
   }
-  if (playable('road_building') && !villageSpots.length && buildableRoads(g.buildings, g.roads, me).length) return { type: 'play_dev', kind: 'road_building' };
+  if (playable('road_building') && !villageSpots.length && buildableRoads(board, g.buildings, g.roads, me).length) return { type: 'play_dev', kind: 'road_building' };
   if (playable('year_of_plenty')) return { type: 'play_dev', kind: 'year_of_plenty', resources: ['stone', 'grain'] };
   if (playable('monopoly') && random() < 0.5) return { type: 'play_dev', kind: 'monopoly', resource: RESOURCES[Math.floor(random() * RESOURCES.length)] };
   if (hasBundle(r, DEV_COST) && g.devDeckCount > 0) return { type: 'buy_dev' };
   if (hasBundle(r, PIECE_COST.road) && count('road') < PIECE_LIMIT.road && !villageSpots.length) {
-    const edges = buildableRoads(g.buildings, g.roads, me);
+    const edges = buildableRoads(board, g.buildings, g.roads, me);
     if (edges.length) return { type: 'build_road', edgeId: edges[(seat * 3 + g.turn) % edges.length] };
   }
   // 다음 목표(도시 → 마을 → 발전 카드)에 모자란 자원 하나를, 목표에 안 쓰는 남는 자원으로 바꾼다 (교역로가 있으면 교역로로).

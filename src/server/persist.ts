@@ -7,7 +7,8 @@
 //  - 끝난 게임과 maxAgeMs(기본 하루) 넘게 아무 일도 없던 방은 저장하지도 되살리지도 않는다.
 import fs from 'node:fs';
 import path from 'node:path';
-import { DISCARD_LIMIT, WIN_POINTS } from '../shared/constants';
+import { DISCARD_LIMIT, TILES, WIN_POINTS } from '../shared/constants';
+import { normalizeMapArrange, normalizeMapShape } from '../shared/maps';
 import type { AckResult } from '../shared/protocol';
 import { createGame } from '../shared/rules';
 import { normalizeRoomCode } from '../shared/validate';
@@ -114,6 +115,8 @@ function reviveRoom(raw: unknown): Room | null {
     if (!('setupVillage' in game)) game.setupVillage = null;
     if (!('startPending' in game)) game.startPending = [];
     if (!('startRolls' in game)) game.startRolls = Object.fromEntries(game.order.map((id) => [id, []]));
+    // 맵을 고를 수 있기 전에 저장한 게임은 표준 육각 보드였다.
+    if (!('tiles' in game)) game.tiles = TILES.map((t) => ({ ...t }));
     const keys = requiredGameKeys();
     if (keys && keys.some((k) => !(k in game))) return null;
     const ids = new Set(players.map((p) => p.id));
@@ -123,12 +126,18 @@ function reviveRoom(raw: unknown): Room | null {
     return null;
   }
   const base = blankRoom(code, typeof raw.createdAt === 'number' ? raw.createdAt : Date.now());
+  const savedMap = isObj(raw.map) ? raw.map : {};
+  const map = {
+    shape: normalizeMapShape(savedMap.shape) ?? base.map.shape,
+    arrange: normalizeMapArrange(savedMap.arrange) ?? base.map.arrange,
+  };
   return {
     ...base,
     ...raw,
     code,
     players,
     game,
+    map,
     gameNumber: typeof raw.gameNumber === 'number' ? raw.gameNumber : base.gameNumber,
     touchedAt: typeof raw.touchedAt === 'number' ? raw.touchedAt : base.touchedAt,
   } as Room;

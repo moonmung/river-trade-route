@@ -1,10 +1,11 @@
 // /lab 의 모의 게임: 실제 게임 화면(Game.tsx)을 서버 없이 띄우고, 다른 자리는 봇이 둔다.
 // 왼쪽 '실험' 서랍에서 보는 자리 바꾸기, 주사위 값 정하기, 자원·발전 카드 받기, 해양 교역 배, 달성·승리 화면 같은 연출을 바로 시험한다.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { VERTEX_MAP, harborVertices } from '../../shared/board';
+import { boardOf, harborVertices } from '../../shared/board';
 import { DEV_LABEL, RESOURCES, RESOURCE_LABEL, TURN_SECONDS_OPTIONS, emptyBundle } from '../../shared/constants';
 import { autoPlay, buildingAt, computeResult, tradeRatios, vertexOpen } from '../../shared/rules';
-import type { Bundle, DevKind, Resource } from '../../shared/types';
+import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL } from '../../shared/maps';
+import type { Bundle, DevKind, MapConfig, Resource } from '../../shared/types';
 import type { BoardRenderer } from '../board/BoardRenderer';
 import { colorWord } from '../game/derive';
 import { paceBusy } from '../game/pace';
@@ -70,6 +71,7 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
   const g = view.game!;
   const [open, setOpen] = useState(false);
   const [players, setPlayers] = useState(sb.players.length);
+  const [map, setMap] = useState<MapConfig>(sb.map);
   const [dice, setDice] = useState(8);
   const me = sb.you;
   const s = sb.state;
@@ -82,10 +84,11 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
 
   /** 해양 교역 배: 내 마을이 교역로에 없으면 하나 지어 주고, 내 차례 교환 단계면 실제 교환을, 아니면 연출만 보여 준다. */
   const harborTrade = () => {
-    let mine = s.harbors.find((h) => harborVertices(h).some((v) => buildingAt(s.buildings, v)?.owner === me));
+    const board = boardOf(s);
+    let mine = s.harbors.find((h) => harborVertices(board, h).some((v) => buildingAt(s.buildings, v)?.owner === me));
     if (!mine) {
       for (const h of s.harbors) {
-        const v = harborVertices(h).find((x) => vertexOpen(s.buildings, x));
+        const v = harborVertices(board, h).find((x) => vertexOpen(board, s.buildings, x));
         if (!v) continue;
         sb.cheat((st) => st.buildings.push({ vertexId: v, owner: me, kind: 'village', builtTurn: st.turn }));
         mine = h;
@@ -113,7 +116,7 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
   const myNumber = (): number | null => {
     const nums = s.buildings
       .filter((b) => b.owner === me)
-      .flatMap((b) => VERTEX_MAP[b.vertexId].tiles.filter((t) => t !== s.robber && s.numbers[t]).map((t) => s.numbers[t]));
+      .flatMap((b) => boardOf(s).vertexMap[b.vertexId].tiles.filter((t) => t !== s.robber && s.numbers[t]).map((t) => s.numbers[t]));
     return nums.length ? nums[Math.floor(Math.random() * nums.length)] : null;
   };
 
@@ -186,10 +189,24 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
             <option value={3}>3명</option>
             <option value={4}>4명</option>
           </select>
-          <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds })}>
+          <select value={map.shape} onChange={(e) => setMap({ ...map, shape: e.target.value as MapConfig['shape'] })} aria-label="맵 모양">
+            {MAP_SHAPES.map((s) => (
+              <option key={s} value={s}>
+                {MAP_SHAPE_LABEL[s]}
+              </option>
+            ))}
+          </select>
+          <select value={map.arrange} onChange={(e) => setMap({ ...map, arrange: e.target.value as MapConfig['arrange'] })} aria-label="맵 배치">
+            {MAP_ARRANGES.map((a) => (
+              <option key={a} value={a}>
+                {MAP_ARRANGE_LABEL[a]}
+              </option>
+            ))}
+          </select>
+          <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map })}>
             새 게임
           </button>
-          <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, rollForOrder: false })} title="순서 주사위 없이 바로 시작 배치">
+          <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, rollForOrder: false })} title="순서 주사위 없이 바로 시작 배치">
             순서 건너뛰기
           </button>
         </div>

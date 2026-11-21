@@ -1,7 +1,8 @@
 // 보드의 꼭짓점(마을·도시 자리)과 변(길 자리).
-// 육각 타일 19칸의 꼭짓점 54개, 변 72개를 타일 좌표에서 계산한다. 서버와 화면이 같은 ID 를 쓴다.
+// 타일 좌표에서 꼭짓점과 변을 계산한다 (표준 육각 19칸이면 꼭짓점 54개, 변 72개). 서버와 화면이 같은 ID 를 쓴다.
+// 맵 모양은 게임마다 다를 수 있어서, 게임 상태에 실린 타일 묶음으로 보드를 만들어 쓴다 (boardOf).
 // 좌표 단위: 타일 외접원 반지름 = 1. x 는 오른쪽, y 는 아래쪽(A 줄이 위)이며 타일 중심은 (√3·(q + r/2), 1.5·r) 이다.
-import { NUMBER_TOKENS, TILES, TILE_MAP } from './constants';
+import { NUMBER_TOKENS, TILES } from './constants';
 import type { Harbor, Resource, TileDef, TileId } from './types';
 
 export type VertexId = string;
@@ -117,16 +118,46 @@ export function boardGeometry(tiles: readonly TileDef[]): BoardGeometry {
   };
 }
 
-const built = boardGeometry(TILES);
-export const VERTICES: readonly VertexDef[] = built.vertices;
-export const EDGES: readonly EdgeDef[] = built.edges;
-export const VERTEX_MAP: Readonly<Record<VertexId, VertexDef>> = built.vertexMap;
-export const EDGE_MAP: Readonly<Record<EdgeId, EdgeDef>> = built.edgeMap;
+/** 한 게임의 보드: 타일 묶음과 거기서 계산한 꼭짓점·변. 게임마다 맵 모양과 땅 배치가 다를 수 있어 규칙 함수는 이 값을 받아 쓴다. */
+export interface Board extends BoardGeometry {
+  tiles: readonly TileDef[];
+  tileMap: Readonly<Record<TileId, TileDef>>;
+}
+
+const boardCache = new Map<string, Board>();
+const boardByTiles = new WeakMap<readonly TileDef[], Board>();
+
+/** 타일 묶음의 보드. 같은 자리·같은 땅이면 한 번 계산한 값을 다시 쓴다 (게임 상태를 복사해도 다시 계산하지 않는다). */
+export function boardFor(tiles: readonly TileDef[]): Board {
+  const hit = boardByTiles.get(tiles);
+  if (hit) return hit;
+  const sig = tiles.map((t) => `${t.id}:${t.q},${t.r}:${t.kind}`).join('|');
+  let board = boardCache.get(sig);
+  if (!board) {
+    board = { ...boardGeometry(tiles), tiles, tileMap: Object.fromEntries(tiles.map((t) => [t.id, t])) };
+    if (boardCache.size > 64) boardCache.clear();
+    boardCache.set(sig, board);
+  }
+  boardByTiles.set(tiles, board);
+  return board;
+}
+
+/** 게임 상태(또는 화면 정보)에 실린 타일 묶음의 보드 */
+export function boardOf(s: { tiles: readonly TileDef[] }): Board {
+  return boardFor(s.tiles);
+}
+
+/** 표준 육각 보드 (황금 배치의 땅). 테스트와 실험실 장면에서 쓴다. 게임 규칙은 그 게임의 보드(boardOf)를 쓴다. */
+export const STANDARD_BOARD: Board = boardFor(TILES);
+export const VERTICES: readonly VertexDef[] = STANDARD_BOARD.vertices;
+export const EDGES: readonly EdgeDef[] = STANDARD_BOARD.edges;
+export const VERTEX_MAP: Readonly<Record<VertexId, VertexDef>> = STANDARD_BOARD.vertexMap;
+export const EDGE_MAP: Readonly<Record<EdgeId, EdgeDef>> = STANDARD_BOARD.edgeMap;
 
 /** 꼭짓점 a, b 를 잇는 변 (없으면 null) */
-export function edgeBetween(a: VertexId, b: VertexId): EdgeId | null {
-  return VERTEX_MAP[a]?.edges.find((id) => {
-    const e = EDGE_MAP[id];
+export function edgeBetween(a: VertexId, b: VertexId, board: BoardGeometry = STANDARD_BOARD): EdgeId | null {
+  return board.vertexMap[a]?.edges.find((id) => {
+    const e = board.edgeMap[id];
     return (e.a === a && e.b === b) || (e.a === b && e.b === a);
   }) ?? null;
 }
@@ -158,8 +189,8 @@ const SIDE_NAMES: [number, string][] = [
 ];
 
 /** 타일 중심에서 본 방향 이름 */
-function directionFrom(tile: TileId, x: number, y: number, names: [number, string][]): string {
-  const c = tileCenterUnit(TILE_MAP[tile]);
+function directionFrom(board: Board, tile: TileId, x: number, y: number, names: [number, string][]): string {
+  const c = tileCenterUnit(board.tileMap[tile]);
   const deg = (Math.atan2(y - c.y, x - c.x) * 180) / Math.PI; // 0 = 오른쪽, 90 = 아래
   let best = names[0];
   for (const n of names) {
@@ -170,68 +201,81 @@ function directionFrom(tile: TileId, x: number, y: number, names: [number, strin
 }
 
 /** 화면 표시용 이름: 안쪽 꼭짓점은 "A1·B1·B2", 바닷가 꼭짓점은 "A1 왼쪽 위" 처럼 쓴다. */
-export function vertexLabel(id: VertexId): string {
-  const v = VERTEX_MAP[id];
+export function vertexLabel(board: Board, id: VertexId): string {
+  const v = board.vertexMap[id];
   if (!v) return id;
-  return v.tiles.length === 1 ? `${v.tiles[0]} ${directionFrom(v.tiles[0], v.x, v.y, CORNER_NAMES)}` : v.tiles.join('·');
+  return v.tiles.length === 1 ? `${v.tiles[0]} ${directionFrom(board, v.tiles[0], v.x, v.y, CORNER_NAMES)}` : v.tiles.join('·');
 }
 
-export function edgeLabel(id: EdgeId): string {
-  const e = EDGE_MAP[id];
+export function edgeLabel(board: Board, id: EdgeId): string {
+  const e = board.edgeMap[id];
   if (!e) return id;
   if (e.tiles.length > 1) return `${e.tiles.join('·')} 사이`;
-  const a = VERTEX_MAP[e.a];
-  const b = VERTEX_MAP[e.b];
-  return `${e.tiles[0]} ${directionFrom(e.tiles[0], (a.x + b.x) / 2, (a.y + b.y) / 2, SIDE_NAMES)} 바닷가`;
+  const a = board.vertexMap[e.a];
+  const b = board.vertexMap[e.b];
+  return `${e.tiles[0]} ${directionFrom(board, e.tiles[0], (a.x + b.x) / 2, (a.y + b.y) / 2, SIDE_NAMES)} 바닷가`;
 }
 
 // ───────────────────────── 해상 교역로와 숫자 토큰 ─────────────────────────
 
-/** 바닷가 변(타일 한 칸에만 닿은 변)을 보드 둘레를 따라 한 바퀴 순서로 늘어놓는다 (위쪽에서 시작해 시계 방향). */
-export function coastEdges(): EdgeId[] {
+/** 바닷가 변(타일 한 칸에만 닿은 변)을 보드 둘레를 따라 한 바퀴 순서로 늘어놓는다 (보드 가운데에서 본 위쪽에서 시작해 시계 방향). */
+export function coastEdges(board: BoardGeometry = STANDARD_BOARD): EdgeId[] {
+  const vs = board.vertices;
+  const cx = vs.reduce((n, v) => n + v.x, 0) / vs.length;
+  const cy = vs.reduce((n, v) => n + v.y, 0) / vs.length;
   const mid = (e: EdgeDef) => {
-    const a = VERTEX_MAP[e.a];
-    const b = VERTEX_MAP[e.b];
-    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const a = board.vertexMap[e.a];
+    const b = board.vertexMap[e.b];
+    return { x: (a.x + b.x) / 2 - cx, y: (a.y + b.y) / 2 - cy };
   };
-  return EDGES.filter((e) => e.tiles.length === 1)
+  return board.edges
+    .filter((e) => e.tiles.length === 1)
     .map((e) => {
       const m = mid(e);
-      // 위쪽(-y)을 0으로 두고 시계 방향으로 커지는 각도
-      return { id: e.id, a: (Math.atan2(m.x, -m.y) + Math.PI * 2) % (Math.PI * 2) };
+      // 위쪽(-y)을 0으로 두고 시계 방향으로 커지는 각도. 소수점 끝자리 차이로 순서가 흔들리지 않게 반올림한다.
+      return { id: e.id, a: Math.round(((Math.atan2(m.x, -m.y) + Math.PI * 2) % (Math.PI * 2)) * 1e6) };
     })
     .sort((p, q) => p.a - q.a)
     .map((p) => p.id);
 }
 
+/** 황금 배치의 교역로 자원 (바닷가를 한 바퀴 도는 순서). null 은 아무 자원 3개 → 1개(3:1) */
+export const HARBOR_KINDS: readonly (Resource | null)[] = [null, 'wool', null, 'stone', 'grain', null, 'brick', 'wood', null];
+
 /**
- * 해상 교역로 9곳: 바닷가 변 30개에 고르게 나눠 놓는다. 아무 자원 3개 → 1개(3:1) 네 곳, 정해진 자원 2개 → 1개(2:1) 다섯 곳.
- * 이웃한 교역로가 꼭짓점을 나눠 갖지 않도록 세 변 이상 띄운다.
+ * 해상 교역로를 바닷가 변에 고르게 나눠 놓는다. 아무 자원 3개 → 1개(3:1) 네 곳, 정해진 자원 2개 → 1개(2:1) 다섯 곳.
+ * 바닷가 변이 30개면 세 변 이상 떨어져 이웃한 교역로가 꼭짓점을 나눠 갖지 않는다.
  */
-export const HARBORS: readonly Harbor[] = (() => {
-  const coast = coastEdges();
-  const kinds: (Resource | null)[] = [null, 'wool', null, 'stone', 'grain', null, 'brick', 'wood', null];
+export function harborsFor(board: BoardGeometry, kinds: readonly (Resource | null)[] = HARBOR_KINDS): Harbor[] {
+  const coast = coastEdges(board);
   return kinds.map((resource, i) => ({ edgeId: coast[Math.round((i * coast.length) / kinds.length + 1) % coast.length], resource }));
-})();
+}
+
+/** 표준 육각 보드의 황금 배치 교역로 9곳 */
+export const HARBORS: readonly Harbor[] = harborsFor(STANDARD_BOARD);
 
 /** 해상 교역로가 닿은 꼭짓점 두 곳 */
-export function harborVertices(h: Harbor): [VertexId, VertexId] {
-  const e = EDGE_MAP[h.edgeId];
-  return [e.a, e.b];
+export function harborVertices(board: BoardGeometry, h: Harbor): [VertexId, VertexId] {
+  const e = board.edgeMap[h.edgeId];
+  return e ? [e.a, e.b] : ['', ''];
 }
 
 /**
  * 숫자 토큰을 생산 칸에 무작위로 놓는다. 빨간 숫자(6·8)끼리는 이웃하지 않게 다시 섞는다.
  * random 은 [0, 1) 값을 돌려주는 함수 (서버 난수, 테스트에서는 고정 값).
  */
-export function assignNumbers(random: () => number, tiles: readonly TileDef[] = TILES): Record<TileId, number> {
+export function assignNumbers(
+  random: () => number,
+  tiles: readonly TileDef[] = TILES,
+  numberTokens: readonly number[] = NUMBER_TOKENS,
+): Record<TileId, number> {
   const prod = tiles.filter((t) => t.kind !== 'plaza');
   const near = (a: TileDef, b: TileDef) => {
     const dq = a.q - b.q;
     const dr = a.r - b.r;
     return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2 === 1;
   };
-  const tokens = [...NUMBER_TOKENS];
+  const tokens = [...numberTokens];
   for (let i = tokens.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
     [tokens[i], tokens[j]] = [tokens[j], tokens[i]];

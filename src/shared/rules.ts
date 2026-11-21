@@ -3,7 +3,8 @@
 // 모든 행동은 "검사를 전부 끝낸 뒤 상태를 바꾼다" 원칙을 지켜, 거절된 요청이 상태를 건드리지 않게 한다.
 // 주사위·빼앗기·발전 카드 섞기에 쓰는 난수는 바깥에서 넘겨받는다 (서버는 Math.random, 테스트는 고정 값).
 
-import { EDGES, EDGE_MAP, HARBORS, VERTICES, VERTEX_MAP, assignNumbers, harborVertices, type EdgeDef, type EdgeId, type VertexId } from './board';
+import { boardOf, harborVertices, type BoardGeometry, type EdgeDef, type EdgeId, type VertexId } from './board';
+import { buildMap, DEFAULT_MAP } from './maps';
 import {
   AWARD_POINTS,
   BANK_RATIO,
@@ -27,8 +28,6 @@ import {
   RESOURCES,
   RESOURCE_LABEL,
   SPECIAL_HARBOR_RATIO,
-  TILES,
-  TILE_MAP,
   WIN_POINTS,
   WIN_POINTS_MAX,
   WIN_POINTS_MIN,
@@ -50,11 +49,13 @@ import type {
   GamePhase,
   GameResult,
   Harbor,
+  MapConfig,
   NewGameEvent,
   PieceKind,
   RankEntry,
   Resource,
   Road,
+  TileDef,
   TileId,
   TradeCloseReason,
   TradeOffer,
@@ -98,6 +99,8 @@ export interface GameState {
   stealFrom: string[];
   /** 동상 옮기기·공짜 길이 끝나면 돌아갈 단계 (기사 카드를 굴리기 전에 쓰면 roll 로 돌아간다) */
   resumeStep: TurnStep;
+  /** 이 게임의 보드 칸 (맵 모양과 땅 배치). 꼭짓점·변은 boardOf 로 이 값에서 계산한다. */
+  tiles: TileDef[];
   /** 기사단 동상이 서 있는 칸. 이 칸은 숫자가 나와도 생산하지 않는다. */
   robber: TileId;
   /** 칸마다 놓인 숫자 토큰 (광장은 없음) */
@@ -171,6 +174,8 @@ export interface GameOptions {
    * false 면 서버가 섞은 순서로 바로 시작 배치를 한다 (규칙 테스트용).
    */
   rollForOrder?: boolean;
+  /** 맵 모양과 땅 배치 (기본: 육각형 황금 배치) */
+  map?: MapConfig;
 }
 
 export function createGame(playerIds: string[], random: () => number = Math.random, opts: number | GameOptions = {}): GameState {
@@ -187,6 +192,7 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
   const players: Record<string, PlayerGameState> = {};
   for (const id of order) players[id] = { id, resources: emptyBundle(), devCards: [], knightsPlayed: 0 };
   const deck = (Object.keys(DEV_DECK) as DevKind[]).flatMap((k) => Array<DevKind>(DEV_DECK[k]).fill(k));
+  const map = buildMap(o.map ?? DEFAULT_MAP, random);
   const state: GameState = {
     phase: o.rollForOrder ? 'order' : 'placement',
     order,
@@ -202,9 +208,10 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     discards: {},
     stealFrom: [],
     resumeStep: 'main',
-    robber: TILES.find((t) => t.kind === 'plaza')?.id ?? TILES[0].id,
-    numbers: assignNumbers(random),
-    harbors: HARBORS.map((h) => ({ ...h })),
+    tiles: map.tiles,
+    robber: map.robber,
+    numbers: map.numbers,
+    harbors: map.harbors,
     players,
     buildings: [],
     roads: [],
@@ -275,41 +282,41 @@ export function buildingPoints(buildings: readonly Building[], playerId: string)
 }
 
 /** 거리 규칙: 비어 있고, 변 하나로 이어진 이웃 꼭짓점에도 마을·도시가 없어야 한다. */
-export function vertexOpen(buildings: readonly Building[], vertexId: VertexId): boolean {
-  const v = VERTEX_MAP[vertexId];
+export function vertexOpen(board: BoardGeometry, buildings: readonly Building[], vertexId: VertexId): boolean {
+  const v = board.vertexMap[vertexId];
   if (!v || buildingAt(buildings, vertexId)) return false;
   return v.neighbors.every((n) => !buildingAt(buildings, n));
 }
 
 /** 시작 배치로 마을을 놓을 수 있는 꼭짓점 (거리 규칙만 본다) */
-export function placeableVertices(buildings: readonly Building[]): VertexId[] {
-  return VERTICES.filter((v) => vertexOpen(buildings, v.id)).map((v) => v.id);
+export function placeableVertices(board: BoardGeometry, buildings: readonly Building[]): VertexId[] {
+  return board.vertices.filter((v) => vertexOpen(board, buildings, v.id)).map((v) => v.id);
 }
 
 /** 시작 배치에서 방금 고른 꼭짓점에 붙여 놓을 수 있는 길 */
-export function setupRoadEdges(roads: readonly Road[], vertexId: VertexId): EdgeId[] {
-  return (VERTEX_MAP[vertexId]?.edges ?? []).filter((e) => !roadAt(roads, e));
+export function setupRoadEdges(board: BoardGeometry, roads: readonly Road[], vertexId: VertexId): EdgeId[] {
+  return (board.vertexMap[vertexId]?.edges ?? []).filter((e) => !roadAt(roads, e));
 }
 
-function touchesOwnRoad(roads: readonly Road[], vertexId: VertexId, playerId: string): boolean {
-  return (VERTEX_MAP[vertexId]?.edges ?? []).some((e) => roadAt(roads, e)?.owner === playerId);
+function touchesOwnRoad(board: BoardGeometry, roads: readonly Road[], vertexId: VertexId, playerId: string): boolean {
+  return (board.vertexMap[vertexId]?.edges ?? []).some((e) => roadAt(roads, e)?.owner === playerId);
 }
 
 /** 길을 놓을 수 있는 변: 비어 있고, 한쪽 끝이 내 마을·도시이거나 내 길과 이어진다. 남의 마을이 선 꼭짓점을 지나서는 잇지 못한다. */
-export function buildableRoads(buildings: readonly Building[], roads: readonly Road[], playerId: string): EdgeId[] {
-  return EDGES.filter((e) => {
+export function buildableRoads(board: BoardGeometry, buildings: readonly Building[], roads: readonly Road[], playerId: string): EdgeId[] {
+  return board.edges.filter((e) => {
     if (roadAt(roads, e.id)) return false;
     return [e.a, e.b].some((v) => {
       const b = buildingAt(buildings, v);
       if (b) return b.owner === playerId;
-      return (VERTEX_MAP[v].edges ?? []).some((other) => other !== e.id && roadAt(roads, other)?.owner === playerId);
+      return (board.vertexMap[v].edges ?? []).some((other) => other !== e.id && roadAt(roads, other)?.owner === playerId);
     });
   }).map((e) => e.id);
 }
 
 /** 마을을 지을 수 있는 꼭짓점: 거리 규칙을 지키고 내 길이 닿아 있어야 한다. */
-export function buildableVillages(buildings: readonly Building[], roads: readonly Road[], playerId: string): VertexId[] {
-  return VERTICES.filter((v) => vertexOpen(buildings, v.id) && touchesOwnRoad(roads, v.id, playerId)).map((v) => v.id);
+export function buildableVillages(board: BoardGeometry, buildings: readonly Building[], roads: readonly Road[], playerId: string): VertexId[] {
+  return board.vertices.filter((v) => vertexOpen(board, buildings, v.id) && touchesOwnRoad(board, roads, v.id, playerId)).map((v) => v.id);
 }
 
 /** 도시로 올릴 수 있는 꼭짓점: 내 마을 (도시는 마을을 올려서만 짓는다) */
@@ -318,10 +325,11 @@ export function upgradableVillages(buildings: readonly Building[], playerId: str
 }
 
 /** 이 사람이 쓸 수 있는 은행 교환 비율 (기본 4, 아무 자원 교역로 3, 그 자원 교역로 2) */
-export function tradeRatios(s: Pick<GameState, 'harbors' | 'buildings'>, playerId: string): Record<Resource, number> {
+export function tradeRatios(s: Pick<GameState, 'harbors' | 'buildings' | 'tiles'>, playerId: string): Record<Resource, number> {
+  const board = boardOf(s);
   const ratio = Object.fromEntries(RESOURCES.map((r) => [r, BANK_RATIO])) as Record<Resource, number>;
   for (const h of s.harbors) {
-    const [a, b] = harborVertices(h);
+    const [a, b] = harborVertices(board, h);
     const mine = [a, b].some((v) => buildingAt(s.buildings, v)?.owner === playerId);
     if (!mine) continue;
     if (h.resource) ratio[h.resource] = Math.min(ratio[h.resource], SPECIAL_HARBOR_RATIO);
@@ -332,20 +340,21 @@ export function tradeRatios(s: Pick<GameState, 'harbors' | 'buildings'>, playerI
 
 /** 주사위 합이 total 일 때의 생산. 마을은 1개, 도시는 2개. 기사단 동상이 선 칸은 생산하지 않는다. */
 export function productionFor(
-  s: Pick<GameState, 'numbers' | 'robber' | 'buildings'>,
+  s: Pick<GameState, 'numbers' | 'robber' | 'buildings' | 'tiles'>,
   total: number,
   playerIds: readonly string[],
 ): { gains: Record<string, Bundle>; tiles: TileId[]; blocked: TileId[] } {
   const gains: Record<string, Bundle> = {};
   for (const id of playerIds) gains[id] = emptyBundle();
-  const hit = TILES.filter((t) => t.kind !== 'plaza' && s.numbers[t.id] === total);
+  const board = boardOf(s);
+  const hit = board.tiles.filter((t) => t.kind !== 'plaza' && s.numbers[t.id] === total);
   const tiles = hit.filter((t) => t.id !== s.robber).map((t) => t.id);
   const blocked = hit.filter((t) => t.id === s.robber).map((t) => t.id);
   for (const b of s.buildings) {
     if (!gains[b.owner]) continue;
-    for (const tileId of VERTEX_MAP[b.vertexId]?.tiles ?? []) {
+    for (const tileId of board.vertexMap[b.vertexId]?.tiles ?? []) {
       if (!tiles.includes(tileId)) continue;
-      const kind = TILE_MAP[tileId].kind as Resource;
+      const kind = board.tileMap[tileId].kind as Resource;
       gains[b.owner][kind] += b.kind === 'city' ? 2 : 1;
     }
   }
@@ -356,13 +365,13 @@ export function productionFor(
  * 한 사람의 가장 긴 길 (이어진 변 수). 같은 변을 두 번 지나지 않고, 남의 마을·도시가 선 꼭짓점에서는 끊긴다.
  * 한 사람의 길은 최대 15개라 모든 출발점에서 깊이 우선으로 찾아도 충분히 빠르다.
  */
-export function longestRoadLength(roads: readonly Road[], buildings: readonly Building[], playerId: string): number {
-  return longestRoadPath(roads, buildings, playerId).length;
+export function longestRoadLength(board: BoardGeometry, roads: readonly Road[], buildings: readonly Building[], playerId: string): number {
+  return longestRoadPath(board, roads, buildings, playerId).length;
 }
 
 /** 한 사람의 가장 긴 길을 이루는 변들 (순서대로). 길이가 같은 길이 여럿이면 먼저 찾은 것. */
-export function longestRoadPath(roads: readonly Road[], buildings: readonly Building[], playerId: string): EdgeId[] {
-  const mine = roads.filter((r) => r.owner === playerId).map((r) => EDGE_MAP[r.edgeId]).filter((e): e is EdgeDef => !!e);
+export function longestRoadPath(board: BoardGeometry, roads: readonly Road[], buildings: readonly Building[], playerId: string): EdgeId[] {
+  const mine = roads.filter((r) => r.owner === playerId).map((r) => board.edgeMap[r.edgeId]).filter((e): e is EdgeDef => !!e);
   if (!mine.length) return [];
   const adj = new Map<VertexId, EdgeDef[]>();
   for (const e of mine) for (const v of [e.a, e.b]) adj.set(v, [...(adj.get(v) ?? []), e]);
@@ -409,7 +418,7 @@ export function stealCandidates(s: GameState, tileId: TileId, playerId: string):
   const owners = new Set<string>();
   for (const b of s.buildings) {
     if (b.owner === playerId) continue;
-    if (!VERTEX_MAP[b.vertexId]?.tiles.includes(tileId)) continue;
+    if (!boardOf(s).vertexMap[b.vertexId]?.tiles.includes(tileId)) continue;
     if (bundleTotal(s.players[b.owner].resources) > 0) owners.add(b.owner);
   }
   return s.order.filter((id) => owners.has(id));
@@ -543,14 +552,14 @@ function placementCheck(s: GameState, playerId: string): ActionResult | null {
 }
 
 function villageSpotProblem(s: GameState, vertexId: VertexId): ActionResult | null {
-  if (!VERTEX_MAP[vertexId]) return fail('SPOT_INVALID', '보드에 없는 꼭짓점입니다.');
+  if (!boardOf(s).vertexMap[vertexId]) return fail('SPOT_INVALID', '보드에 없는 꼭짓점입니다.');
   if (buildingAt(s.buildings, vertexId)) return fail('SPOT_TAKEN', '이미 마을이 있는 꼭짓점입니다.');
-  if (!vertexOpen(s.buildings, vertexId)) return fail('TOO_CLOSE', '바로 옆 꼭짓점에 마을이 있어 지을 수 없습니다. 한 칸 이상 떨어뜨리세요.');
+  if (!vertexOpen(boardOf(s), s.buildings, vertexId)) return fail('TOO_CLOSE', '바로 옆 꼭짓점에 마을이 있어 지을 수 없습니다. 한 칸 이상 떨어뜨리세요.');
   return null;
 }
 
 function roadSpotProblem(s: GameState, vertexId: VertexId, edgeId: EdgeId): ActionResult | null {
-  const edge = EDGE_MAP[edgeId];
+  const edge = boardOf(s).edgeMap[edgeId];
   if (!edge || (edge.a !== vertexId && edge.b !== vertexId)) return fail('NOT_CONNECTED', '시작 길은 방금 지은 마을에 붙여 놓아야 합니다.');
   if (roadAt(s.roads, edgeId)) return fail('SPOT_TAKEN', '이미 길이 있는 변입니다.');
   return null;
@@ -562,8 +571,8 @@ function putSetupVillage(s: GameState, playerId: string, vertexId: VertexId): Bu
   s.setupVillage = vertexId;
   if (s.placementIndex < s.order.length) return undefined;
   const gained = emptyBundle();
-  for (const t of VERTEX_MAP[vertexId].tiles) {
-    const kind = TILE_MAP[t].kind;
+  for (const t of boardOf(s).vertexMap[vertexId].tiles) {
+    const kind = boardOf(s).tileMap[t].kind;
     if (kind !== 'plaza') gained[kind] += 1;
   }
   gain(s.players[playerId].resources, gained);
@@ -693,7 +702,7 @@ function doDiscard(s: GameState, playerId: string, bundle: Bundle): ActionResult
 function doMoveRobber(s: GameState, playerId: string, tileId: TileId, random: () => number): ActionResult {
   const bad = requireTurn(s, playerId, ['robber']);
   if (bad) return bad;
-  if (!TILE_MAP[tileId]) return fail('SPOT_INVALID', '보드에 없는 칸입니다.');
+  if (!boardOf(s).tileMap[tileId]) return fail('SPOT_INVALID', '보드에 없는 칸입니다.');
   if (tileId === s.robber) return fail('SPOT_INVALID', '기사단 동상은 다른 칸으로 옮겨야 합니다.');
   s.robber = tileId;
   pushEvent(s, { kind: 'robber', player: playerId, tileId });
@@ -743,9 +752,9 @@ function checkPiece(s: GameState, playerId: string, kind: PieceKind, free = fals
 function doBuildRoad(s: GameState, playerId: string, edgeId: EdgeId): ActionResult {
   const bad = requireTurn(s, playerId, ['main', 'road_building']);
   if (bad) return bad;
-  if (!EDGE_MAP[edgeId]) return fail('SPOT_INVALID', '보드에 없는 변입니다.');
+  if (!boardOf(s).edgeMap[edgeId]) return fail('SPOT_INVALID', '보드에 없는 변입니다.');
   if (roadAt(s.roads, edgeId)) return fail('SPOT_TAKEN', '이미 길이 있는 변입니다.');
-  if (!buildableRoads(s.buildings, s.roads, playerId).includes(edgeId)) {
+  if (!buildableRoads(boardOf(s), s.buildings, s.roads, playerId).includes(edgeId)) {
     return fail('NOT_CONNECTED', '길은 내 마을·도시나 내 길에 이어서만 놓을 수 있습니다.');
   }
   const free = s.step === 'road_building';
@@ -759,7 +768,7 @@ function doBuildRoad(s: GameState, playerId: string, edgeId: EdgeId): ActionResu
     const more =
       s.freeRoads > 0 &&
       pieceCount(s.buildings, s.roads, playerId, 'road') < PIECE_LIMIT.road &&
-      buildableRoads(s.buildings, s.roads, playerId).length > 0;
+      buildableRoads(boardOf(s), s.buildings, s.roads, playerId).length > 0;
     if (!more) {
       s.freeRoads = 0;
       s.step = s.resumeStep;
@@ -772,10 +781,10 @@ function doBuildRoad(s: GameState, playerId: string, edgeId: EdgeId): ActionResu
 function doBuildVillage(s: GameState, playerId: string, vertexId: VertexId): ActionResult {
   const bad = requireTurn(s, playerId, ['main']);
   if (bad) return bad;
-  if (!VERTEX_MAP[vertexId]) return fail('SPOT_INVALID', '보드에 없는 꼭짓점입니다.');
+  if (!boardOf(s).vertexMap[vertexId]) return fail('SPOT_INVALID', '보드에 없는 꼭짓점입니다.');
   if (buildingAt(s.buildings, vertexId)) return fail('SPOT_TAKEN', '이미 마을이나 도시가 있는 꼭짓점입니다.');
-  if (!vertexOpen(s.buildings, vertexId)) return fail('TOO_CLOSE', '바로 옆 꼭짓점에 마을이 있어 지을 수 없습니다.');
-  if (!buildableVillages(s.buildings, s.roads, playerId).includes(vertexId)) {
+  if (!vertexOpen(boardOf(s), s.buildings, vertexId)) return fail('TOO_CLOSE', '바로 옆 꼭짓점에 마을이 있어 지을 수 없습니다.');
+  if (!buildableVillages(boardOf(s), s.buildings, s.roads, playerId).includes(vertexId)) {
     return fail('NOT_CONNECTED', '마을은 내 길이 닿은 꼭짓점에만 지을 수 있습니다.');
   }
   const err = checkPiece(s, playerId, 'village');
@@ -841,7 +850,7 @@ function doPlayDev(s: GameState, playerId: string, action: Extract<GameAction, {
   }
   if (kind === 'road_building') {
     const room = Math.min(2, PIECE_LIMIT.road - pieceCount(s.buildings, s.roads, playerId, 'road'));
-    if (room <= 0 || buildableRoads(s.buildings, s.roads, playerId).length === 0) return fail('NOT_ALLOWED', '공짜 길을 놓을 자리가 없습니다.');
+    if (room <= 0 || buildableRoads(boardOf(s), s.buildings, s.roads, playerId).length === 0) return fail('NOT_ALLOWED', '공짜 길을 놓을 자리가 없습니다.');
     me.devCards.splice(idx, 1);
     s.devPlayedThisTurn = true;
     s.resumeStep = s.step;
@@ -1104,7 +1113,7 @@ function afterAction(s: GameState): void {
 
 /** 최장 교역로: 5칸 이상 가장 긴 한 사람. 가진 사람과 같은 길이면 가진 사람이 지키고, 다른 사람끼리 비기면 아무도 갖지 않는다. */
 function updateLongestRoad(s: GameState): void {
-  const lens = Object.fromEntries(s.order.map((id) => [id, longestRoadLength(s.roads, s.buildings, id)]));
+  const lens = Object.fromEntries(s.order.map((id) => [id, longestRoadLength(boardOf(s), s.roads, s.buildings, id)]));
   const max = Math.max(...Object.values(lens));
   const prev = s.longestRoad.holder;
   let holder: string | null;
@@ -1198,8 +1207,8 @@ function pickRandom<T>(items: readonly T[], random: () => number): T {
 
 /** 시간이 다 된 시작 배치에서 대신 고를 마을 자리: 닿은 숫자 패의 점(나올 확률)이 가장 많은 곳 중 하나 */
 function autoSetupVertex(s: GameState, random: () => number): VertexId {
-  const free = placeableVertices(s.buildings);
-  const pips = (v: VertexId) => VERTEX_MAP[v].tiles.reduce((n, t) => n + (s.numbers[t] ? numberPips(s.numbers[t]) : 0), 0);
+  const free = placeableVertices(boardOf(s), s.buildings);
+  const pips = (v: VertexId) => boardOf(s).vertexMap[v].tiles.reduce((n, t) => n + (s.numbers[t] ? numberPips(s.numbers[t]) : 0), 0);
   const best = Math.max(...free.map(pips));
   return pickRandom(
     free.filter((v) => pips(v) === best),
@@ -1218,8 +1227,8 @@ function autoDiscardBundle(have: Bundle, count: number, random: () => number): B
 /** 시간이 다 된 동상 옮기기: 남의 마을·도시가 닿고 내 것은 닿지 않은 칸 중에서 고른다 */
 function autoRobberTile(s: GameState, playerId: string, random: () => number): TileId {
   const score = (tileId: TileId) =>
-    s.buildings.filter((b) => VERTEX_MAP[b.vertexId]?.tiles.includes(tileId)).reduce((n, b) => n + (b.owner === playerId ? -10 : 1), 0);
-  const tiles = TILES.map((t) => t.id).filter((id) => id !== s.robber);
+    s.buildings.filter((b) => boardOf(s).vertexMap[b.vertexId]?.tiles.includes(tileId)).reduce((n, b) => n + (b.owner === playerId ? -10 : 1), 0);
+  const tiles = boardOf(s).tiles.map((t) => t.id).filter((id) => id !== s.robber);
   const best = Math.max(...tiles.map(score));
   return pickRandom(
     tiles.filter((t) => score(t) === best),
@@ -1247,7 +1256,7 @@ export function autoPlay(s: GameState, random: () => number = Math.random): bool
     if (p) {
       pushEvent(s, { kind: 'timeout', player: p });
       if (!s.setupVillage) doPlaceVillage(s, p, autoSetupVertex(s, random));
-      const edges = s.setupVillage ? setupRoadEdges(s.roads, s.setupVillage) : [];
+      const edges = s.setupVillage ? setupRoadEdges(boardOf(s), s.roads, s.setupVillage) : [];
       if (edges.length) doPlaceRoad(s, p, pickRandom(edges, random));
     }
   } else if (s.phase === 'playing' && s.step === 'discard') {
@@ -1265,7 +1274,7 @@ export function autoPlay(s: GameState, random: () => number = Math.random): bool
         else if (s.step === 'robber') doMoveRobber(s, p, autoRobberTile(s, p, random), random);
         else if (s.step === 'steal') doSteal(s, p, pickRandom(s.stealFrom, random), random);
         else if (s.step === 'road_building') {
-          const edges = buildableRoads(s.buildings, s.roads, p);
+          const edges = buildableRoads(boardOf(s), s.buildings, s.roads, p);
           if (edges.length && s.freeRoads > 0) doBuildRoad(s, p, pickRandom(edges, random));
           else {
             s.freeRoads = 0;

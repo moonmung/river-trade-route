@@ -1,6 +1,5 @@
 // 네트워크로 들어온 값은 형식부터 확인한다. 통과하지 못하면 null.
-import { CHAT_MAX_LENGTH, emptyBundle, MAX_TRADE_AMOUNT, NICKNAME_MAX, RESOURCES, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, TILE_MAP } from './constants';
-import { EDGE_MAP, VERTEX_MAP } from './board';
+import { CHAT_MAX_LENGTH, emptyBundle, MAX_TRADE_AMOUNT, NICKNAME_MAX, RESOURCES, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH } from './constants';
 import type { Bundle, GameAction, Resource } from './types';
 
 type Obj = Record<string, unknown>;
@@ -13,16 +12,17 @@ export function isResource(v: unknown): v is Resource {
   return typeof v === 'string' && (RESOURCES as readonly string[]).includes(v);
 }
 
+// 꼭짓점·변·칸 ID 는 모양만 본다. 맵 모양이 게임마다 달라서, 그 게임 보드에 있는 자리인지는 규칙 엔진이 확인한다.
 function isVertexId(v: unknown): v is string {
-  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(VERTEX_MAP, v);
+  return typeof v === 'string' && /^v[1-9]\d{0,3}$/.test(v);
 }
 
 function isEdgeId(v: unknown): v is string {
-  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(EDGE_MAP, v);
+  return typeof v === 'string' && /^e[1-9]\d{0,3}$/.test(v);
 }
 
 function isTileId(v: unknown): v is string {
-  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(TILE_MAP, v);
+  return typeof v === 'string' && /^[A-Z][1-9]\d?$/.test(v);
 }
 
 function parseBundle(v: unknown, max = MAX_TRADE_AMOUNT): Bundle | null {

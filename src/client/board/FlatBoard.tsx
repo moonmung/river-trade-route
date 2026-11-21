@@ -3,7 +3,7 @@
 // 아직 길이 없는 변은 3D 보드의 샛길처럼 희끄무레하고 살짝 굽은 가는 선으로 그린다.
 import { useMemo } from 'react';
 import { mulberry32, hashString } from './art/rng';
-import { boardGeometry, edgeLabel, tileCenterUnit, vertexLabel } from '../../shared/board';
+import { boardFor, edgeLabel, tileCenterUnit, vertexLabel } from '../../shared/board';
 import { RESOURCE_LABEL, TILE_KIND_LABEL, numberPips } from '../../shared/constants';
 import type { TileDef } from '../../shared/types';
 import { playerColor } from '../theme';
@@ -21,7 +21,7 @@ function hexPoints(cx: number, cy: number, r: number): string {
 }
 
 export function FlatBoard({ tiles, state, onTap }: { tiles: readonly TileDef[]; state: BoardState; onTap?: (sel: BoardSelection) => void }) {
-  const geo = useMemo(() => boardGeometry(tiles), [tiles]);
+  const geo = useMemo(() => boardFor(tiles), [tiles]);
   const pad = state.harbors?.length ? 0.85 : 0.4;
   const xs = geo.vertices.map((v) => v.x);
   const ys = geo.vertices.map((v) => v.y);
@@ -144,7 +144,7 @@ export function FlatBoard({ tiles, state, onTap }: { tiles: readonly TileDef[]; 
           const x2 = a.x + (b.x - a.x) * 0.84;
           const y2 = a.y + (b.y - a.y) * 0.84;
           return (
-            <g key={e.id} onClick={() => onTap?.({ kind: 'edge', id: e.id })} role="button" aria-label={`${edgeLabel(e.id)}${road ? ' 길' : ''}`}>
+            <g key={e.id} onClick={() => onTap?.({ kind: 'edge', id: e.id })} role="button" aria-label={`${edgeLabel(geo, e.id)}${road ? ' 길' : ''}`}>
               {traceE.has(e.id) && <line x1={x1} y1={y1} x2={x2} y2={y2} className="flat-trace" />}
               {road && (
                 <line
@@ -168,7 +168,7 @@ export function FlatBoard({ tiles, state, onTap }: { tiles: readonly TileDef[]; 
           const b = state.buildings.find((x) => x.vertexId === v.id);
           const s = b?.kind === 'city' ? 0.24 : 0.17;
           return (
-            <g key={v.id} onClick={() => onTap?.({ kind: 'vertex', id: v.id })} role="button" aria-label={`${vertexLabel(v.id)}${b ? ` ${b.label}` : ''}`}>
+            <g key={v.id} onClick={() => onTap?.({ kind: 'vertex', id: v.id })} role="button" aria-label={`${vertexLabel(geo, v.id)}${b ? ` ${b.label}` : ''}`}>
               {(hlV.has(v.id) || isSel('vertex', v.id)) && <circle cx={v.x} cy={v.y} r={0.24} className={`flat-spot-hl ${isSel('vertex', v.id) ? 'flat-spot-sel' : ''}`} />}
               {!hlV.has(v.id) && hintV.has(v.id) && <circle cx={v.x} cy={v.y} r={0.15} className="flat-hint-ring" />}
               {b && (

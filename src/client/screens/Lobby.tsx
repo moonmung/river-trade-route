@@ -12,6 +12,9 @@ import { RulesSummary } from '../ui/RulesSummary';
 import { showToast } from '../ui/toast';
 import { NumberStepper, WinPointsStepper, saveWinPoints, turnSecondsLabel } from '../ui/WinPoints';
 import { HAND_LIMIT_MAX, HAND_LIMIT_MIN, TURN_SECONDS_OPTIONS } from '../../shared/constants';
+import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL, mapTileCount } from '../../shared/maps';
+import type { MapArrange, MapShape } from '../../shared/types';
+import { MapPreview } from '../ui/MapPreview';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -194,6 +197,62 @@ export function Lobby({ view }: { view: RoomView }) {
                 </div>
               )}
             </div>
+            <div className="rule-row">
+              <span className="rule-name">맵 모양</span>
+              {isHost ? (
+                <select
+                  className="rule-select"
+                  value={view.map.shape}
+                  aria-label="맵 모양"
+                  onChange={async (e) => {
+                    const res = await client.setSettings({ mapShape: e.target.value as MapShape });
+                    if (!res.ok) showToast(res.error, 'error');
+                  }}
+                >
+                  {MAP_SHAPES.map((s) => (
+                    <option key={s} value={s}>
+                      {MAP_SHAPE_LABEL[s]} {mapTileCount(s)}칸
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="wp-fixed">
+                  <b>{MAP_SHAPE_LABEL[view.map.shape]}</b> {mapTileCount(view.map.shape)}칸
+                </div>
+              )}
+            </div>
+            <div className="rule-row">
+              <span className="rule-name">땅 배치</span>
+              {isHost ? (
+                <select
+                  className="rule-select"
+                  value={view.map.arrange}
+                  aria-label="땅 배치"
+                  onChange={async (e) => {
+                    const res = await client.setSettings({ mapArrange: e.target.value as MapArrange });
+                    if (!res.ok) showToast(res.error, 'error');
+                  }}
+                >
+                  {MAP_ARRANGES.map((a) => (
+                    <option key={a} value={a}>
+                      {MAP_ARRANGE_LABEL[a]}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="wp-fixed">
+                  <b>{MAP_ARRANGE_LABEL[view.map.arrange]}</b>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="map-pick">
+            <MapPreview map={view.map} />
+            <p className="muted small">
+              {view.map.arrange === 'golden'
+                ? '황금 배치는 땅, 숫자 패, 교역로가 정해져 있어 매판 같은 보드로 합니다. 자원마다 나올 확률이 고르게 나뉘도록 짜 두었습니다.'
+                : '섞기는 게임을 시작할 때마다 땅과 숫자 패, 교역로 자원을 새로 섞습니다. 가운데 광장 자리만 그대로입니다.'}
+            </p>
           </div>
           <p className="muted small">
             {isHost ? '바꾸면 다른 사람은 다시 준비해야 합니다. ' : '방장이 정한 규칙입니다. '}
