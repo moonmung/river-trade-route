@@ -1,0 +1,266 @@
+/* 3D 주사위: 화면 전체를 덮는 투명한 캔버스. 누르는 것은 아래 던지기 자리가 받는다.
+   대화 창(z 50) 위에 그려서 7 이 나와 자원 버리기 창이 떠도 주사위가 보인다. 알림(z 60)보다는 아래. */
+.dice-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 52;
+  pointer-events: none;
+}
+
+/* 던지기 자리: 아래 HUD 바로 위에 뜨는 종이 쟁반. 주사위는 그 위 캔버스에 그린다. */
+.dice-tray {
+  position: fixed;
+  z-index: 30;
+  transform: translateX(-50%);
+  width: clamp(200px, 46vw, 270px);
+  padding: 8px 10px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background-color: var(--parchment-hi);
+  background-image: var(--paper);
+  border: 1px solid rgba(58, 42, 31, 0.55);
+  border-radius: var(--wobble);
+  box-shadow: var(--shadow);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: grab;
+  animation: dice-tray-in 0.28s ease-out both;
+  outline: none;
+}
+
+.dice-tray:focus-visible {
+  box-shadow: var(--shadow), 0 0 0 3px rgba(52, 104, 143, 0.55);
+}
+
+.dice-tray.is-held {
+  cursor: grabbing;
+}
+
+.dice-tray.is-paused {
+  opacity: 0.55;
+}
+
+/* 주사위가 놓이는 천: 물감으로 칠한 듯 옅은 초록 펠트 */
+.dice-tray-felt {
+  height: clamp(74px, 11vh, 104px);
+  border-radius: var(--wobble-sm);
+  background:
+    radial-gradient(120% 90% at 50% 40%, rgba(255, 250, 230, 0.32), rgba(255, 250, 230, 0) 60%),
+    var(--tex-grain),
+    linear-gradient(#7d9a6a, #6a875a);
+  box-shadow:
+    inset 0 2px 6px rgba(30, 40, 20, 0.45),
+    inset 0 0 0 1px rgba(40, 52, 30, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dice-tray-flat {
+  display: inline-flex;
+  gap: 14px;
+}
+
+.dice-tray.is-held .dice-tray-flat {
+  animation: dice-tray-shake 0.16s linear infinite;
+}
+
+.dice-tray-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.dice-tray-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  line-height: 1.3;
+  color: var(--ink-soft);
+  word-break: keep-all;
+}
+
+/* 남은 시간: 숫자 둘레를 황토색 고리가 줄어들며 감싼다 */
+.dice-tray-clock {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(closest-side, var(--parchment-hi) 76%, transparent 78% 100%),
+    conic-gradient(var(--gold) calc(var(--left, 1) * 360deg), rgba(58, 42, 31, 0.16) 0);
+  font-family: var(--font-title);
+  font-size: 0.9rem;
+  color: var(--ink);
+  transition: background 0.2s;
+}
+
+.dice-tray.is-urgent .dice-tray-clock {
+  background:
+    radial-gradient(closest-side, var(--parchment-hi) 76%, transparent 78% 100%),
+    conic-gradient(var(--danger) calc(var(--left, 1) * 360deg), rgba(58, 42, 31, 0.16) 0);
+  color: var(--danger);
+  animation: dice-tray-tick 1s ease-in-out infinite;
+}
+
+@keyframes dice-tray-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes dice-tray-shake {
+  25% {
+    transform: translate(-2px, 1px) rotate(-3deg);
+  }
+  75% {
+    transform: translate(2px, -1px) rotate(3deg);
+  }
+}
+
+@keyframes dice-tray-tick {
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+/* 멈춘 뒤 합계: 주사위 바로 위에 밀랍 봉인처럼 찍힌다 */
+.dice-badge {
+  position: fixed;
+  z-index: 53;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  animation: dice-badge-life 2.15s ease-out both;
+}
+
+.dice-badge-seven {
+  animation-duration: 2.75s;
+}
+
+.dice-badge-seal {
+  min-width: 66px;
+  height: 66px;
+  padding: 0 10px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background-color: var(--parchment-hi);
+  background-image: var(--paper);
+  border: 2px solid var(--ink);
+  box-shadow:
+    0 0 0 3px var(--parchment-hi),
+    0 0 0 4.5px var(--pc, var(--gold)),
+    var(--shadow);
+  animation: dice-badge-pop 0.42s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+
+.dice-badge-total {
+  font-family: var(--font-title);
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.dice-badge-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: var(--wobble-sm);
+  background: var(--parchment-hi) var(--tex-grain);
+  border: 1px solid rgba(58, 42, 31, 0.45);
+  font-family: var(--font-title);
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  box-shadow: 0 3px 8px rgba(24, 38, 46, 0.25);
+}
+
+.dice-badge-seven .dice-badge-seal {
+  min-width: 78px;
+  height: 78px;
+  background-color: #f6dcd2;
+  border-color: var(--danger);
+  box-shadow:
+    0 0 0 3px #f6dcd2,
+    0 0 0 5px var(--danger),
+    0 0 26px rgba(158, 52, 38, 0.55),
+    var(--shadow);
+  animation:
+    dice-badge-pop 0.42s cubic-bezier(0.2, 1.6, 0.4, 1) both,
+    dice-badge-shake 0.5s 0.42s ease-in-out 2;
+}
+
+.dice-badge-seven .dice-badge-total {
+  font-size: 3rem;
+  color: var(--danger);
+}
+
+.dice-badge-note {
+  padding: 2px 10px;
+  border-radius: var(--wobble-sm);
+  background: var(--danger);
+  color: #fbeee6;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 3px 8px rgba(24, 38, 46, 0.3);
+}
+
+@keyframes dice-badge-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes dice-badge-shake {
+  25% {
+    transform: rotate(-7deg) scale(1.06);
+  }
+  75% {
+    transform: rotate(7deg) scale(1.06);
+  }
+}
+
+@keyframes dice-badge-life {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dice-tray,
+  .dice-badge-seal,
+  .dice-tray.is-urgent .dice-tray-clock,
+  .dice-badge-seven .dice-badge-seal {
+    animation: none;
+  }
+}

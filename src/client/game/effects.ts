@@ -6,7 +6,8 @@ import type { RoomView } from '../../shared/protocol';
 import type { Resource } from '../../shared/types';
 import type { BoardRenderer } from '../board/BoardRenderer';
 import { josa } from '../ui/josa';
-import { showAward, showDice } from '../ui/spectacle';
+import { rollDice } from '../dice';
+import { showAward } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
 import { bundleText, tileName, type PlayerInfo } from './derive';
 
@@ -51,20 +52,12 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
       switch (e.kind) {
         case 'roll': {
           const total = e.dice[0] + e.dice[1];
-          if (animate) showDice(e.dice, e.player === me ? '나' : name(e.player), color(e.player));
-          if (total === 7) {
-            if (g.discards[me]) {
-              showToast(`7! 자원 ${g.discards[me]}장을 버려야 합니다.`, 'warn', 4200);
-              buzz(160);
-            }
-            break;
-          }
+          const discard = g.discards[me];
           const mine = e.detail?.[me];
-          if (mine && Object.values(mine).some((n) => n > 0)) showToast(`${total} · 내 생산 ${bundleText(mine)}`, 'good', 3200);
-          if (e.blocked.length) showToast(`${e.blocked.map((t) => tileName(g.numbers, t)).join(', ')} 칸은 기사단 동상에 막혀 생산하지 않았습니다.`, 'warn', 3200);
-          if (animate) {
-            // 숫자가 나온 칸에서 그 칸에 닿은 마을·도시로 자원이 솟아 날아간다 (공개 정보로 계산).
-            const items: { tileId: string; vertexId: string; resource: Resource; amount: number }[] = [];
+          const blocked = e.blocked.map((t) => tileName(g.numbers, t));
+          // 숫자가 나온 칸에서 그 칸에 닿은 마을·도시로 자원이 솟아 날아간다 (공개 정보로 계산).
+          const items: { tileId: string; vertexId: string; resource: Resource; amount: number }[] = [];
+          if (animate && total !== 7) {
             for (const tileId of e.tiles) {
               const kind = TILE_MAP[tileId]?.kind;
               if (!kind || kind === 'plaza') continue;
@@ -73,8 +66,21 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
                 items.push({ tileId, vertexId: b.vertexId, resource: kind, amount: b.kind === 'city' ? 2 : 1 });
               }
             }
-            window.setTimeout(() => rendererRef.current?.playRoll(e.tiles, e.blocked, items), 1100);
           }
+          // 3D 주사위가 서버가 정한 값으로 멈춘 뒤에 결과 알림과 보드 생산 연출을 낸다.
+          const who = e.player === me ? '나' : name(e.player);
+          void rollDice(e.dice, { who, colorIndex: color(e.player), mine: e.player === me, animate }).then(() => {
+            if (total === 7) {
+              if (discard) {
+                showToast(`7! 자원 ${discard}장을 버려야 합니다.`, 'warn', 4200);
+                buzz(160);
+              }
+              return;
+            }
+            if (mine && Object.values(mine).some((n) => n > 0)) showToast(`${total} · 내 생산 ${bundleText(mine)}`, 'good', 3200);
+            if (blocked.length) showToast(`${blocked.join(', ')} 칸은 기사단 동상에 막혀 생산하지 않았습니다.`, 'warn', 3200);
+            if (animate) rendererRef.current?.playRoll(e.tiles, e.blocked, items);
+          });
           break;
         }
         case 'robber':
