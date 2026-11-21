@@ -571,6 +571,63 @@ h2 {
   color: var(--ink);
 }
 
+/* 대기실 맵 미리보기: 작은 보드 그림과 배치 설명을 나란히 둔다 (좁으면 위아래로) */
+.map-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.map-preview {
+  flex: none;
+  width: 150px;
+  height: auto;
+}
+
+.map-pick p {
+  margin: 0;
+}
+
+.map-hex polygon {
+  stroke: rgba(58, 42, 31, 0.55);
+  stroke-width: 0.07;
+}
+
+.flat-unknown polygon {
+  fill: #e8dcc3;
+}
+
+.map-num {
+  fill: #fffaf0;
+  stroke: rgba(58, 42, 31, 0.4);
+  stroke-width: 0.05;
+}
+
+.map-num-text {
+  font-family: var(--font-title);
+  font-size: 0.5px;
+  font-weight: 700;
+  text-anchor: middle;
+  fill: var(--ink);
+}
+
+.map-num-hot {
+  fill: #b3261e;
+}
+
+.map-unknown-text {
+  font-size: 0.6px;
+  fill: rgba(58, 42, 31, 0.5);
+}
+
+@media (max-width: 420px) {
+  .map-pick {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 .rules summary {
   cursor: pointer;
   font-family: var(--font-title);

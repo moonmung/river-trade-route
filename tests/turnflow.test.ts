@@ -1,6 +1,6 @@
 // 순서 정하기 주사위, 마을 → 길로 나눠 놓는 시작 배치, 자원 보유 한도, 차례 시간이 다 됐을 때의 자동 진행
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { VERTEX_MAP } from '../src/shared/board';
+import { VERTEX_MAP, boardOf } from '../src/shared/board';
 import { bundleTotal } from '../src/shared/constants';
 import {
   applyAction,
@@ -76,19 +76,19 @@ describe('순서 정하기 주사위', () => {
 describe('시작 배치: 마을을 짓고 그다음 길', () => {
   it('마을을 먼저 지으면 모두에게 보이고, 그 마을에 붙여 길을 놓아야 다음 사람으로 넘어간다', () => {
     const s = createGame(['a', 'b'], () => 0.999999);
-    const v = placeableVertices(s.buildings)[0];
+    const v = placeableVertices(boardOf(s), s.buildings)[0];
     expect(applyAction(s, 'a', { type: 'place_road', edgeId: VERTEX_MAP[v].edges[0] }, () => 0)).toMatchObject({ ok: false, code: 'WRONG_STEP' });
     act(s, 'a', { type: 'place_village', vertexId: v });
     expect(s.buildings).toEqual([{ vertexId: v, owner: 'a', kind: 'village', builtTurn: 0 }]);
     expect(s.setupVillage).toBe(v);
     expect(placementPlayer(s)).toBe('a');
     // 길을 놓기 전에는 마을을 하나 더 지을 수 없다
-    const other = placeableVertices(s.buildings)[3];
+    const other = placeableVertices(boardOf(s), s.buildings)[3];
     expect(applyAction(s, 'a', { type: 'place_village', vertexId: other }, () => 0)).toMatchObject({ ok: false, code: 'WRONG_STEP' });
     // 다른 마을에 붙은 길은 안 된다
     const far = VERTEX_MAP[other].edges.find((e) => !VERTEX_MAP[v].edges.includes(e))!;
     expect(applyAction(s, 'a', { type: 'place_road', edgeId: far }, () => 0)).toMatchObject({ ok: false, code: 'NOT_CONNECTED' });
-    act(s, 'a', { type: 'place_road', edgeId: setupRoadEdges(s.roads, v)[0] });
+    act(s, 'a', { type: 'place_road', edgeId: setupRoadEdges(boardOf(s), s.roads, v)[0] });
     expect(s.setupVillage).toBeNull();
     expect(placementPlayer(s)).toBe('b');
     const steps = s.events.filter((e) => e.kind === 'placement').map((e) => (e.kind === 'placement' ? e.step : null));
@@ -98,21 +98,21 @@ describe('시작 배치: 마을을 짓고 그다음 길', () => {
   it('두 번째 시작 마을은 마을을 지을 때 자원을 받는다', () => {
     const s = createGame(['a', 'b'], () => 0.999999);
     for (const p of ['a', 'b', 'b']) {
-      const v = placeableVertices(s.buildings)[0];
+      const v = placeableVertices(boardOf(s), s.buildings)[0];
       act(s, p, { type: 'place_village', vertexId: v });
-      act(s, p, { type: 'place_road', edgeId: setupRoadEdges(s.roads, v)[0] });
+      act(s, p, { type: 'place_road', edgeId: setupRoadEdges(boardOf(s), s.roads, v)[0] });
     }
-    const inner = placeableVertices(s.buildings).find((v) => VERTEX_MAP[v].tiles.length === 3 && !VERTEX_MAP[v].tiles.includes('C3'))!;
+    const inner = placeableVertices(boardOf(s), s.buildings).find((v) => VERTEX_MAP[v].tiles.length === 3 && !VERTEX_MAP[v].tiles.includes('C3'))!;
     act(s, 'a', { type: 'place_village', vertexId: inner });
     expect(bundleTotal(s.players.a.resources)).toBe(3);
-    act(s, 'a', { type: 'place_road', edgeId: setupRoadEdges(s.roads, inner)[0] });
+    act(s, 'a', { type: 'place_road', edgeId: setupRoadEdges(boardOf(s), s.roads, inner)[0] });
     expect(s.phase).toBe('playing');
     expect(s.turn).toBe(1);
   });
 
   it('시간이 다 되면 점이 가장 많은 자리에 마을과 길을 대신 놓는다', () => {
     const s = createGame(['a', 'b'], () => 0.999999);
-    act(s, 'a', { type: 'place_village', vertexId: placeableVertices(s.buildings)[0] });
+    act(s, 'a', { type: 'place_village', vertexId: placeableVertices(boardOf(s), s.buildings)[0] });
     expect(autoPlay(s, () => 0)).toBe(true);
     expect(placementPlayer(s)).toBe('b');
     expect(autoPlay(s, () => 0)).toBe(true);

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { PIECE_LABEL, PIECE_LIMIT, RESOURCES, TILES, emptyBundle, hasBundle } from '../../shared/constants';
+import { boardOf } from '../../shared/board';
+import { PIECE_LABEL, PIECE_LIMIT, RESOURCES, emptyBundle, hasBundle } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
 import { buildableRoads, buildableVillages, longestRoadPath, pieceCount } from '../../shared/rules';
 import type { BoardRenderer, BoardSelection, BoardState, Insets } from '../board/BoardRenderer';
@@ -123,8 +124,8 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     if (!myTurn || g.step !== 'main' || buildMode || wait) return null;
     const me = view.you;
     return {
-      edges: pieceCount(g.buildings, g.roads, me, 'road') < PIECE_LIMIT.road ? buildableRoads(g.buildings, g.roads, me) : [],
-      vertices: pieceCount(g.buildings, g.roads, me, 'village') < PIECE_LIMIT.village ? buildableVillages(g.buildings, g.roads, me) : [],
+      edges: pieceCount(g.buildings, g.roads, me, 'road') < PIECE_LIMIT.road ? buildableRoads(boardOf(g), g.buildings, g.roads, me) : [],
+      vertices: pieceCount(g.buildings, g.roads, me, 'village') < PIECE_LIMIT.village ? buildableVillages(boardOf(g), g.buildings, g.roads, me) : [],
     };
   }, [myTurn, g.step, buildMode, wait, g.buildings, g.roads, view.you]);
   // 길에 마우스를 올리거나 길을 누르면 그 주인의 가장 긴 교역로를 금빛으로 따라 그린다.
@@ -132,7 +133,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     (hoverRoad && g.roads.find((r) => r.edgeId === hoverRoad.edgeId)?.owner) ||
     (selected?.kind === 'edge' ? g.roads.find((r) => r.edgeId === selected.id)?.owner : undefined) ||
     null;
-  const trace = useMemo(() => (traceOwner ? longestRoadPath(g.roads, g.buildings, traceOwner) : null), [traceOwner, g.roads, g.buildings]);
+  const trace = useMemo(() => (traceOwner ? longestRoadPath(boardOf(g), g.roads, g.buildings, traceOwner) : null), [traceOwner, g.roads, g.buildings]);
   const boardState = useMemo<BoardState>(
     () => ({
       buildings: g.buildings.map((b) => ({
@@ -242,11 +243,11 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
         {useFlat ? (
           <div className="flat-wrap" style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8, paddingRight: insets.right + 8 }}>
             {glFailed && <div className="notice notice-warn small">3D 보드를 표시할 수 없어 2D 보드로 보여 줍니다.</div>}
-            <FlatBoard tiles={TILES} state={boardState} onTap={onTap} />
+            <FlatBoard tiles={boardOf(g).tiles} state={boardState} onTap={onTap} />
           </div>
         ) : (
           <BoardView
-            tiles={TILES}
+            tiles={boardOf(g).tiles}
             state={boardState}
             insets={insets}
             quality={settings.quality}
@@ -302,7 +303,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             <ol className="log log-mini">
               {recent.length === 0 && <li className="log-empty">마을·도시, 발전 카드, 달성처럼 점수와 이어진 일이 여기에 남습니다.</li>}
               {recent.map((e) => (
-                <li key={e.seq}>{formatScoreEvent(e, players, view.you, g.numbers)}</li>
+                <li key={e.seq}>{formatScoreEvent(e, players, view.you, g)}</li>
               ))}
             </ol>
           </section>

@@ -1,5 +1,5 @@
 // 서버가 보낸 화면 정보에서 버튼 활성화·안내 문구를 계산한다. 실제 판정은 서버가 다시 한다.
-import { EDGE_MAP, VERTEX_MAP } from '../../shared/board';
+import { boardOf } from '../../shared/board';
 import {
   DEV_COST,
   DEV_LABEL,
@@ -10,12 +10,10 @@ import {
   RESOURCE_LABEL,
   AWARD_POINTS,
   LONGEST_ROAD_MIN,
-  TILES,
-  TILE_MAP,
   bundleTotal,
   hasBundle,
 } from '../../shared/constants';
-import type { RoomView } from '../../shared/protocol';
+import type { GameView, RoomView } from '../../shared/protocol';
 import { buildableRoads, buildableVillages, pieceCount, placeableVertices, setupRoadEdges, upgradableVillages } from '../../shared/rules';
 import type { Bundle, DevKind, GameAction, GameEvent, PieceKind, TradeCloseReason } from '../../shared/types';
 import { josa } from '../ui/josa';
@@ -74,8 +72,8 @@ export function buildBlocker(view: RoomView, kind: PieceKind): string | null {
 export function buildSpots(view: RoomView, kind: PieceKind): string[] {
   const g = view.game;
   if (!g) return [];
-  if (kind === 'road') return buildableRoads(g.buildings, g.roads, view.you);
-  if (kind === 'village') return buildableVillages(g.buildings, g.roads, view.you);
+  if (kind === 'road') return buildableRoads(boardOf(g), g.buildings, g.roads, view.you);
+  if (kind === 'village') return buildableVillages(boardOf(g), g.buildings, g.roads, view.you);
   return upgradableVillages(g.buildings, view.you);
 }
 
@@ -127,7 +125,7 @@ export function playDevBlocker(view: RoomView, kind: DevKind): string | null {
   if (g.devPlayedThisTurn) return '발전 카드는 한 턴에 1장만 쓸 수 있습니다.';
   if (!g.myDevCards.some((c) => c.kind === kind)) return `${DEV_LABEL[kind]} 카드가 없습니다.`;
   if (!g.myDevCards.some((c) => c.kind === kind && c.boughtTurn < g.turn)) return '이번 턴에 산 카드는 다음 턴부터 쓸 수 있습니다.';
-  if (kind === 'road_building' && buildableRoads(g.buildings, g.roads, view.you).length === 0) return '공짜 길을 놓을 자리가 없습니다.';
+  if (kind === 'road_building' && buildableRoads(boardOf(g), g.buildings, g.roads, view.you).length === 0) return '공짜 길을 놓을 자리가 없습니다.';
   return null;
 }
 
@@ -147,11 +145,11 @@ export function boardHighlights(view: RoomView, mode: PieceKind | null): BoardHi
   const g = view.game;
   if (!g) return none;
   if (g.phase === 'placement' && g.placementPlayerId === view.you) {
-    if (g.setupVillage) return { vertices: [], edges: setupRoadEdges(g.roads, g.setupVillage), tiles: [] };
-    return { vertices: placeableVertices(g.buildings), edges: [], tiles: [] };
+    if (g.setupVillage) return { vertices: [], edges: setupRoadEdges(boardOf(g), g.roads, g.setupVillage), tiles: [] };
+    return { vertices: placeableVertices(boardOf(g), g.buildings), edges: [], tiles: [] };
   }
   if (g.phase !== 'playing' || g.currentPlayerId !== view.you) return none;
-  if (g.step === 'robber') return { vertices: [], edges: [], tiles: TILES.map((t) => t.id).filter((id) => id !== g.robber) };
+  if (g.step === 'robber') return { vertices: [], edges: [], tiles: g.tiles.map((t) => t.id).filter((id) => id !== g.robber) };
   if (g.step === 'road_building') return { vertices: [], edges: buildSpots(view, 'road'), tiles: [] };
   if (!mode || buildBlocker(view, mode)) return none;
   const spots = buildSpots(view, mode);
@@ -186,18 +184,22 @@ export function roadStatus(view: RoomView, owner: string, len: number, name: (id
   return `최장 교역로까지 ${LONGEST_ROAD_MIN - len}칸 더 (${LONGEST_ROAD_MIN}칸 이상)`;
 }
 
+/** 칸 이름을 짓는 데 필요한 보드 정보 (게임 화면 정보를 그대로 넘기면 된다) */
+export type MapInfo = Pick<GameView, 'numbers' | 'tiles'>;
+
 /** 게임 화면에서 칸을 부르는 이름. 칸 코드(A1~E3) 대신 자원과 숫자 패로 부른다: "곡물 10", "광장" */
-export function tileName(numbers: Record<string, number>, tileId: string): string {
-  const t = TILE_MAP[tileId];
-  if (!t) return '?';
+export function tileName(map: MapInfo | null | undefined, tileId: string): string {
+  const t = map ? boardOf(map).tileMap[tileId] : undefined;
+  if (!map || !t) return '?';
   if (t.kind === 'plaza') return '광장';
-  return numbers[tileId] ? `${RESOURCE_LABEL[t.kind]} ${numbers[tileId]}` : RESOURCE_LABEL[t.kind];
+  return map.numbers[tileId] ? `${RESOURCE_LABEL[t.kind]} ${map.numbers[tileId]}` : RESOURCE_LABEL[t.kind];
 }
 
 /** 꼭짓점·변의 이름: 닿은 칸들 사이, 바닷가면 "바닷가" */
-export function spotName(numbers: Record<string, number>, kind: 'vertex' | 'edge', id: string): string {
-  const tiles = (kind === 'vertex' ? VERTEX_MAP[id]?.tiles : EDGE_MAP[id]?.tiles) ?? [];
-  const names = tiles.map((t) => tileName(numbers, t)).join('·');
+export function spotName(map: MapInfo | null | undefined, kind: 'vertex' | 'edge', id: string): string {
+  const board = map ? boardOf(map) : null;
+  const tiles = (kind === 'vertex' ? board?.vertexMap[id]?.tiles : board?.edgeMap[id]?.tiles) ?? [];
+  const names = tiles.map((t) => tileName(map, t)).join('·');
   const coast = kind === 'vertex' ? tiles.length < 3 : tiles.length < 2;
   return coast ? `${names} 바닷가` : `${names} 사이`;
 }
@@ -221,7 +223,7 @@ export function isScoreEvent(e: GameEvent): boolean {
 }
 
 /** '최근 기록' 한 줄: 점수와 발전 카드만 짧게 적는다 (받은 자원·가져간 장수는 빼고). */
-export function formatScoreEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: string, numbers: Record<string, number> = {}): string {
+export function formatScoreEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: string, map?: MapInfo | null): string {
   const name = (id: string) => (id === me ? '나' : (players.get(id)?.nickname ?? '?'));
   const subj = (id: string) => (id === me ? '내가' : josa(name(id), '이/가'));
   switch (e.kind) {
@@ -235,12 +237,12 @@ export function formatScoreEvent(e: GameEvent, players: Map<string, PlayerInfo>,
     case 'play_dev':
       return `${subj(e.player)} ${DEV_LABEL[e.card]} 카드를 썼습니다.`;
   }
-  return formatEvent(e, players, me, numbers);
+  return formatEvent(e, players, me, map);
 }
 
 /** 기록 한 줄. 비공개 내용(detail)은 서버가 볼 수 있는 사람에게만 보낸다. */
-export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: string, numbers: Record<string, number> = {}): string {
-  const place = (kind: 'vertex' | 'edge', id: string) => spotName(numbers, kind, id);
+export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: string, map?: MapInfo | null): string {
+  const place = (kind: 'vertex' | 'edge', id: string) => spotName(map, kind, id);
   const name = (id: string) => (id === me ? '나' : (players.get(id)?.nickname ?? '?'));
   const subj = (id: string) => (id === me ? '내가' : josa(name(id), '이/가'));
   const whose = (id: string) => (id === me ? '내' : `${name(id)}의`);
@@ -263,13 +265,13 @@ export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: 
       const total = e.dice[0] + e.dice[1];
       if (total === 7) return `${subj(e.player)} 주사위 ${e.dice[0]}+${e.dice[1]} = 7. 기사단 동상이 움직입니다.`;
       const mine = e.detail?.[me];
-      const blocked = e.blocked.length ? ` (${e.blocked.map((t) => tileName(numbers, t)).join(', ')} 칸은 동상에 막힘)` : '';
+      const blocked = e.blocked.length ? ` (${e.blocked.map((t) => tileName(map, t)).join(', ')} 칸은 동상에 막힘)` : '';
       return `${subj(e.player)} 주사위 ${e.dice[0]}+${e.dice[1]} = ${total}.${mine && bundleTotal(mine) ? ` 내 생산: ${bundleText(mine)}.` : ''}${blocked}`;
     }
     case 'discard':
       return `${subj(e.player)} 자원 ${e.count}장을 버렸습니다${e.detail ? ` (${bundleText(e.detail)})` : ''}.`;
     case 'robber':
-      return `${subj(e.player)} 기사단 동상을 ${tileName(numbers, e.tileId)} 칸으로 옮겼습니다.`;
+      return `${subj(e.player)} 기사단 동상을 ${tileName(map, e.tileId)} 칸으로 옮겼습니다.`;
     case 'steal':
       return e.detail
         ? `${subj(e.player)} ${name(e.from)}에게서 ${RESOURCE_LABEL[e.detail]} 1장을 빼앗았습니다.`
@@ -339,7 +341,7 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
   const placing = g.phase === 'placement' && g.placementPlayerId === me;
   if (sel.kind === 'vertex') {
     // 시작 배치: 고른 자리에서 ✓ 를 누르면 마을을 짓는다 (길은 그다음에 따로 고른다).
-    if (placing && !g.setupVillage && placeableVertices(g.buildings).includes(sel.id)) {
+    if (placing && !g.setupVillage && placeableVertices(boardOf(g), g.buildings).includes(sel.id)) {
       return { label: '마을 짓기', blocker: null, action: { type: 'place_village', vertexId: sel.id }, confirm: true };
     }
     const b = g.buildings.find((x) => x.vertexId === sel.id);
@@ -349,7 +351,7 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
   }
   if (g.roads.some((r) => r.edgeId === sel.id)) return null;
   if (placing) {
-    if (!g.setupVillage || !setupRoadEdges(g.roads, g.setupVillage).includes(sel.id)) return null;
+    if (!g.setupVillage || !setupRoadEdges(boardOf(g), g.roads, g.setupVillage).includes(sel.id)) return null;
     return { label: '길 놓기', blocker: null, action: { type: 'place_road', edgeId: sel.id }, confirm: true };
   }
   if (!buildSpots(view, 'road').includes(sel.id)) return null;

@@ -1,5 +1,6 @@
 // 각 브라우저에 보낼 게임 화면 정보를 만든다 (서버와 실험실 모의 게임이 함께 쓴다).
 // 공개 정보와 "그 참가자 자신의" 비공개 자원만 넣는다. 다른 사람의 종류별 자원은 절대 넣지 않는다.
+import { boardOf } from './board';
 import { bundleTotal, emptyBundle } from './constants';
 import type { GameView } from './protocol';
 import {
@@ -67,6 +68,7 @@ export function buildGameView(g: GameState, viewer: string, clock: ClockInfo = {
     dice: g.dice ? [g.dice[0], g.dice[1]] : null,
     discards: { ...g.discards },
     stealFrom: [...g.stealFrom],
+    tiles: g.tiles.map((t) => ({ ...t })),
     robber: g.robber,
     numbers: { ...g.numbers },
     harbors: g.harbors.map((h) => ({ ...h })),
@@ -84,7 +86,7 @@ export function buildGameView(g: GameState, viewer: string, clock: ClockInfo = {
       resourceTotal: bundleTotal(g.players[id].resources),
       devCardCount: g.players[id].devCards.length,
       knightsPlayed: g.players[id].knightsPlayed,
-      roadLength: longestRoadLength(g.roads, g.buildings, id),
+      roadLength: longestRoadLength(boardOf(g), g.roads, g.buildings, id),
       villages: pieceCount(g.buildings, g.roads, id, 'village'),
       cities: pieceCount(g.buildings, g.roads, id, 'city'),
       roads: pieceCount(g.buildings, g.roads, id, 'road'),

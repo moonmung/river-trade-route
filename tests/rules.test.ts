@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EDGES, HARBORS, VERTEX_MAP, VERTICES, assignNumbers, coastEdges, edgeBetween, edgeLabel, harborVertices, vertexAt, vertexLabel } from '../src/shared/board';
+import { EDGES, HARBORS, STANDARD_BOARD, VERTEX_MAP, VERTICES, assignNumbers, boardOf, coastEdges, edgeBetween, edgeLabel, harborVertices, vertexAt, vertexLabel } from '../src/shared/board';
 import { DEV_DECK, NEIGHBORS, PIECE_COST, RESOURCES, TILES, TILE_MAP, bundleTotal, emptyBundle } from '../src/shared/constants';
 import {
   applyAction,
@@ -100,15 +100,15 @@ describe('보드: 꼭짓점·변·교역로·숫자', () => {
     expect(EDGES).toHaveLength(72);
     expect(coastEdges()).toHaveLength(30);
     for (const v of VERTICES) for (const n of v.neighbors) expect(VERTEX_MAP[n].neighbors).toContain(v.id);
-    expect(new Set(VERTICES.map((v) => vertexLabel(v.id))).size).toBe(54);
-    expect(new Set(EDGES.map((e) => edgeLabel(e.id))).size).toBe(72);
+    expect(new Set(VERTICES.map((v) => vertexLabel(STANDARD_BOARD, v.id))).size).toBe(54);
+    expect(new Set(EDGES.map((e) => edgeLabel(STANDARD_BOARD, e.id))).size).toBe(72);
   });
 
   it('해상 교역로 9곳: 아무 자원 3:1 네 곳, 자원별 2:1 다섯 곳, 서로 꼭짓점을 나눠 갖지 않는다', () => {
     expect(HARBORS).toHaveLength(9);
     expect(HARBORS.filter((h) => h.resource === null)).toHaveLength(4);
     expect(new Set(HARBORS.filter((h) => h.resource).map((h) => h.resource)).size).toBe(5);
-    const vs = HARBORS.flatMap(harborVertices);
+    const vs = HARBORS.flatMap((h) => harborVertices(STANDARD_BOARD, h));
     expect(new Set(vs).size).toBe(18);
     for (const h of HARBORS) expect(coastEdges()).toContain(h.edgeId);
   });
@@ -169,7 +169,7 @@ describe('시작 배치', () => {
     const near = V('A1', 'A2', 'B2');
     expectFail(s, 'p2', { type: 'place', vertexId: near, edgeId: VERTEX_MAP[near].edges[0] }, 'TOO_CLOSE');
     expectFail(s, 'p2', { type: 'place', vertexId: P1A, edgeId: E(P1A, near) }, 'SPOT_TAKEN');
-    expect(placeableVertices(s.buildings)).not.toContain(near);
+    expect(placeableVertices(boardOf(s), s.buildings)).not.toContain(near);
     expectFail(s, 'p2', { type: 'roll' }, 'WRONG_PHASE');
   });
 });
@@ -259,7 +259,7 @@ describe('길·마을·도시', () => {
     expectFail(s, 'p1', { type: 'build_road', edgeId: E(V('D2', 'D3', 'E2'), V('D3', 'E2', 'E3')) }, 'NOT_CONNECTED');
     expectFail(s, 'p1', { type: 'build_village', vertexId: corner }, 'TOO_CLOSE');
     act(s, 'p1', { type: 'build_road', edgeId: E(corner, next) });
-    expect(buildableVillages(s.buildings, s.roads, 'p1')).toContain(next);
+    expect(buildableVillages(boardOf(s), s.buildings, s.roads, 'p1')).toContain(next);
     act(s, 'p1', { type: 'build_village', vertexId: next });
     act(s, 'p1', { type: 'build_road', edgeId: E(P1A, V('A1', 'A2', 'B2')) });
     expect(victoryPoints(s, 'p1')).toBe(3);
@@ -268,9 +268,9 @@ describe('길·마을·도시', () => {
   it('남의 마을이 선 꼭짓점을 지나서는 길을 잇지 못한다', () => {
     const s = setup3();
     s.roads.push({ edgeId: E(P1B, V('C2', 'D1', 'D2')), owner: 'p1', builtTurn: 0 });
-    expect(buildableRoads(s.buildings, s.roads, 'p1')).toContain(E(V('C2', 'D1', 'D2'), P3A));
+    expect(buildableRoads(boardOf(s), s.buildings, s.roads, 'p1')).toContain(E(V('C2', 'D1', 'D2'), P3A));
     s.roads.push({ edgeId: E(V('C2', 'D1', 'D2'), P3A), owner: 'p1', builtTurn: 0 });
-    expect(buildableRoads(s.buildings, s.roads, 'p1')).not.toContain(E(P3A, V('D2', 'E1', 'E2')));
+    expect(buildableRoads(boardOf(s), s.buildings, s.roads, 'p1')).not.toContain(E(P3A, V('D2', 'E1', 'E2')));
   });
 
   it('도시는 내 마을을 올려서만 짓는다 (곡물 2·석재 3). 마을 자리가 비면 마을을 다시 지을 수 있다', () => {
@@ -307,9 +307,9 @@ describe('은행·해상 교역로 교환', () => {
     const special = HARBORS.find((h) => h.resource === 'wool')!;
     const generic = HARBORS.find((h) => h.resource === null)!;
     expect(tradeRatios(s, 'p1')).toEqual({ wood: 4, grain: 4, wool: 4, brick: 4, stone: 4 });
-    s.buildings.push({ vertexId: harborVertices(generic)[0], owner: 'p1', kind: 'village', builtTurn: 0 });
+    s.buildings.push({ vertexId: harborVertices(STANDARD_BOARD, generic)[0], owner: 'p1', kind: 'village', builtTurn: 0 });
     expect(tradeRatios(s, 'p1').wood).toBe(3);
-    s.buildings.push({ vertexId: harborVertices(special)[1], owner: 'p1', kind: 'village', builtTurn: 0 });
+    s.buildings.push({ vertexId: harborVertices(STANDARD_BOARD, special)[1], owner: 'p1', kind: 'village', builtTurn: 0 });
     expect(tradeRatios(s, 'p1')).toMatchObject({ wool: 2, wood: 3 });
     s.players.p1.resources = bundle({ wool: 2, wood: 2 });
     expectFail(s, 'p1', { type: 'bank_trade', give: bundle({ wood: 3 }), get: bundle({ stone: 1 }) }, 'NOT_ENOUGH');
@@ -382,9 +382,9 @@ describe('발전 카드', () => {
     const roads = s.roads.length;
     act(s, 'p1', { type: 'play_dev', kind: 'road_building' });
     expect(s.step).toBe('road_building');
-    const free = buildableRoads(s.buildings, s.roads, 'p1');
+    const free = buildableRoads(boardOf(s), s.buildings, s.roads, 'p1');
     act(s, 'p1', { type: 'build_road', edgeId: free[0] });
-    act(s, 'p1', { type: 'build_road', edgeId: buildableRoads(s.buildings, s.roads, 'p1')[0] });
+    act(s, 'p1', { type: 'build_road', edgeId: buildableRoads(boardOf(s), s.buildings, s.roads, 'p1')[0] });
     expect(s.roads.length).toBe(roads + 2);
     expect(s.players.p1.resources.wood).toBe(5); // 공짜
     expect(s.step).toBe('main');
@@ -427,16 +427,16 @@ describe('최장 교역로와 승리', () => {
       prev = at;
       at = next;
     }
-    expect(longestRoadLength(s.roads, s.buildings, 'p1')).toBe(4);
+    expect(longestRoadLength(boardOf(s), s.roads, s.buildings, 'p1')).toBe(4);
     expect(s.longestRoad.holder).toBeNull();
     const next = VERTEX_MAP[at].neighbors.find((n) => n !== prev && !s.roads.some((r) => r.edgeId === E(at, n)))!;
     act(s, 'p1', { type: 'build_road', edgeId: E(at, next) });
-    expect(longestRoadLength(s.roads, s.buildings, 'p1')).toBe(5);
+    expect(longestRoadLength(boardOf(s), s.roads, s.buildings, 'p1')).toBe(5);
     expect(s.longestRoad).toEqual({ holder: 'p1', length: 5 });
     expect(victoryPoints(s, 'p1')).toBe(4);
     // 길 가운데 꼭짓점에 남의 마을이 서면 끊긴다
     s.buildings.push({ vertexId: prev, owner: 'p2', kind: 'village', builtTurn: 1 });
-    expect(longestRoadLength(s.roads, s.buildings, 'p1')).toBeLessThan(5);
+    expect(longestRoadLength(boardOf(s), s.roads, s.buildings, 'p1')).toBeLessThan(5);
   });
 
   it('자기 턴에 승점(숨긴 승점 카드 포함)이 10점에 닿으면 바로 이긴다', () => {
@@ -536,7 +536,7 @@ describe('플레이어 교환', () => {
     act(s, 'p1', { type: 'trade_cancel', tradeId: id });
 
     act(s, 'p1', { type: 'trade_propose', give: bundle({ brick: 1 }), get: bundle({ stone: 1 }) });
-    act(s, 'p1', { type: 'build_road', edgeId: buildableRoads(s.buildings, s.roads, 'p1')[0] });
+    act(s, 'p1', { type: 'build_road', edgeId: buildableRoads(boardOf(s), s.buildings, s.roads, 'p1')[0] });
     expect(s.trades).toEqual([]);
     expect(s.events.at(-1)).toMatchObject({ kind: 'trade_closed', reason: 'unaffordable' });
   });

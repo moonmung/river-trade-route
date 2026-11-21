@@ -5,7 +5,7 @@
 // - 카메라 조작, 크기 변경, 상태 변경, 짧은 연출 중에만 다시 그린다 (정지 화면은 마지막 프레임 유지)
 // - 만화 음영 재질과 수채화 후처리(먹선·종이 결·물감 얼룩)로 손으로 그린 삽화처럼 보이게 한다 (paint.ts)
 import * as THREE from 'three';
-import { EDGES, EDGE_MAP, boardGeometry, type BoardGeometry } from '../../shared/board';
+import { boardGeometry, type BoardGeometry } from '../../shared/board';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { RESOURCES, RESOURCE_LABEL, numberPips } from '../../shared/constants';
 import { longestRoadPath } from '../../shared/rules';
@@ -501,8 +501,6 @@ export class BoardRenderer {
     materials: [],
     textures: [],
   };
-  /** 이 판이 표준 보드(shared/board 의 EDGES)와 같은 변을 쓰는지. 같으면 최장 교역로를 공유 규칙으로 찾는다. */
-  private readonly standardBoard: boolean;
   private readonly perf = new PerfMeter();
   private readonly resizeObserver: ResizeObserver;
   private readonly raycaster = new THREE.Raycaster();
@@ -616,8 +614,6 @@ export class BoardRenderer {
   ) {
     this.metrics = boardMetrics(options.tiles);
     this.geo = boardGeometry(options.tiles);
-    this.standardBoard =
-      this.geo.edges.length === EDGES.length && this.geo.edges.every((e) => EDGE_MAP[e.id]?.a === e.a && EDGE_MAP[e.id]?.b === e.b);
     this.tileById = new Map(options.tiles.map((t) => [t.id, t]));
     // 잠긴 칸 무채색은 모든 재질이 함께 보는 값이라, 새 보드를 열 때 지난 보드의 잠금을 지운다.
     paintLock.apothem.value = LOCK_APOTHEM;
@@ -2751,40 +2747,15 @@ export class BoardRenderer {
 
   /**
    * 한 사람의 가장 긴 길을 이루는 변과 그 길이 지나는 꼭짓점 (둘 다 길 순서대로).
-   * 표준 보드면 게임 규칙의 longestRoadPath 를 그대로 쓴다. 실험실 작은 판처럼 변이 다른 판에서는 같은 규칙으로 이 판의 변을 따라 찾는다.
+   * 게임 규칙의 longestRoadPath 를 이 판의 꼭짓점·변으로 돌린다 (맵 모양이 달라도, 실험실의 작은 판이어도 같다).
    */
   private longestPath(playerId: string): { edges: string[]; vertices: string[] } {
-    let edges: string[];
-    if (this.standardBoard) {
-      edges = longestRoadPath(
-        this.state.roads.map((r) => ({ edgeId: r.edgeId, owner: r.owner, builtTurn: 0 })),
-        this.state.buildings.map((b) => ({ vertexId: b.vertexId, owner: b.owner, kind: b.kind, builtTurn: 0 })),
-        playerId,
-      );
-    } else {
-      const mine = this.state.roads.filter((r) => r.owner === playerId).map((r) => this.geo.edgeMap[r.edgeId]).filter((e) => !!e);
-      const adj = new Map<string, typeof mine>();
-      for (const e of mine) for (const v of [e.a, e.b]) adj.set(v, [...(adj.get(v) ?? []), e]);
-      const blocked = (v: string) => this.state.buildings.some((b) => b.vertexId === v && b.owner !== playerId);
-      let best: string[] = [];
-      const used = new Set<string>();
-      const stack: string[] = [];
-      const walk = (v: string) => {
-        if (stack.length > best.length) best = [...stack];
-        if (stack.length > 0 && blocked(v)) return;
-        for (const e of adj.get(v) ?? []) {
-          if (used.has(e.id)) continue;
-          used.add(e.id);
-          stack.push(e.id);
-          walk(e.a === v ? e.b : e.a);
-          stack.pop();
-          used.delete(e.id);
-        }
-      };
-      for (const v of adj.keys()) walk(v);
-      edges = best;
-    }
-    edges = edges.filter((id) => this.geo.edgeMap[id]);
+    const edges = longestRoadPath(
+      this.geo,
+      this.state.roads.map((r) => ({ edgeId: r.edgeId, owner: r.owner, builtTurn: 0 })),
+      this.state.buildings.map((b) => ({ vertexId: b.vertexId, owner: b.owner, kind: b.kind, builtTurn: 0 })),
+      playerId,
+    ).filter((id) => this.geo.edgeMap[id]);
     if (!edges.length) return { edges, vertices: [] };
     const first = this.geo.edgeMap[edges[0]];
     const second = edges.length > 1 ? this.geo.edgeMap[edges[1]] : null;

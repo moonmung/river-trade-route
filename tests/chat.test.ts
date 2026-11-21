@@ -30,6 +30,7 @@ function fakeRoom(): { room: Room; a: RoomPlayer; b: RoomPlayer } {
     winPoints: 10,
     handLimit: 7,
     turnSeconds: 60,
+    map: { shape: 'hex', arrange: 'golden' },
     createdAt: 0,
     touchedAt: 0,
   };

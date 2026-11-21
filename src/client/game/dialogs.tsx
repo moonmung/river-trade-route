@@ -225,7 +225,7 @@ export function MenuDialog({
         <ol className="log">
           {[...events].reverse().map((e) => (
             <li key={e.seq}>
-              <span className="log-round">{e.turn > 0 ? `${e.turn}턴` : '배치'}</span> {formatEvent(e, players, view.you, view.game?.numbers)}
+              <span className="log-round">{e.turn > 0 ? `${e.turn}턴` : '배치'}</span> {formatEvent(e, players, view.you, view.game)}
             </li>
           ))}
         </ol>

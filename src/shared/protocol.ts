@@ -1,5 +1,23 @@
 // 브라우저 ↔ 서버 Socket.IO 메시지 형식.
-import type { Building, Bundle, DevCard, GameEvent, GamePhase, GameResult, GameAction, Harbor, Resource, Road, TileId, TradeResponse, TurnStep } from './types';
+import type {
+  Building,
+  Bundle,
+  DevCard,
+  GameEvent,
+  GamePhase,
+  GameResult,
+  GameAction,
+  Harbor,
+  MapArrange,
+  MapConfig,
+  MapShape,
+  Resource,
+  Road,
+  TileDef,
+  TileId,
+  TradeResponse,
+  TurnStep,
+} from './types';
 
 export interface LobbyPlayerView {
   id: string;
@@ -69,6 +87,8 @@ export interface GameView {
   discards: Record<string, number>;
   /** 기사단 동상을 옮긴 뒤 빼앗을 수 있는 상대 */
   stealFrom: string[];
+  /** 이 게임의 보드 칸 (맵 모양과 땅 배치) */
+  tiles: TileDef[];
   /** 기사단 동상이 선 칸 */
   robber: TileId;
   /** 칸마다 놓인 주사위 숫자 */
@@ -116,6 +136,8 @@ export interface RoomView {
   handLimit: number;
   /** 방장이 정한 한 차례 제한 시간 (초, 0 이면 제한 없음) */
   turnSeconds: number;
+  /** 방장이 정한 맵 모양과 땅 배치 (다음 게임에 쓴다) */
+  map: MapConfig;
 }
 
 /** 방장이 대기실에서 바꾸는 규칙 (보낸 것만 바뀐다) */
@@ -123,6 +145,8 @@ export interface RoomSettingsPatch {
   winPoints?: number;
   handLimit?: number;
   turnSeconds?: number;
+  mapShape?: MapShape;
+  mapArrange?: MapArrange;
 }
 
 export interface RoomPeek {
