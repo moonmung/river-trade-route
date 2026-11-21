@@ -1,4 +1,5 @@
-// /lab — 작은 3D 테스트 장면 (구현 순서 2단계).
+// /lab — 실험실. 처음에는 실제 게임 화면을 서버 없이 띄운 모의 게임(lab/LabGame.tsx)이 열리고,
+// 서랍의 '3D 장면 시험'을 누르면 아래의 작은 3D 테스트 장면 (구현 순서 2단계)으로 바뀐다.
 // 광장과 다섯 생산 칸(목재·곡물·양모·벽돌·석재)을 놓고 카메라 이동·확대, 타일 터치, 프레임 시간을 확인한다.
 // 맵을 만들 때 쓰는 칸 코드(A1~E3)와 숫자 패를 함께 보고, 기사단 동상·주사위·달성 연출을 시험한다.
 // 실제 휴대폰에서 이 화면을 열어 측정값을 README 에 기록한다.
@@ -15,6 +16,8 @@ import { Hand, MiniHand } from '../game/hand';
 import { navigate } from '../router';
 import { playerColor } from '../theme';
 import { Emblem } from '../ui/icons';
+import { LabGame } from '../lab/LabGame';
+import { useLocalSetting } from '../game/ui';
 
 // 가운데 광장을 다섯 생산 칸이 둘러싼 7칸 장면 (목재만 두 칸)
 const MINI_TILES: TileDef[] = [
@@ -40,6 +43,12 @@ function fmt(n: number, digits = 1): string {
 }
 
 export default function Lab() {
+  const [mode, setMode] = useLocalSetting<'game' | 'scene'>('rr.lab.mode', 'game');
+  if (mode === 'game') return <LabGame onScene={() => setMode('scene')} />;
+  return <SceneLab onGame={() => setMode('game')} />;
+}
+
+function SceneLab({ onGame }: { onGame: () => void }) {
   const [full, setFull] = useState(false);
   const tiles = full ? TILES : MINI_TILES;
   // 장면을 바꾸면 꼭짓점·변 ID 가 달라지므로 놓은 조각을 비운다.
@@ -231,6 +240,9 @@ export default function Lab() {
         <div className="lab-row">
           <button className="btn btn-small" onClick={() => navigate('/')}>
             ← 처음으로
+          </button>
+          <button className="btn btn-small" onClick={onGame}>
+            모의 게임
           </button>
           <b>3D 장면 테스트</b>
         </div>

@@ -74,8 +74,29 @@ export const WIN_POINTS_MAX = 20;
 export function normalizeWinPoints(v: unknown): number | null {
   return typeof v === 'number' && Number.isInteger(v) && v >= WIN_POINTS_MIN && v <= WIN_POINTS_MAX ? v : null;
 }
-/** 7이 나오면 자원이 이 수보다 많은 사람이 절반(내림)을 버린다 */
+/**
+ * 자원 보유 한도: 7이 나오면 자원이 이 수보다 많은 사람이 절반(내림)을 버린다.
+ * 기본 7장이고 방장이 대기실에서 HAND_LIMIT_MIN~HAND_LIMIT_MAX 사이로 바꿀 수 있다.
+ */
 export const DISCARD_LIMIT = 7;
+export const HAND_LIMIT_MIN = 5;
+export const HAND_LIMIT_MAX = 20;
+
+/** 보유 한도 입력값을 확인한다. 정수가 아니거나 범위를 벗어나면 null. */
+export function normalizeHandLimit(v: unknown): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= HAND_LIMIT_MIN && v <= HAND_LIMIT_MAX ? v : null;
+}
+
+/**
+ * 한 사람이 한 차례에 쓸 수 있는 시간 (초). 시간이 다 되면 서버가 대신 진행한다
+ * (굴리기·동상 옮기기·버리기는 무작위로, 교환·건설 단계는 턴을 넘긴다). 0 이면 제한 없음.
+ */
+export const TURN_SECONDS = 60;
+export const TURN_SECONDS_OPTIONS: readonly number[] = [0, 30, 45, 60, 90, 120, 180];
+
+export function normalizeTurnSeconds(v: unknown): number | null {
+  return typeof v === 'number' && TURN_SECONDS_OPTIONS.includes(v) ? v : null;
+}
 
 export const PIECE_LABEL: Record<PieceKind, string> = { road: '길', village: '마을', city: '도시' };
 /** 건설 비용 (카탄 설명서와 같은 값): 길 = 목재·벽돌, 마을 = 목재·벽돌·양모·곡물, 도시 = 곡물 2·석재 3 (마을을 올린다) */

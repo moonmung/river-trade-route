@@ -9,7 +9,23 @@ import { josa } from '../ui/josa';
 import { rollDice, settleDice } from '../dice';
 import { showAward } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
+import { flyCards, glowBoard, type FlyCard } from './cardFly';
 import { bundleText, tileName, type PlayerInfo } from './derive';
+import { RESOURCES } from '../../shared/constants';
+
+/** 보드 위 꼭짓점의 화면 좌표 (렌더러가 없으면 보드 가운데) */
+function boardPoint(renderer: BoardRenderer | null, vertexId: string): { x: number; y: number } {
+  const layer = document.querySelector('.board-layer')?.getBoundingClientRect();
+  const ox = layer?.left ?? 0;
+  const oy = layer?.top ?? 0;
+  const p = renderer?.spotScreenPosition('vertex', vertexId);
+  if (p) return { x: ox + p.x, y: oy + p.y };
+  return { x: ox + (layer?.width ?? window.innerWidth) / 2, y: oy + (layer?.height ?? window.innerHeight) / 2 };
+}
+
+function reducedMotion(): boolean {
+  return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
 
 function buzz(ms: number): void {
   // 브라우저는 사용자가 화면을 한 번이라도 누르기 전에는 진동을 막는다.
@@ -58,14 +74,14 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           const mine = e.detail?.[me];
           const blocked = e.blocked.map((t) => tileName(g.numbers, t));
           // 숫자가 나온 칸에서 그 칸에 닿은 마을·도시로 자원이 솟아 날아간다 (공개 정보로 계산).
-          const items: { tileId: string; vertexId: string; resource: Resource; amount: number }[] = [];
+          const items: { tileId: string; vertexId: string; resource: Resource; amount: number; owner: string }[] = [];
           if (animate && total !== 7) {
             for (const tileId of e.tiles) {
               const kind = TILE_MAP[tileId]?.kind;
               if (!kind || kind === 'plaza') continue;
               for (const b of g.buildings) {
                 if (!VERTEX_MAP[b.vertexId]?.tiles.includes(tileId)) continue;
-                items.push({ tileId, vertexId: b.vertexId, resource: kind, amount: b.kind === 'city' ? 2 : 1 });
+                items.push({ tileId, vertexId: b.vertexId, resource: kind, amount: b.kind === 'city' ? 2 : 1, owner: b.owner });
               }
             }
           }
@@ -81,10 +97,48 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             }
             if (mine && Object.values(mine).some((n) => n > 0)) showToast(`${total} · 내 생산 ${bundleText(mine)}`, 'good', 3200);
             if (blocked.length) showToast(`${blocked.join(', ')} 칸은 기사단 동상에 막혀 생산하지 않았습니다.`, 'warn', 3200);
-            if (animate) rendererRef.current?.playRoll(e.tiles, e.blocked, items);
+            if (!animate) return;
+            rendererRef.current?.playRoll(e.tiles, e.blocked, items);
+            // 생산물이 마을·도시에 닿을 즈음 카드가 그 자리에서 손으로 날아든다. 내 것이 있으면 맵이 한 번 밝아진다.
+            const cards: FlyCard[] = [];
+            let n = 0;
+            items.forEach((it) => {
+              const from = boardPoint(rendererRef.current, it.vertexId);
+              for (let k = 0; k < it.amount; k++) {
+                cards.push({ player: it.owner, resource: it.resource, from, delay: 900 + n * 130, mine: it.owner === me });
+                n++;
+              }
+            });
+            if (cards.some((c) => c.mine)) glowBoard();
+            flyCards(cards, { reduced: reducedMotion() });
           });
           break;
         }
+        case 'placement':
+          // 두 번째 시작 마을: 닿은 칸의 자원이 마을 자리에서 손으로 날아든다.
+          if (animate && e.gained) {
+            const from = boardPoint(rendererRef.current, e.vertexId);
+            const cards: FlyCard[] = RESOURCES.flatMap((r) => Array.from({ length: e.gained![r] }, () => r)).map((r, i) => ({
+              player: e.player,
+              resource: r,
+              from,
+              delay: 450 + i * 150,
+              mine: e.player === me,
+            }));
+            if (e.player === me && cards.length) glowBoard();
+            flyCards(cards, { reduced: reducedMotion() });
+          }
+          break;
+        case 'order_tie':
+          if (e.players.includes(me)) showToast(`주사위가 ${e.total}(으)로 같습니다. 다시 굴리세요.`, 'warn', 3200);
+          break;
+        case 'game_start':
+          if (e.order.length) showToast(`자리 순서: ${e.order.map((id) => (id === me ? '나' : name(id))).join(' → ')}`, 'good', 4200);
+          break;
+        case 'timeout':
+          if (e.player === me) showToast('시간이 다 되어 자동으로 진행했습니다.', 'warn', 3600);
+          else showToast(`${name(e.player)}의 시간이 다 되어 자동으로 진행했습니다.`, 'info', 2600);
+          break;
         case 'robber':
           if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} 기사단 동상을 ${tileName(g.numbers, e.tileId)} 칸으로 옮겼습니다.`, 'warn');
           break;

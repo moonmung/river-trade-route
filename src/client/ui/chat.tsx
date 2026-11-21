@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { CHAT_EMOTES, CHAT_MAX_LENGTH } from '../../shared/constants';
 import type { ChatMessage } from '../../shared/protocol';
-import { markChatRead, useChat } from '../net/chat';
-import { client } from '../net/client';
+import { markChatRead, sendChatEmote, sendChatText, useChat } from '../net/chat';
 import { Emblem } from './icons';
 import { showToast } from './toast';
 
@@ -31,7 +30,7 @@ export function ChatBox({ code, you, autoFocus = false }: { code: string; you: s
     const t = text.trim();
     if (!t || sending) return;
     setSending(true);
-    const res = await client.sendChat(t);
+    const res = await sendChatText(t);
     setSending(false);
     if (res.ok) setText('');
     else showToast(res.error, 'warn');
@@ -82,7 +81,7 @@ export function EmoteBar() {
           className="emote-btn"
           aria-label={`${e} 띄우기`}
           onClick={async () => {
-            const res = await client.sendEmote(e);
+            const res = await sendChatEmote(e);
             if (!res.ok && res.code !== 'CHAT_SLOW') showToast(res.error, 'warn');
           }}
         >

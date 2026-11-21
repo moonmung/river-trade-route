@@ -553,10 +553,9 @@ h2 {
 }
 
 .lobby-points {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  column-gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .lobby-points h2 {
@@ -564,8 +563,43 @@ h2 {
 }
 
 .lobby-points p {
-  grid-column: 1 / -1;
-  margin: 4px 0 0;
+  margin: 2px 0 0;
+}
+
+/* 대기실 규칙 줄: 이름 왼쪽, 고르는 단추 오른쪽 */
+.rule-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rule-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  border-bottom: 1px dashed rgba(58, 42, 31, 0.18);
+}
+
+.rule-row:last-child {
+  border-bottom: none;
+}
+
+.rule-name {
+  font-family: var(--font-title);
+  font-weight: 700;
+}
+
+.rule-select {
+  font: inherit;
+  font-family: var(--font-title);
+  font-weight: 700;
+  padding: 5px 8px;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--wobble-sm);
+  background: var(--parchment-hi);
+  color: var(--ink);
 }
 
 .rules summary {

@@ -95,7 +95,7 @@ export function DiscardDialog({ view }: { view: RoomView }) {
           <h2>7! 자원 {need}장 버리기</h2>
         </div>
         <div className="sheet-body">
-          <p className="small muted">자원이 7장보다 많아 절반을 버려야 합니다. 버릴 자원을 고르세요.</p>
+          <p className="small muted">자원이 보유 한도 {g.handLimit}장보다 많아 절반을 버려야 합니다. 버릴 자원을 고르세요.</p>
           {RESOURCES.map((r) => (
             <div key={r} className="trade-row">
               <ResourceIcon kind={r} size={22} />
@@ -154,27 +154,16 @@ export function StealDialog({ view, players }: { view: RoomView; players: Player
  * 보드를 눌렀을 때 그 자리에서 할 수 있는 일(동상 옮기기, 시작 배치, 길·마을 짓기, 도시로 올리기)만 버튼으로 띄운다.
  * 할 수 있는 일이 없는 자리는 아무것도 띄우지 않는다 (칸 설명은 보드 그림과 숫자 패로 충분하다).
  */
-export function SpotCard({
-  view,
-  sel,
-  pendingVertex,
-  onClose,
-  onDone,
-}: {
-  view: RoomView;
-  sel: BoardSelection;
-  pendingVertex: string | null;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const act = spotAction(view, sel, pendingVertex);
+export function SpotCard({ view, sel, onClose, onDone }: { view: RoomView; sel: BoardSelection; onClose: () => void; onDone: () => void }) {
+  const act = spotAction(view, sel);
   if (!act) return null;
   return (
-    <div className="spot-actions" role="dialog" aria-label={act.label}>
+    <div className={`spot-actions ${act.confirm ? 'spot-confirm' : ''}`} role="dialog" aria-label={act.label}>
       <ActionButton
-        className="btn btn-primary"
+        className={`btn btn-primary ${act.confirm ? 'btn-check' : ''}`}
         label={act.label}
         blocker={act.blocker}
+        icon={act.confirm ? <span className="check-ico" aria-hidden>✓</span> : undefined}
         onClick={async () => {
           if (await sendAction(act.action)) onDone();
         }}
@@ -368,23 +357,35 @@ export function ResultOverlay({ view, players, onClose }: { view: RoomView; play
   );
 }
 
-export function PlacementBanner({ view, players, pendingVertex }: { view: RoomView; players: Players; pendingVertex: string | null }) {
+export function PlacementBanner({ view, players, picked }: { view: RoomView; players: Players; picked: boolean }) {
   const g = view.game!;
   if (g.phase !== 'placement') return null;
   const mine = g.placementPlayerId === view.you;
+  const step = g.setupVillage ? 2 : 1;
   return (
     <div className={`placement-banner ${mine ? 'placement-mine' : ''}`}>
       {mine ? (
-        <b>{pendingVertex ? '빛나는 변을 눌러 마을에 붙일 길을 고르세요.' : '빛나는 꼭짓점을 눌러 시작 마을 자리를 고르세요.'}</b>
+        <b>
+          <span className="pb-step">{step}/2</span>{' '}
+          {g.setupVillage
+            ? picked
+              ? '고른 변에 길을 놓으려면 ✓ 를 누르세요.'
+              : '빛나는 변을 눌러 방금 지은 마을에 붙일 길을 고르세요.'
+            : picked
+              ? '고른 자리에 마을을 지으려면 ✓ 를 누르세요.'
+              : '빛나는 꼭짓점을 눌러 시작 마을 자리를 고르세요.'}
+        </b>
       ) : (
-        <span>{josa(players.get(g.placementPlayerId ?? '')?.nickname ?? '?', '이/가')} 시작 마을과 길을 고르는 중입니다.</span>
+        <span>
+          {josa(players.get(g.placementPlayerId ?? '')?.nickname ?? '?', '이/가')} {g.setupVillage ? '마을을 짓고 길을 고르는 중입니다.' : '시작 마을 자리를 고르는 중입니다.'}
+        </span>
       )}
       <div className="small">
         배치 순서(한 바퀴 돌고 거꾸로 한 바퀴):{' '}
         {g.placementOrder.map((id, i) => {
           const p = players.get(id);
-          const done = i < g.buildings.length;
-          const now = i === g.buildings.length;
+          const done = i < g.roads.length;
+          const now = i === g.roads.length;
           return (
             <Fragment key={`${id}-${i}`}>
               <span className={`po ${done ? 'po-done' : ''} ${now ? 'po-now' : ''}`}>

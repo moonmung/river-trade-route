@@ -11,6 +11,8 @@ import {
   DEV_DECK,
   DEV_LABEL,
   DISCARD_LIMIT,
+  HAND_LIMIT_MAX,
+  HAND_LIMIT_MIN,
   GENERIC_HARBOR_RATIO,
   LARGEST_ARMY_MIN,
   LONGEST_ROAD_MIN,
@@ -31,6 +33,8 @@ import {
   WIN_POINTS_MAX,
   WIN_POINTS_MIN,
   normalizeWinPoints,
+  normalizeHandLimit,
+  numberPips,
   bundleLabel,
   bundleTotal,
   emptyBundle,
@@ -69,10 +73,18 @@ export interface PlayerGameState {
 
 export interface GameState {
   phase: GamePhase;
-  /** 서버가 섞은 자리 순서 */
+  /** 자리 순서. 순서 정하기(order) 단계에서는 참가 순서이고, 주사위로 정해지면 높은 사람부터 다시 놓인다. */
   order: string[];
+  /** 순서 정하기 주사위 기록 (사람마다 굴린 순서대로). 같은 수가 나온 사람끼리는 한 번 더 굴려 뒤에 붙인다. */
+  startRolls: Record<string, [number, number][]>;
+  /** 순서 정하기에서 아직 굴려야 하는 사람 (처음엔 모두, 같은 수가 나오면 그 사람들만) */
+  startPending: string[];
   /** 시작 배치를 몇 번 마쳤는지 (자리 순서대로 한 바퀴, 거꾸로 한 바퀴) */
   placementIndex: number;
+  /** 시작 배치에서 마을만 지어 두고 길을 기다리는 꼭짓점 */
+  setupVillage: VertexId | null;
+  /** 자원 보유 한도: 7이 나오면 이보다 많이 든 사람이 절반을 버린다 (방장이 정한 값, 기본 7) */
+  handLimit: number;
   /** 진행 턴 번호 (1부터). 시작 배치 중에는 0 */
   turn: number;
   /** 차례인 사람의 자리 번호 */
@@ -149,20 +161,40 @@ export function shuffle<T>(items: T[], random: () => number): T[] {
   return a;
 }
 
-export function createGame(playerIds: string[], random: () => number = Math.random, winPoints: number = WIN_POINTS): GameState {
+export interface GameOptions {
+  /** 승리 점수 (기본 10) */
+  winPoints?: number;
+  /** 자원 보유 한도 (기본 7) */
+  handLimit?: number;
+  /**
+   * true 면 모두 주사위를 굴려 자리 순서를 정하는 단계(order)부터 시작한다. 높은 사람이 먼저, 가장 낮은 사람이 마지막.
+   * false 면 서버가 섞은 순서로 바로 시작 배치를 한다 (규칙 테스트용).
+   */
+  rollForOrder?: boolean;
+}
+
+export function createGame(playerIds: string[], random: () => number = Math.random, opts: number | GameOptions = {}): GameState {
+  const o: GameOptions = typeof opts === 'number' ? { winPoints: opts } : opts;
+  const winPoints = o.winPoints ?? WIN_POINTS;
+  const handLimit = o.handLimit ?? DISCARD_LIMIT;
   if (normalizeWinPoints(winPoints) === null) throw new Error(`승리 점수는 ${WIN_POINTS_MIN}~${WIN_POINTS_MAX}점이어야 합니다.`);
+  if (normalizeHandLimit(handLimit) === null) throw new Error(`자원 보유 한도는 ${HAND_LIMIT_MIN}~${HAND_LIMIT_MAX}장이어야 합니다.`);
   if (playerIds.length < MIN_PLAYERS || playerIds.length > MAX_PLAYERS) {
     throw new Error(`플레이어는 ${MIN_PLAYERS}~${MAX_PLAYERS}명이어야 합니다.`);
   }
   if (new Set(playerIds).size !== playerIds.length) throw new Error('플레이어 ID가 중복되었습니다.');
-  const order = shuffle(playerIds, random);
+  const order = o.rollForOrder ? [...playerIds] : shuffle(playerIds, random);
   const players: Record<string, PlayerGameState> = {};
   for (const id of order) players[id] = { id, resources: emptyBundle(), devCards: [], knightsPlayed: 0 };
   const deck = (Object.keys(DEV_DECK) as DevKind[]).flatMap((k) => Array<DevKind>(DEV_DECK[k]).fill(k));
   const state: GameState = {
-    phase: 'placement',
+    phase: o.rollForOrder ? 'order' : 'placement',
     order,
+    startRolls: Object.fromEntries(order.map((id) => [id, []])),
+    startPending: o.rollForOrder ? [...order] : [],
     placementIndex: 0,
+    setupVillage: null,
+    handLimit,
     turn: 0,
     current: 0,
     step: 'roll',
@@ -189,7 +221,7 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     result: null,
     version: 1,
   };
-  pushEvent(state, { kind: 'game_start', order: [...order] });
+  if (!o.rollForOrder) pushEvent(state, { kind: 'game_start', order: [...order] });
   return state;
 }
 
@@ -391,6 +423,15 @@ export function applyAction(s: GameState, playerId: string, action: GameAction, 
   const eventsBefore = s.eventSeq;
   let result: ActionResult;
   switch (action.type) {
+    case 'order_roll':
+      result = doOrderRoll(s, playerId, random);
+      break;
+    case 'place_village':
+      result = doPlaceVillage(s, playerId, action.vertexId);
+      break;
+    case 'place_road':
+      result = doPlaceRoad(s, playerId, action.edgeId);
+      break;
     case 'place':
       result = doPlace(s, playerId, action.vertexId, action.edgeId);
       break;
@@ -450,29 +491,89 @@ export function applyAction(s: GameState, playerId: string, action: GameAction, 
   return result;
 }
 
-function doPlace(s: GameState, playerId: string, vertexId: VertexId, edgeId: EdgeId): ActionResult {
+/** 순서 정하기 주사위 합 비교: 처음 굴린 값부터 차례로 견주어 큰 쪽이 앞선다. 같은 수로 다시 굴린 사람끼리만 길이가 같다. */
+function compareStartRolls(a: [number, number][], b: [number, number][]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] ? a[i][0] + a[i][1] : 0;
+    const y = b[i] ? b[i][0] + b[i][1] : 0;
+    if (x !== y) return y - x;
+  }
+  return 0;
+}
+
+/**
+ * 순서 정하기: 아직 굴리지 않은 사람은 아무 때나(동시에) 주사위를 굴린다. 다 굴리면 높은 사람부터 자리를 매기고,
+ * 같은 수가 나온 사람들만 다시 굴려 그 사이 순서를 정한다. 가장 낮은 사람이 마지막이다.
+ */
+function doOrderRoll(s: GameState, playerId: string, random: () => number): ActionResult {
+  if (s.phase !== 'order') return fail('WRONG_PHASE', '순서를 정하는 단계가 아닙니다.');
+  if (!s.startPending.includes(playerId)) return fail('NOT_ALLOWED', '이미 주사위를 굴렸습니다. 다른 사람을 기다리세요.');
+  const dice: [number, number] = [1 + Math.floor(random() * 6), 1 + Math.floor(random() * 6)];
+  s.startRolls[playerId].push(dice);
+  s.startPending = s.startPending.filter((id) => id !== playerId);
+  pushEvent(s, { kind: 'order_roll', player: playerId, dice, round: s.startRolls[playerId].length });
+  if (s.startPending.length) return OK;
+
+  // 모두 굴렸다: 기록이 똑같은 사람끼리 묶어 둘 이상이면 그 사람들만 다시 굴린다.
+  const groups = new Map<string, string[]>();
+  for (const id of s.order) {
+    const key = s.startRolls[id].map((d) => d[0] + d[1]).join(',');
+    groups.set(key, [...(groups.get(key) ?? []), id]);
+  }
+  const tied = [...groups.values()].filter((g) => g.length > 1);
+  if (tied.length) {
+    for (const g of tied) {
+      const last = s.startRolls[g[0]].at(-1)!;
+      pushEvent(s, { kind: 'order_tie', players: [...g], total: last[0] + last[1] });
+    }
+    s.startPending = s.order.filter((id) => tied.some((g) => g.includes(id)));
+    return OK;
+  }
+  s.order = [...s.order].sort((a, b) => compareStartRolls(s.startRolls[a], s.startRolls[b]));
+  s.phase = 'placement';
+  s.placementIndex = 0;
+  pushEvent(s, { kind: 'game_start', order: [...s.order] });
+  return OK;
+}
+
+function placementCheck(s: GameState, playerId: string): ActionResult | null {
   if (s.phase !== 'placement') return fail('WRONG_PHASE', '시작 배치 단계가 아닙니다.');
   if (placementPlayer(s) !== playerId) return fail('NOT_YOUR_TURN', '지금은 다른 사람이 시작 마을을 놓을 차례입니다.');
+  return null;
+}
+
+function villageSpotProblem(s: GameState, vertexId: VertexId): ActionResult | null {
   if (!VERTEX_MAP[vertexId]) return fail('SPOT_INVALID', '보드에 없는 꼭짓점입니다.');
   if (buildingAt(s.buildings, vertexId)) return fail('SPOT_TAKEN', '이미 마을이 있는 꼭짓점입니다.');
   if (!vertexOpen(s.buildings, vertexId)) return fail('TOO_CLOSE', '바로 옆 꼭짓점에 마을이 있어 지을 수 없습니다. 한 칸 이상 떨어뜨리세요.');
-  const edge = EDGE_MAP[edgeId];
-  if (!edge || (edge.a !== vertexId && edge.b !== vertexId)) return fail('NOT_CONNECTED', '시작 길은 방금 고른 마을에 붙여 놓아야 합니다.');
-  if (roadAt(s.roads, edgeId)) return fail('SPOT_TAKEN', '이미 길이 있는 변입니다.');
+  return null;
+}
 
+function roadSpotProblem(s: GameState, vertexId: VertexId, edgeId: EdgeId): ActionResult | null {
+  const edge = EDGE_MAP[edgeId];
+  if (!edge || (edge.a !== vertexId && edge.b !== vertexId)) return fail('NOT_CONNECTED', '시작 길은 방금 지은 마을에 붙여 놓아야 합니다.');
+  if (roadAt(s.roads, edgeId)) return fail('SPOT_TAKEN', '이미 길이 있는 변입니다.');
+  return null;
+}
+
+/** 시작 마을을 짓는다. 두 번째 시작 마을은 닿은 생산 칸마다 자원 1장을 바로 받는다. 길은 place_road 로 이어 놓는다. */
+function putSetupVillage(s: GameState, playerId: string, vertexId: VertexId): Bundle | undefined {
   s.buildings.push({ vertexId, owner: playerId, kind: 'village', builtTurn: 0 });
-  s.roads.push({ edgeId, owner: playerId, builtTurn: 0 });
-  // 두 번째 시작 마을은 닿은 생산 칸마다 자원 1장을 바로 받는다.
-  let gained: Bundle | undefined;
-  if (s.placementIndex >= s.order.length) {
-    gained = emptyBundle();
-    for (const t of VERTEX_MAP[vertexId].tiles) {
-      const kind = TILE_MAP[t].kind;
-      if (kind !== 'plaza') gained[kind] += 1;
-    }
-    gain(s.players[playerId].resources, gained);
+  s.setupVillage = vertexId;
+  if (s.placementIndex < s.order.length) return undefined;
+  const gained = emptyBundle();
+  for (const t of VERTEX_MAP[vertexId].tiles) {
+    const kind = TILE_MAP[t].kind;
+    if (kind !== 'plaza') gained[kind] += 1;
   }
-  pushEvent(s, { kind: 'placement', player: playerId, vertexId, edgeId, ...(gained ? { gained } : {}) });
+  gain(s.players[playerId].resources, gained);
+  return gained;
+}
+
+/** 시작 길을 놓고 다음 사람에게 넘긴다. 마지막 배치였으면 게임을 시작한다. */
+function putSetupRoad(s: GameState, playerId: string, edgeId: EdgeId): void {
+  s.roads.push({ edgeId, owner: playerId, builtTurn: 0 });
+  s.setupVillage = null;
   s.placementIndex += 1;
   updateLongestRoad(s);
   if (s.placementIndex >= placementOrder(s).length) {
@@ -481,6 +582,45 @@ function doPlace(s: GameState, playerId: string, vertexId: VertexId, edgeId: Edg
     s.current = 0;
     s.step = 'roll';
   }
+}
+
+function doPlaceVillage(s: GameState, playerId: string, vertexId: VertexId): ActionResult {
+  const bad = placementCheck(s, playerId);
+  if (bad) return bad;
+  if (s.setupVillage) return fail('WRONG_STEP', '방금 지은 마을에 붙여 길을 먼저 놓으세요.');
+  const spot = villageSpotProblem(s, vertexId);
+  if (spot) return spot;
+  const gained = putSetupVillage(s, playerId, vertexId);
+  pushEvent(s, { kind: 'placement', player: playerId, vertexId, step: 'village', ...(gained ? { gained } : {}) });
+  return OK;
+}
+
+function doPlaceRoad(s: GameState, playerId: string, edgeId: EdgeId): ActionResult {
+  const bad = placementCheck(s, playerId);
+  if (bad) return bad;
+  const vertexId = s.setupVillage;
+  if (!vertexId) return fail('WRONG_STEP', '시작 마을을 먼저 지으세요.');
+  const spot = roadSpotProblem(s, vertexId, edgeId);
+  if (spot) return spot;
+  // 기록은 턴 번호가 바뀌기 전(배치 0턴)에 남긴다.
+  pushEvent(s, { kind: 'placement', player: playerId, vertexId, edgeId, step: 'road' });
+  putSetupRoad(s, playerId, edgeId);
+  return OK;
+}
+
+/** 시작 마을과 길을 한 번에 놓는다 (마을만 지어 둔 상태면 그 마을에 붙일 길만 받는다). */
+function doPlace(s: GameState, playerId: string, vertexId: VertexId, edgeId: EdgeId): ActionResult {
+  const bad = placementCheck(s, playerId);
+  if (bad) return bad;
+  if (s.setupVillage) {
+    if (s.setupVillage !== vertexId) return fail('WRONG_STEP', '방금 지은 마을에 붙여 길을 먼저 놓으세요.');
+    return doPlaceRoad(s, playerId, edgeId);
+  }
+  const spot = villageSpotProblem(s, vertexId) ?? roadSpotProblem(s, vertexId, edgeId);
+  if (spot) return spot;
+  const gained = putSetupVillage(s, playerId, vertexId);
+  pushEvent(s, { kind: 'placement', player: playerId, vertexId, edgeId, ...(gained ? { gained } : {}) });
+  putSetupRoad(s, playerId, edgeId);
   return OK;
 }
 
@@ -518,7 +658,7 @@ function doRoll(s: GameState, playerId: string, random: () => number): ActionRes
     s.discards = {};
     for (const id of s.order) {
       const n = bundleTotal(s.players[id].resources);
-      if (n > DISCARD_LIMIT) s.discards[id] = Math.floor(n / 2);
+      if (n > s.handLimit) s.discards[id] = Math.floor(n / 2);
     }
     pushEvent(s, { kind: 'roll', player: playerId, dice, gains: {}, tiles: [], blocked: [] });
     s.resumeStep = 'main';
@@ -1020,6 +1160,124 @@ export function computeResult(s: GameState, winner: string): GameResult {
   }
   const ranking: RankEntry[] = [...entries].sort((a, b) => a.rank - b.rank || s.order.indexOf(a.playerId) - s.order.indexOf(b.playerId));
   return { ranking, winners: [winner], decidedBy: 'score' };
+}
+
+// ───────────────────────── 차례 시간 ─────────────────────────
+
+/** 지금 시간이 흐르는 사람들: 순서 정하기는 아직 굴리지 않은 사람 모두, 7 버리기는 버려야 하는 사람 모두, 그 밖에는 차례인 사람 */
+export function clockHolders(s: GameState): string[] {
+  if (s.phase === 'order') return [...s.startPending];
+  if (s.phase === 'placement') {
+    const p = placementPlayer(s);
+    return p ? [p] : [];
+  }
+  if (s.phase !== 'playing') return [];
+  if (s.step === 'discard') return s.order.filter((id) => s.discards[id]);
+  const c = currentPlayer(s);
+  return c ? [c] : [];
+}
+
+/**
+ * 차례 시계를 새로 맞출 때를 가리는 열쇠. 이 값이 바뀌면 시간을 처음부터 다시 잰다.
+ * 순서 정하기는 한 바퀴(같은 수가 나와 다시 굴리면 새 바퀴), 시작 배치는 한 사람의 마을과 길, 진행 중에는 한 턴.
+ * 7이 나와 다른 사람들이 버리는 동안은 따로 재고, 다 버리면 차례인 사람이 다시 처음부터 잰다.
+ */
+export function clockKey(s: GameState): string | null {
+  if (s.phase === 'order') {
+    const round = s.startPending.length ? Math.min(...s.startPending.map((id) => s.startRolls[id].length)) + 1 : 0;
+    return `order:${round}`;
+  }
+  if (s.phase === 'placement') return `place:${s.placementIndex}`;
+  if (s.phase === 'playing') return `turn:${s.turn}:${s.step === 'discard' ? 'discard' : 'own'}`;
+  return null;
+}
+
+function pickRandom<T>(items: readonly T[], random: () => number): T {
+  return items[Math.floor(random() * items.length)];
+}
+
+/** 시간이 다 된 시작 배치에서 대신 고를 마을 자리: 닿은 숫자 패의 점(나올 확률)이 가장 많은 곳 중 하나 */
+function autoSetupVertex(s: GameState, random: () => number): VertexId {
+  const free = placeableVertices(s.buildings);
+  const pips = (v: VertexId) => VERTEX_MAP[v].tiles.reduce((n, t) => n + (s.numbers[t] ? numberPips(s.numbers[t]) : 0), 0);
+  const best = Math.max(...free.map(pips));
+  return pickRandom(
+    free.filter((v) => pips(v) === best),
+    random,
+  );
+}
+
+/** 시간이 다 된 7 버리기: 가진 카드 중에서 무작위로 고른다 */
+function autoDiscardBundle(have: Bundle, count: number, random: () => number): Bundle {
+  const pool = RESOURCES.flatMap((r) => Array<Resource>(have[r]).fill(r));
+  const out = emptyBundle();
+  for (let i = 0; i < count && pool.length; i++) out[pool.splice(Math.floor(random() * pool.length), 1)[0]] += 1;
+  return out;
+}
+
+/** 시간이 다 된 동상 옮기기: 남의 마을·도시가 닿고 내 것은 닿지 않은 칸 중에서 고른다 */
+function autoRobberTile(s: GameState, playerId: string, random: () => number): TileId {
+  const score = (tileId: TileId) =>
+    s.buildings.filter((b) => VERTEX_MAP[b.vertexId]?.tiles.includes(tileId)).reduce((n, b) => n + (b.owner === playerId ? -10 : 1), 0);
+  const tiles = TILES.map((t) => t.id).filter((id) => id !== s.robber);
+  const best = Math.max(...tiles.map(score));
+  return pickRandom(
+    tiles.filter((t) => score(t) === best),
+    random,
+  );
+}
+
+/**
+ * 차례 시간이 다 되면 서버가 대신 진행한다. 시간이 흐르던 사람(clockHolders)마다 기록을 남기고,
+ *  - 순서 정하기: 아직 굴리지 않은 사람의 주사위를 굴린다
+ *  - 시작 배치: 점이 가장 많은 자리에 마을을, 그 마을에 붙여 길을 놓는다
+ *  - 7 버리기: 버려야 할 장수만큼 무작위로 버린다
+ *  - 차례인 사람: 굴리기·동상·빼앗기·공짜 길을 무작위로 마치고 턴을 넘긴다
+ * 무엇이든 바꿨으면 true.
+ */
+export function autoPlay(s: GameState, random: () => number = Math.random): boolean {
+  const before = s.eventSeq;
+  if (s.phase === 'order') {
+    for (const id of [...s.startPending]) {
+      pushEvent(s, { kind: 'timeout', player: id });
+      doOrderRoll(s, id, random);
+    }
+  } else if (s.phase === 'placement') {
+    const p = placementPlayer(s);
+    if (p) {
+      pushEvent(s, { kind: 'timeout', player: p });
+      if (!s.setupVillage) doPlaceVillage(s, p, autoSetupVertex(s, random));
+      const edges = s.setupVillage ? setupRoadEdges(s.roads, s.setupVillage) : [];
+      if (edges.length) doPlaceRoad(s, p, pickRandom(edges, random));
+    }
+  } else if (s.phase === 'playing' && s.step === 'discard') {
+    for (const id of s.order.filter((x) => s.discards[x])) {
+      pushEvent(s, { kind: 'timeout', player: id });
+      doDiscard(s, id, autoDiscardBundle(s.players[id].resources, s.discards[id], random));
+    }
+  } else if (s.phase === 'playing') {
+    const p = currentPlayer(s);
+    if (p) {
+      pushEvent(s, { kind: 'timeout', player: p });
+      // 한 단계씩 끝까지 진행한다. 7이 나와 다른 사람이 버려야 하면 그 사람들의 시간으로 넘어간다.
+      for (let guard = 0; guard < 40 && s.phase === 'playing' && currentPlayer(s) === p && s.step !== 'discard'; guard++) {
+        if (s.step === 'roll') doRoll(s, p, random);
+        else if (s.step === 'robber') doMoveRobber(s, p, autoRobberTile(s, p, random), random);
+        else if (s.step === 'steal') doSteal(s, p, pickRandom(s.stealFrom, random), random);
+        else if (s.step === 'road_building') {
+          const edges = buildableRoads(s.buildings, s.roads, p);
+          if (edges.length && s.freeRoads > 0) doBuildRoad(s, p, pickRandom(edges, random));
+          else {
+            s.freeRoads = 0;
+            s.step = s.resumeStep;
+          }
+        } else doEndTurn(s, p);
+      }
+    }
+  }
+  if (s.eventSeq === before) return false;
+  s.version += 1;
+  return true;
 }
 
 function pay(have: Bundle, cost: Bundle): void {

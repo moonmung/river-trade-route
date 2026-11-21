@@ -7,7 +7,7 @@
 //  - 끝난 게임과 maxAgeMs(기본 하루) 넘게 아무 일도 없던 방은 저장하지도 되살리지도 않는다.
 import fs from 'node:fs';
 import path from 'node:path';
-import { WIN_POINTS } from '../shared/constants';
+import { DISCARD_LIMIT, WIN_POINTS } from '../shared/constants';
 import type { AckResult } from '../shared/protocol';
 import { createGame } from '../shared/rules';
 import { normalizeRoomCode } from '../shared/validate';
@@ -109,6 +109,11 @@ function reviveRoom(raw: unknown): Room | null {
     if (!isObj(game) || !Array.isArray(game.order) || !isObj(game.players)) return null;
     // 승리 점수를 고를 수 있기 전에 저장한 게임은 기본 10점으로 이어 간다.
     if (!('winPoints' in game)) game.winPoints = WIN_POINTS;
+    // 자원 보유 한도·순서 정하기·나눠 놓는 시작 배치가 생기기 전에 저장한 게임은 그때 규칙 그대로 이어 간다.
+    if (!('handLimit' in game)) game.handLimit = DISCARD_LIMIT;
+    if (!('setupVillage' in game)) game.setupVillage = null;
+    if (!('startPending' in game)) game.startPending = [];
+    if (!('startRolls' in game)) game.startRolls = Object.fromEntries(game.order.map((id) => [id, []]));
     const keys = requiredGameKeys();
     if (keys && keys.some((k) => !(k in game))) return null;
     const ids = new Set(players.map((p) => p.id));

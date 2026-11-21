@@ -203,10 +203,44 @@ const ROAD_STRIP_WIDTH = 0.4;
 const ROAD_TEX_LENGTH = 1.0;
 /** 바닷가 변에서 흙 땅이 바다 쪽으로 더 나간 폭 */
 const LAND_MARGIN = 0.3;
-/** 모래밭 윗면 높이 (흙 땅보다 낮다) */
+/** 모래밭 윗면 높이 (흙 땅보다 낮다). 흙 땅 가장자리 밑에서 이 높이로 시작해 바다 쪽으로 비스듬히 내려간다. */
 const BEACH_TOP = 0.13;
-/** 얕은 물 색 (깊은 물은 장면 배경색) */
-const SHALLOW_COLOR = '#86c4cf';
+/** 모래밭이 물 밑으로 잠기는 끝의 높이 (물은 0) */
+const BEACH_LOW = -0.07;
+/** 모래밭 띠의 안쪽(흙 땅 밑)과 바깥쪽(물 밑) 끝: 바닷가 변에서 떨어진 거리 */
+const BEACH_IN = LAND_MARGIN - 0.04;
+const BEACH_OUT = LAND_MARGIN + 0.66;
+/** 모래밭이 물과 만나는 줄 (물가) */
+const WATERLINE = BEACH_IN + ((BEACH_OUT - BEACH_IN) * BEACH_TOP) / (BEACH_TOP - BEACH_LOW);
+/** 물가에서 이만큼 나가면 깊은 물(장면 배경색)이 된다 */
+const SEA_REACH = 3.4;
+/** 물가에서 떨어진 거리별 물빛: 젖은 모래 → 옥빛 → 얕은 물 → 깊은 물 */
+const SEA_RAMP: [number, string][] = [
+  [0, '#cfdcbf'],
+  [0.18, '#acdcd0'],
+  [0.7, '#8ccad0'],
+  [1.6, '#72b4c4'],
+  [2.5, '#619fbb'],
+  [SEA_REACH, WATER_COLOR],
+];
+
+function hexRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** 물가에서 d 만큼 떨어진 곳의 물빛 (sRGB 로 섞는다. 캔버스 색과 장면 배경색이 같은 공간이다) */
+function seaColor(d: number): string {
+  let i = 1;
+  while (i < SEA_RAMP.length - 1 && d > SEA_RAMP[i][0]) i++;
+  const [d0, c0] = SEA_RAMP[i - 1];
+  const [d1, c1] = SEA_RAMP[i];
+  const t = Math.max(0, Math.min(1, (d - d0) / (d1 - d0)));
+  const s = t * t * (3 - 2 * t);
+  const a = hexRgb(c0);
+  const b = hexRgb(c1);
+  return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * s)).join(', ')})`;
+}
 /** 바닷가 변 가운데에서 교역로 부두 중심까지 거리 */
 const HARBOR_REACH = 1.0;
 /** 화면에 담을 범위: 타일 꼭짓점 바깥으로 이만큼 더 (모래밭이 조금 보이게) */
@@ -1043,17 +1077,10 @@ export class BoardRenderer {
     // 땅: 바깥 타일 둘레(바닷가 변)를 따라 조금 넓힌 흙 땅. 타일 사이 틈이 흙길이 되고, 둘레는 모래밭과 얕은 물로 이어진다.
     const coast = this.coastLoop();
     const shapeOf = (pts: Pt[]) => new THREE.Shape(pts.map((q) => new THREE.Vector2(q.x, -q.z)));
-    const shallows = chaikin(offsetLoop(coast, LAND_MARGIN + 1.55), 3);
-    const shallowGeo = this.own(new THREE.ShapeGeometry(shapeOf(shallows), 1).rotateX(-Math.PI / 2));
-    const shallowMesh = new THREE.Mesh(shallowGeo, this.own(paintMaterial({ color: SHALLOW_COLOR, wash: 0.8 })));
-    shallowMesh.position.y = 0.01;
-    this.scene.add(shallowMesh);
-    const beach = chaikin(offsetLoop(coast, LAND_MARGIN + 0.32), 2);
-    const beachGeo = this.own(new THREE.ExtrudeGeometry(shapeOf(beach), { depth: BEACH_TOP + 0.02, bevelEnabled: false }).rotateX(-Math.PI / 2));
-    scaleUV(beachGeo, 0.5);
-    const beachMesh = new THREE.Mesh(beachGeo, [this.groundMaterial('ground_sand', GROUND_FALLBACK.sand), this.own(paintMaterial({ color: '#c9ad7c' }))]);
-    beachMesh.position.y = -0.02;
-    this.scene.add(beachMesh);
+    // 바다: 흙 땅 → 물 밑으로 비스듬히 잠기는 모래밭 → 옥빛 얕은 물 → 차츰 짙어지는 깊은 물.
+    // 높이가 뚝 끊기는 곳이 없어야 후처리 먹선이 바닷가에 울퉁불퉁한 테두리를 긋지 않는다.
+    this.buildBeachSlope(coast);
+    this.buildSea(coast);
     const land = offsetLoop(coast, LAND_MARGIN);
     const landGeo = this.own(new THREE.ExtrudeGeometry(shapeOf(land), { depth: PLATFORM_TOP, bevelEnabled: false }).rotateX(-Math.PI / 2));
     scaleUV(landGeo, 0.5);
@@ -1092,6 +1119,114 @@ export class BoardRenderer {
     edges.renderOrder = 1;
     this.scene.add(edges);
 
+  }
+
+  /**
+   * 모래밭: 흙 땅 가장자리 밑(BEACH_TOP 높이)에서 바다 쪽으로 비스듬히 내려가 물 밑(BEACH_LOW)으로 잠기는 띠.
+   * 물과 만나는 줄(물가)에는 높이 차가 없어 모래가 그대로 물속으로 이어져 보인다.
+   */
+  private buildBeachSlope(coast: CoastLoop): void {
+    const inner = chaikin(offsetLoop(coast, BEACH_IN), 3);
+    const outer = chaikin(offsetLoop(coast, BEACH_OUT), 3);
+    const n = inner.length;
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const idx: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = inner[i];
+      const b = outer[i];
+      pos.push(a.x, BEACH_TOP, a.z, b.x, BEACH_LOW, b.z);
+      // 모래 텍스처는 바닥 좌표로 붙여 띠를 따라 늘어나지 않게 한다.
+      uv.push(a.x * 0.5, a.z * 0.5, b.x * 0.5, b.z * 0.5);
+      const j = (i + 1) % n;
+      idx.push(i * 2, j * 2, i * 2 + 1, i * 2 + 1, j * 2, j * 2 + 1);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    // 감김 방향과 상관없이 위에서 보이게 양면으로 칠한다.
+    const mat = this.groundMaterial('ground_sand', GROUND_FALLBACK.sand);
+    mat.side = THREE.DoubleSide;
+    this.scene.add(new THREE.Mesh(this.own(geo), mat));
+  }
+
+  /**
+   * 바다 한 장: 보드 밖 화면 끝까지 덮는 평면에 물빛을 칠한 캔버스를 입힌다.
+   * 물가에서 바깥으로 갈수록 젖은 모래빛 → 옥빛 → 얕은 물 → 장면 배경과 같은 깊은 물로 부드럽게 짙어진다.
+   * 빛을 받지 않는 재질이라 가장 바깥 색이 배경색과 똑같아 경계가 보이지 않는다.
+   */
+  private buildSea(coast: CoastLoop): void {
+    const shore = chaikin(offsetLoop(coast, WATERLINE), 3);
+    const pad = SEA_REACH + 0.6;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const p of shore) {
+      minX = Math.min(minX, p.x - pad);
+      maxX = Math.max(maxX, p.x + pad);
+      minZ = Math.min(minZ, p.z - pad);
+      maxZ = Math.max(maxZ, p.z + pad);
+    }
+    const w = maxX - minX;
+    const h = maxZ - minZ;
+    const ppu = Math.min(64, 1400 / Math.max(w, h));
+    const cw = Math.round(w * ppu);
+    const ch = Math.round(h * ppu);
+    const canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const path = new Path2D();
+    shore.forEach((p, i) => (i ? path.lineTo((p.x - minX) * ppu, (p.z - minZ) * ppu) : path.moveTo((p.x - minX) * ppu, (p.z - minZ) * ppu)));
+    path.closePath();
+    ctx.fillStyle = WATER_COLOR;
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    // 바깥에서 안쪽으로, 좁아지는 띠를 차례로 덧칠하면 물가에서 떨어진 거리만큼 색이 바뀐다 (둥근 모서리로 오목한 곳도 고르게).
+    const steps = 64;
+    for (let i = 0; i <= steps; i++) {
+      const d = SEA_REACH * (1 - i / steps);
+      ctx.fillStyle = ctx.strokeStyle = seaColor(d);
+      ctx.lineWidth = Math.max(0.5, d * 2 * ppu);
+      ctx.stroke(path);
+      ctx.fill(path);
+    }
+    // 물가의 흰 물거품과 조금 떨어진 잔물결
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.lineWidth = 0.07 * ppu;
+    ctx.stroke(path);
+    ctx.lineWidth = 0.045 * ppu;
+    ctx.setLineDash([0.55 * ppu, 0.35 * ppu]);
+    [0.3, 0.62].forEach((d, k) => {
+      const ring = chaikin(offsetLoop(coast, WATERLINE + d), 3);
+      const p2 = new Path2D();
+      ring.forEach((p, i) => (i ? p2.lineTo((p.x - minX) * ppu, (p.z - minZ) * ppu) : p2.moveTo((p.x - minX) * ppu, (p.z - minZ) * ppu)));
+      p2.closePath();
+      ctx.lineDashOffset = k * 0.4 * ppu;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${k ? 0.14 : 0.24})`;
+      ctx.stroke(p2);
+    });
+    ctx.setLineDash([]);
+    const tex = this.own(new THREE.CanvasTexture(canvas));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.anisotropy = 4;
+    // 평면은 화면 끝 너머까지 넓게 깔고, 캔버스는 물가 둘레만 덮는다 (바깥은 가장자리 색 = 깊은 물이 늘어난다).
+    const size = 140;
+    const cx = (minX + maxX) / 2;
+    const cz = (minZ + maxZ) / 2;
+    tex.repeat.set(size / w, size / h);
+    tex.offset.set((cx - minX) / w - (0.5 * size) / w, 1 - (cz - minZ) / h - (0.5 * size) / h);
+    const mat = this.own(new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+    const sea = new THREE.Mesh(this.own(new THREE.PlaneGeometry(size, size).rotateX(-Math.PI / 2)), mat);
+    sea.position.set(cx, 0, cz);
+    sea.renderOrder = -1;
+    this.scene.add(sea);
   }
 
   /**

@@ -82,9 +82,18 @@ export interface TradeOffer {
   responses: Record<string, TradeResponse>;
 }
 
-export type GamePhase = 'placement' | 'playing' | 'finished';
+/**
+ * order: 모두 동시에 주사위를 굴려 자리 순서를 정하는 중 (높은 사람이 먼저, 가장 낮은 사람이 마지막)
+ * placement: 시작 마을과 길을 놓는 중
+ */
+export type GamePhase = 'order' | 'placement' | 'playing' | 'finished';
 
 export type GameAction =
+  /** 순서 정하기 주사위 */
+  | { type: 'order_roll' }
+  /** 시작 배치: 마을을 먼저 짓고(place_village) 그 마을에 붙여 길을 놓는다(place_road). place 는 둘을 한 번에 한다. */
+  | { type: 'place_village'; vertexId: string }
+  | { type: 'place_road'; edgeId: string }
   | { type: 'place'; vertexId: string; edgeId: string }
   | { type: 'roll' }
   | { type: 'discard'; bundle: Bundle }
@@ -123,7 +132,17 @@ interface EventBase {
 export type GameEvent = EventBase &
   (
     | { kind: 'game_start'; order: string[] }
-    | { kind: 'placement'; player: string; vertexId: string; edgeId: string; gained?: Bundle }
+    /** 순서 정하기 주사위 (round 는 1부터, 같은 수가 나와 다시 굴리면 2, 3…) */
+    | { kind: 'order_roll'; player: string; dice: [number, number]; round: number }
+    /** 순서 정하기에서 같은 수가 나와 이 사람들만 다시 굴린다 */
+    | { kind: 'order_tie'; players: string[]; total: number }
+    /**
+     * 시작 배치. step 이 village 면 마을만 지었고(edgeId 없음), road 면 그 마을에 붙여 길을 놓았다.
+     * step 이 없으면 마을과 길을 한 번에 놓았다.
+     */
+    | { kind: 'placement'; player: string; vertexId: string; edgeId?: string; step?: 'village' | 'road'; gained?: Bundle }
+    /** 차례 시간이 다 되어 서버가 대신 진행했다 */
+    | { kind: 'timeout'; player: string }
     | {
         kind: 'roll';
         player: string;

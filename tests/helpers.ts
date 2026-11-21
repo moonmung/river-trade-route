@@ -102,7 +102,19 @@ export async function startedRoom(url: string, n: number): Promise<{ clients: Te
   const start = await host.emit('room:start', {});
   expect(start).toEqual({ ok: true });
   for (const c of clients) await c.waitFor((v) => v.phase === 'game');
+  await rollForOrder(clients);
   return { clients, code: created.roomCode };
+}
+
+/** 자리 순서 정하기: 아직 굴리지 않은 사람이 모두 주사위를 굴린다 (같은 수가 나오면 그 사람들만 다시). */
+export async function rollForOrder(clients: TestClient[]): Promise<void> {
+  for (let round = 0; round < 50; round++) {
+    const g = clients[0].latest!.game!;
+    if (g.phase !== 'order') return;
+    for (const id of g.startPending) expect(await byId(clients, id).act({ type: 'order_roll' })).toEqual({ ok: true });
+    await sync(clients, Math.max(...clients.map((c) => c.latest!.game!.version)));
+  }
+  throw new Error('순서 정하기가 끝나지 않았습니다.');
 }
 
 export function byId(clients: TestClient[], id: string | null): TestClient {
@@ -124,6 +136,7 @@ export function chooseAction(v: RoomView, seat: number): GameAction {
   const g = v.game!;
   const me = v.you;
   const r = g.myResources;
+  if (g.phase === 'order') return { type: 'order_roll' };
   if (g.phase === 'placement') {
     const free = placeableVertices(g.buildings);
     // 자리와 배치 횟수마다 다른 쪽에서 골라 마을이 고르게 퍼지게 한다. 바닷가보다 칸 셋에 닿은 꼭짓점을 먼저 본다.
