@@ -1,11 +1,10 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { EDGE_MAP, VERTEX_MAP, harborVertices } from '../../shared/board';
+import { useState, type ReactNode } from 'react';
+import { VERTEX_MAP, harborVertices } from '../../shared/board';
 import {
   DEV_COST,
   DEV_DECK,
   DEV_HELP,
   DEV_LABEL,
-  MAX_TRADE_AMOUNT,
   WIN_POINTS,
   bundleTotal,
   numberPips,
@@ -19,113 +18,21 @@ import {
   emptyBundle,
 } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
-import { placeableVertices, setupRoadEdges, validateTradeBundles, longestRoadPath } from '../../shared/rules';
+import { placeableVertices, setupRoadEdges, longestRoadPath } from '../../shared/rules';
 import type { Bundle, DevKind, GameAction, Resource } from '../../shared/types';
 import { client } from '../net/client';
 import { navigate } from '../router';
 import { playerColor } from '../theme';
-import { AnyResourceIcon, CrownIcon, Emblem, ResourceIcon } from '../ui/icons';
+import { CrownIcon, Emblem, ResourceIcon } from '../ui/icons';
 import { josa } from '../ui/josa';
 import { RulesSummary } from '../ui/RulesSummary';
 import { showToast } from '../ui/toast';
 import type { BoardSelection } from '../board/BoardRenderer';
 import { AwardIcon } from './panels';
-import { bankBlocker, buildBlocker, buildSpots, bundleText, buyDevBlocker, formatEvent, playDevBlocker, roadStatus, tileName, tradeBlocker, type PlayerInfo } from './derive';
+import { buildBlocker, buildSpots, bundleText, buyDevBlocker, formatEvent, playDevBlocker, roadStatus, tileName, type PlayerInfo } from './derive';
 import { ActionButton, Sheet, Stepper, sendAction } from './ui';
 
 type Players = Map<string, PlayerInfo>;
-
-/** 은행·해상 교역로 교환: 내는 자원마다 내 비율(4:1, 교역로 3:1·2:1)이 붙는다. 한 번에 1개를 받는다. */
-export function BankTradeDialog({ view, onClose, onPlayerTrade }: { view: RoomView; onClose: () => void; onPlayerTrade: () => void }) {
-  const g = view.game!;
-  const mine = g.myResources;
-  const ratio = g.myTradeRatios;
-  const firstGive = RESOURCES.find((r) => mine[r] >= ratio[r]) ?? null;
-  const [give, setGive] = useState<Resource | null>(firstGive);
-  const [get, setGet] = useState<Resource | null>(null);
-  const harbors = g.harbors.filter((h) => {
-    const e = EDGE_MAP[h.edgeId];
-    return [e.a, e.b].some((v) => g.buildings.some((b) => b.vertexId === v && b.owner === view.you));
-  });
-  return (
-    <Sheet title="교환" onClose={onClose}>
-      <div className="tabs" role="tablist">
-        <button className="tab tab-on" role="tab" aria-selected>
-          은행·해상 교역로
-        </button>
-        <button className="tab" role="tab" aria-selected={false} onClick={onPlayerTrade} disabled={!!tradeBlocker(view)} title={tradeBlocker(view) ?? undefined}>
-          플레이어와 교환
-        </button>
-      </div>
-      <p className="muted small">
-        같은 자원을 은행에 4개 내면 원하는 자원 1개를 받습니다. 마을·도시가 해상 교역로에 닿아 있으면 아무 자원 3개, 교역로에 그려진 자원은 2개로 바꿀 수 있습니다.
-        {harbors.length > 0 && (
-          <>
-            {' '}
-            내 교역로:{' '}
-            {harbors.map((h) => (
-              <span key={h.edgeId} className="cost-inline">
-                {h.resource ? (
-                  <>
-                    <ResourceIcon kind={h.resource} size={14} />
-                    2:1
-                  </>
-                ) : (
-                  <>
-                    <AnyResourceIcon size={14} />
-                    3:1
-                  </>
-                )}
-              </span>
-            ))}
-          </>
-        )}
-      </p>
-      <div className="pick-label">낼 자원</div>
-      <div className="pick-row">
-        {RESOURCES.map((r) => (
-          <button
-            key={r}
-            className={`pick ${give === r ? 'pick-on' : ''}`}
-            disabled={mine[r] < ratio[r]}
-            onClick={() => {
-              setGive(r);
-              if (get === r) setGet(null);
-            }}
-          >
-            <ResourceIcon kind={r} size={26} />
-            {RESOURCE_LABEL[r]} {ratio[r]}개
-            <small>
-              보유 {mine[r]}
-              {ratio[r] < 4 && <b className="ratio-tag"> 교역로</b>}
-            </small>
-          </button>
-        ))}
-      </div>
-      <div className="pick-label">받을 자원 (1개)</div>
-      <div className="pick-row">
-        {RESOURCES.map((r) => (
-          <button key={r} className={`pick ${get === r ? 'pick-on' : ''}`} disabled={r === give} onClick={() => setGet(r)}>
-            <ResourceIcon kind={r} size={26} />
-            {RESOURCE_LABEL[r]}
-          </button>
-        ))}
-      </div>
-      <ActionButton
-        className="btn btn-primary btn-wide"
-        label={give && get ? `${RESOURCE_LABEL[give]} ${ratio[give]}개 → ${RESOURCE_LABEL[get]} 1개로 교환` : '자원을 고르세요'}
-        blocker={bankBlocker(view) ?? (!give || !get ? '낼 자원과 받을 자원을 고르세요.' : null)}
-        onClick={async () => {
-          if (!give || !get) return;
-          if (await sendAction({ type: 'bank_trade', give, get })) {
-            setGet(null);
-            if (mine[give] - ratio[give] < ratio[give]) setGive(null);
-          }
-        }}
-      />
-    </Sheet>
-  );
-}
 
 /** 발전 카드: 사기, 손에 든 카드 보기, 쓰기 (풍년·독점은 자원을 고른다) */
 export function DevCardDialog({ view, onClose }: { view: RoomView; onClose: () => void }) {
@@ -276,91 +183,6 @@ export function StealDialog({ view, players }: { view: RoomView; players: Player
         </div>
       </div>
     </div>
-  );
-}
-
-export function TradeDialog({ view, players, onClose }: { view: RoomView; players: Players; onClose: () => void }) {
-  const g = view.game!;
-  const others = g.order.filter((id) => id !== view.you);
-  const [to, setTo] = useState<string | null>(others.length === 1 ? others[0] : null);
-  const [give, setGive] = useState<Bundle>(emptyBundle());
-  const [get, setGet] = useState<Bundle>(emptyBundle());
-  const problem = !to ? '교환할 상대를 고르세요.' : validateTradeBundles(give, get);
-  const target = to ? players.get(to) : null;
-  const targetTotal = to ? (g.players.find((p) => p.id === to)?.resourceTotal ?? 0) : 0;
-
-  return (
-    <Sheet title="플레이어와 교환" onClose={onClose}>
-      <p className="muted small">
-        상대 한 명에게 줄 자원과 받을 자원을 제안합니다. 상대가 수락하면 양쪽 자원이 옮겨지고 내 행동 1회를 씁니다. 거절·취소는 행동을 쓰지
-        않습니다.
-      </p>
-      <div className="pick-label">상대</div>
-      <div className="pick-row">
-        {others.map((id) => {
-          const p = players.get(id)!;
-          return (
-            <button key={id} className={`pick pick-player ${to === id ? 'pick-on' : ''}`} onClick={() => setTo(id)}>
-              <Emblem colorIndex={p.colorIndex} size={20} />
-              {p.nickname}
-              <small>
-                자원 {g.players.find((x) => x.id === id)?.resourceTotal ?? 0}개{!p.connected ? ' · 연결 끊김' : ''}
-              </small>
-            </button>
-          );
-        })}
-      </div>
-      <div className="trade-grid">
-        <div>
-          <div className="pick-label">내가 줄 자원</div>
-          {RESOURCES.map((r) => (
-            <div key={r} className="trade-row">
-              <ResourceIcon kind={r} size={22} />
-              <span>
-                {RESOURCE_LABEL[r]} <small className="muted">(보유 {g.myResources[r]})</small>
-              </span>
-              <Stepper
-                label={`줄 ${RESOURCE_LABEL[r]}`}
-                value={give[r]}
-                max={Math.min(MAX_TRADE_AMOUNT, g.myResources[r])}
-                disabled={get[r] > 0}
-                onChange={(v) => setGive({ ...give, [r]: v })}
-              />
-            </div>
-          ))}
-        </div>
-        <div>
-          <div className="pick-label">내가 받을 자원</div>
-          {RESOURCES.map((r) => (
-            <div key={r} className="trade-row">
-              <ResourceIcon kind={r} size={22} />
-              <span>{RESOURCE_LABEL[r]}</span>
-              <Stepper
-                label={`받을 ${RESOURCE_LABEL[r]}`}
-                value={get[r]}
-                max={MAX_TRADE_AMOUNT}
-                disabled={give[r] > 0}
-                onChange={(v) => setGet({ ...get, [r]: v })}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-      <p className="small muted">같은 종류를 양쪽에 함께 넣을 수 없습니다. 상대가 가진 종류별 수량은 보이지 않습니다{target ? ` (${target.nickname}의 자원 총량 ${targetTotal}개)` : ''}.</p>
-      {problem && <div className="small warn-text">{problem}</div>}
-      <ActionButton
-        className="btn btn-primary btn-wide"
-        label={to && !problem ? `${target?.nickname}에게 제안 보내기` : '제안 보내기'}
-        blocker={problem}
-        onClick={async () => {
-          if (!to) return;
-          if (await sendAction({ type: 'trade_propose', to, give, get })) {
-            showToast(`${target?.nickname}에게 교환을 제안했습니다.`, 'good');
-            onClose();
-          }
-        }}
-      />
-    </Sheet>
   );
 }
 

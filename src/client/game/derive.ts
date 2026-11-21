@@ -80,21 +80,19 @@ export function buildSpots(view: RoomView, kind: PieceKind): string[] {
   return upgradableVillages(g.buildings, view.you);
 }
 
-export function bankBlocker(view: RoomView): string | null {
-  const turn = turnBlocker(view);
-  if (turn) return turn;
-  const g = view.game!;
-  if (!RESOURCES.some((r) => g.myResources[r] >= g.myTradeRatios[r])) return '교환할 만큼 모인 자원이 없습니다 (기본 4개, 교역로는 3개·2개).';
-  return null;
-}
-
 export function tradeBlocker(view: RoomView): string | null {
   const turn = turnBlocker(view);
   if (turn) return turn;
   const g = view.game!;
-  if (g.trade) return '이미 열린 교환 제안이 있습니다.';
   if (bundleTotal(g.myResources) === 0) return '낼 자원이 없습니다.';
   return null;
+}
+
+/** 플레이어 깃발 색을 부르는 말 (공지용): "빨강 플레이어" */
+const COLOR_WORDS = ['빨강', '파랑', '주황', '보라'] as const;
+
+export function colorWord(index: number): string {
+  return COLOR_WORDS[((index % COLOR_WORDS.length) + COLOR_WORDS.length) % COLOR_WORDS.length];
 }
 
 export function buyDevBlocker(view: RoomView): string | null {
@@ -152,11 +150,11 @@ export function bundleText(b: Bundle): string {
   return parts.length ? parts.join(', ') : '없음';
 }
 
-const CLOSE_REASON: Record<TradeCloseReason, string> = {
-  cancelled: '제안을 취소했습니다',
-  rejected: '제안을 거절했습니다',
-  turn_end: '턴이 끝나 제안이 닫혔습니다',
-  unaffordable: '제안한 자원이 바뀌어 제안이 닫혔습니다',
+/** 교환 제안이 닫힌 까닭 (취소는 따로 적는다) */
+const CLOSE_REASON: Record<Exclude<TradeCloseReason, 'cancelled'>, string> = {
+  rejected: '모두 거절해',
+  turn_end: '턴이 끝나',
+  unaffordable: '낼 자원이 바뀌어',
 };
 
 /**
@@ -196,6 +194,7 @@ export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: 
   const place = (kind: 'vertex' | 'edge', id: string) => spotName(numbers, kind, id);
   const name = (id: string) => (id === me ? '나' : (players.get(id)?.nickname ?? '?'));
   const subj = (id: string) => (id === me ? '내가' : josa(name(id), '이/가'));
+  const whose = (id: string) => (id === me ? '내' : `${name(id)}의`);
   switch (e.kind) {
     case 'game_start':
       return `게임 시작. 자리 순서: ${e.order.map(name).join(' → ')}`;
@@ -227,19 +226,18 @@ export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: 
       if (e.card === 'year_of_plenty') return `${subj(e.player)} 풍년 카드로 ${e.resources!.map((r) => RESOURCE_LABEL[r]).join('·')}을(를) 받았습니다.`;
       return `${subj(e.player)} ${DEV_LABEL[e.card]} 카드를 썼습니다.`;
     case 'bank_trade':
-      return `${subj(e.player)} ${e.ratio === 4 ? '은행' : '해상 교역로'}에서 ${RESOURCE_LABEL[e.give]} ${e.ratio}개를 ${RESOURCE_LABEL[e.get]} 1개로 바꿨습니다.`;
-    case 'trade_proposed':
-      return e.detail
-        ? `${subj(e.from)} ${name(e.to)}에게 교환 제안: ${bundleText(e.detail.give)} ↔ ${bundleText(e.detail.get)}`
-        : `${subj(e.from)} ${name(e.to)}에게 교환을 제안했습니다.`;
+      return `${subj(e.player)} ${e.harbor ? '해상 교역로' : '은행'}에서 교환: ${bundleText(e.give)} → ${bundleText(e.get)}`;
+    case 'trade_proposed': {
+      const whom = e.to.length > 1 ? '모두' : name(e.to[0]);
+      return `${subj(e.from)} ${whom}에게 교환 제안: ${bundleText(e.give)} 주고 ${bundleText(e.get)} 받기`;
+    }
+    case 'trade_response':
+      return `${subj(e.player)} ${whose(e.from)} 교환 제안을 ${e.response === 'accepted' ? '수락했습니다' : '거절했습니다'}.`;
     case 'trade_accepted':
-      return e.detail
-        ? `${name(e.from)}와(과) ${name(e.to)}의 교환 성사: ${bundleText(e.detail.give)} ↔ ${bundleText(e.detail.get)}`
-        : `${name(e.from)}와(과) ${name(e.to)}의 교환이 성사되었습니다.`;
+      return `${josa(name(e.from), '과/와')} ${name(e.to)}의 교환 성사: ${bundleText(e.give)} ↔ ${bundleText(e.get)}`;
     case 'trade_closed':
-      if (e.reason === 'rejected') return `${subj(e.to)} ${name(e.from)}의 교환 제안을 거절했습니다.`;
       if (e.reason === 'cancelled') return `${subj(e.from)} 교환 제안을 취소했습니다.`;
-      return `${name(e.from)} → ${name(e.to)}: ${CLOSE_REASON[e.reason]}.`;
+      return `${CLOSE_REASON[e.reason]} ${whose(e.from)} 교환 제안이 닫혔습니다.`;
     case 'award': {
       const label = e.award === 'longest_road' ? '최장 교역로' : '최강 기사단';
       const unit = e.award === 'longest_road' ? `길 ${e.size}칸` : `기사 ${e.size}장`;

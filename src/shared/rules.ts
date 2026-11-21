@@ -50,6 +50,7 @@ import type {
   TileId,
   TradeCloseReason,
   TradeOffer,
+  TradeResponse,
   TurnStep,
 } from './types';
 
@@ -423,6 +424,9 @@ export function applyAction(s: GameState, playerId: string, action: GameAction, 
     case 'trade_reject':
       result = doTradeReject(s, playerId, action.tradeId);
       break;
+    case 'trade_confirm':
+      result = doTradeConfirm(s, playerId, action.tradeId, action.with);
+      break;
     case 'trade_cancel':
       result = doTradeCancel(s, playerId, action.tradeId);
       break;
@@ -736,17 +740,46 @@ function doPlayDev(s: GameState, playerId: string, action: Extract<GameAction, {
   return OK;
 }
 
-function doBankTrade(s: GameState, playerId: string, give: Resource, get: Resource): ActionResult {
+/** 은행·교역로에 낼 묶음 수: 자원마다 (낸 개수 ÷ 내 비율)의 합. 비율의 배수가 아니면 null */
+export function bankUnits(give: Bundle, ratios: Record<Resource, number>): number | null {
+  let units = 0;
+  for (const r of RESOURCES) {
+    if (give[r] % ratios[r] !== 0) return null;
+    units += give[r] / ratios[r];
+  }
+  return units;
+}
+
+/**
+ * 은행·해상 교역로 교환이 성립하지 않는 이유 (성립하면 null).
+ * 낼 자원은 자원마다 내 비율(4:1, 교역로 3:1·2:1)의 배수여야 하고 받을 자원 수는 그 묶음 수와 같아야 한다.
+ */
+export function bankTradeProblem(give: Bundle, get: Bundle, ratios: Record<Resource, number>, have: Bundle): string | null {
+  for (const b of [give, get]) {
+    if (RESOURCES.some((r) => !Number.isInteger(b[r]) || b[r] < 0)) return '교환 수량이 올바르지 않습니다.';
+  }
+  if (RESOURCES.some((r) => give[r] > 0 && get[r] > 0)) return '내는 자원과 받는 자원은 서로 달라야 합니다.';
+  const odd = RESOURCES.find((r) => give[r] % ratios[r] !== 0);
+  if (odd) return `${RESOURCE_LABEL[odd]}은(는) ${ratios[odd]}개씩 내야 합니다.`;
+  const units = bankUnits(give, ratios) ?? 0;
+  if (units < 1) return '낼 자원을 고르세요.';
+  if (!hasBundle(have, give)) return '낼 자원이 모자랍니다.';
+  const want = bundleTotal(get);
+  if (want !== units) return want < units ? `받을 자원을 ${units - want}개 더 고르세요.` : `받을 자원은 ${units}개까지 고를 수 있습니다.`;
+  return null;
+}
+
+function doBankTrade(s: GameState, playerId: string, give: Bundle, get: Bundle): ActionResult {
   const bad = requireTurn(s, playerId, ['main']);
   if (bad) return bad;
-  if (!RESOURCES.includes(give) || !RESOURCES.includes(get)) return fail('BAD_REQUEST', '자원 종류가 올바르지 않습니다.');
-  if (give === get) return fail('BAD_REQUEST', '내는 자원과 받는 자원은 서로 달라야 합니다.');
-  const ratio = tradeRatios(s, playerId)[give];
   const me = s.players[playerId];
-  if (me.resources[give] < ratio) return fail('NOT_ENOUGH', `${RESOURCE_LABEL[give]} ${ratio}개가 필요합니다.`);
-  me.resources[give] -= ratio;
-  me.resources[get] += 1;
-  pushEvent(s, { kind: 'bank_trade', player: playerId, give, get, ratio });
+  const ratios = tradeRatios(s, playerId);
+  const problem = bankTradeProblem(give, get, ratios, me.resources);
+  if (problem) return fail(problem === '낼 자원이 모자랍니다.' ? 'NOT_ENOUGH' : 'BAD_REQUEST', problem);
+  pay(me.resources, give);
+  gain(me.resources, get);
+  const harbor = RESOURCES.some((r) => give[r] > 0 && ratios[r] < BANK_RATIO);
+  pushEvent(s, { kind: 'bank_trade', player: playerId, give: { ...give }, get: { ...get }, harbor });
   afterAction(s);
   return OK;
 }
@@ -762,12 +795,13 @@ export function validateTradeBundles(give: Bundle, get: Bundle): string | null {
   return null;
 }
 
-function doTradePropose(s: GameState, playerId: string, to: string, give: Bundle, get: Bundle): ActionResult {
+/** 모두에게(to 없음) 또는 한 사람에게 교환을 제안한다. 받은 사람은 수락·거절하고 제안한 사람이 수락한 사람 중 한 명을 골라 확정한다. */
+function doTradePropose(s: GameState, playerId: string, to: string | undefined, give: Bundle, get: Bundle): ActionResult {
   const bad = requireTurn(s, playerId, ['main']);
   if (bad) return bad;
   if (s.trade) return fail('TRADE_OPEN', '이미 열린 교환 제안이 있습니다. 응답을 기다리거나 취소하세요.');
   // 'constructor' 같은 이름이 객체 기본 속성으로 통과하지 않도록 자기 속성인지 확인한다.
-  if (to === playerId || !Object.prototype.hasOwnProperty.call(s.players, to)) {
+  if (to !== undefined && (to === playerId || !Object.prototype.hasOwnProperty.call(s.players, to))) {
     return fail('TRADE_INVALID', '교환할 상대를 다시 고르세요.');
   }
   const bundleErr = validateTradeBundles(give, get);
@@ -776,9 +810,17 @@ function doTradePropose(s: GameState, playerId: string, to: string, give: Bundle
   // 상대 보유량은 여기서 확인하지 않는다. 확인 결과가 상대의 비공개 자원을 드러내기 때문이다.
   if (!hasBundle(me.resources, give)) return fail('NOT_ENOUGH', '제안한 자원을 모두 가지고 있지 않습니다.');
 
+  const targets = to === undefined ? s.order.filter((id) => id !== playerId) : [to];
   s.tradeSeq += 1;
-  s.trade = { id: s.tradeSeq, from: playerId, to, give: { ...give }, get: { ...get } };
-  pushEvent(s, { kind: 'trade_proposed', from: playerId, to, tradeId: s.tradeSeq, detail: { give: { ...give }, get: { ...get } } });
+  s.trade = {
+    id: s.tradeSeq,
+    from: playerId,
+    to: targets,
+    give: { ...give },
+    get: { ...get },
+    responses: Object.fromEntries(targets.map((id) => [id, 'pending' as TradeResponse])),
+  };
+  pushEvent(s, { kind: 'trade_proposed', from: playerId, to: [...targets], tradeId: s.tradeSeq, give: { ...give }, get: { ...get } });
   return OK;
 }
 
@@ -786,41 +828,72 @@ function closeTrade(s: GameState, reason: TradeCloseReason): void {
   const t = s.trade;
   if (!t) return;
   s.trade = null;
-  pushEvent(s, { kind: 'trade_closed', from: t.from, to: t.to, tradeId: t.id, reason });
+  pushEvent(s, { kind: 'trade_closed', from: t.from, tradeId: t.id, reason });
 }
 
-function doTradeAccept(s: GameState, playerId: string, tradeId: number): ActionResult {
+/** 받은 사람 쪽 요청의 공통 확인: 열린 제안인지, 이 사람이 받은 제안인지 */
+function checkIncoming(s: GameState, playerId: string, tradeId: number): ActionResult | null {
   if (s.phase !== 'playing') return fail('WRONG_PHASE', '지금은 교환할 수 없습니다.');
   const t = s.trade;
-  // 같은 제안을 두 번 수락하면 두 번째 요청은 여기서 거절된다 (제안이 이미 닫혔기 때문).
   if (!t || t.id !== tradeId) return fail('TRADE_GONE', '이미 처리되었거나 닫힌 교환 제안입니다.');
-  if (t.to !== playerId) return fail('NOT_ALLOWED', '교환 제안을 받은 사람만 수락할 수 있습니다.');
-  const from = s.players[t.from];
-  const me = s.players[playerId];
+  if (!t.to.includes(playerId)) return fail('NOT_ALLOWED', '교환 제안을 받은 사람만 응답할 수 있습니다.');
+  return null;
+}
+
+/** 수락: 내가 낼 자원이 있는지 확인하고 표시만 한다. 실제로 옮기는 것은 제안한 사람이 확정할 때다. */
+function doTradeAccept(s: GameState, playerId: string, tradeId: number): ActionResult {
+  const bad = checkIncoming(s, playerId, tradeId);
+  if (bad) return bad;
+  const t = s.trade!;
+  if (t.responses[playerId] === 'accepted') return fail('NOT_ALLOWED', '이미 수락했습니다. 제안한 사람이 고르기를 기다리세요.');
   if (currentPlayer(s) !== t.from || s.step !== 'main') {
     closeTrade(s, 'turn_end');
     return { ok: false, code: 'TRADE_GONE', message: '제안한 사람의 차례가 지나 교환이 닫혔습니다.' };
   }
-  if (!hasBundle(from.resources, t.give)) {
+  if (!hasBundle(s.players[t.from].resources, t.give)) {
     closeTrade(s, 'unaffordable');
     return { ok: false, code: 'TRADE_GONE', message: '제안한 사람의 자원이 바뀌어 교환이 닫혔습니다.' };
   }
-  if (!hasBundle(me.resources, t.get)) return fail('NOT_ENOUGH', '요청받은 자원이 부족해 수락할 수 없습니다.');
-
-  pay(from.resources, t.give);
-  gain(me.resources, t.give);
-  pay(me.resources, t.get);
-  gain(from.resources, t.get);
-  s.trade = null;
-  pushEvent(s, { kind: 'trade_accepted', from: t.from, to: t.to, tradeId: t.id, detail: { give: { ...t.give }, get: { ...t.get } } });
+  if (!hasBundle(s.players[playerId].resources, t.get)) return fail('NOT_ENOUGH', '요청받은 자원이 부족해 수락할 수 없습니다.');
+  t.responses[playerId] = 'accepted';
+  pushEvent(s, { kind: 'trade_response', player: playerId, from: t.from, tradeId: t.id, response: 'accepted' });
   return OK;
 }
 
+/** 거절 (수락했다가 마음을 바꿔도 된다). 받은 사람이 모두 거절하면 제안이 닫힌다. */
 function doTradeReject(s: GameState, playerId: string, tradeId: number): ActionResult {
+  const bad = checkIncoming(s, playerId, tradeId);
+  if (bad) return bad;
+  const t = s.trade!;
+  if (t.responses[playerId] === 'rejected') return fail('NOT_ALLOWED', '이미 거절했습니다.');
+  t.responses[playerId] = 'rejected';
+  pushEvent(s, { kind: 'trade_response', player: playerId, from: t.from, tradeId: t.id, response: 'rejected' });
+  if (t.to.every((id) => t.responses[id] === 'rejected')) closeTrade(s, 'rejected');
+  return OK;
+}
+
+/**
+ * 제안한 사람이 수락한 사람 중 한 명을 골라 교환을 확정한다. 양쪽 잔고를 다시 확인한 뒤 한 번에 옮기고 제안을 닫는다.
+ * 같은 제안을 두 번 확정하면 두 번째 요청은 제안이 이미 닫혀 거절된다.
+ */
+function doTradeConfirm(s: GameState, playerId: string, tradeId: number, partner: string): ActionResult {
   const t = s.trade;
   if (!t || t.id !== tradeId) return fail('TRADE_GONE', '이미 처리되었거나 닫힌 교환 제안입니다.');
-  if (t.to !== playerId) return fail('NOT_ALLOWED', '교환 제안을 받은 사람만 거절할 수 있습니다.');
-  closeTrade(s, 'rejected');
+  if (t.from !== playerId) return fail('NOT_ALLOWED', '제안한 사람만 교환을 확정할 수 있습니다.');
+  const bad = requireTurn(s, playerId, ['main']);
+  if (bad) return bad;
+  if (!t.to.includes(partner) || t.responses[partner] !== 'accepted') return fail('NOT_ALLOWED', '수락한 사람 중에서 고르세요.');
+  const from = s.players[t.from];
+  const other = s.players[partner];
+  if (!hasBundle(from.resources, t.give)) return fail('NOT_ENOUGH', '제안한 자원을 모두 가지고 있지 않습니다.');
+  if (!hasBundle(other.resources, t.get)) return fail('NOT_ENOUGH', '상대의 자원이 바뀌어 지금은 교환할 수 없습니다.');
+
+  pay(from.resources, t.give);
+  gain(other.resources, t.give);
+  pay(other.resources, t.get);
+  gain(from.resources, t.get);
+  s.trade = null;
+  pushEvent(s, { kind: 'trade_accepted', from: t.from, to: partner, tradeId: t.id, give: { ...t.give }, get: { ...t.get } });
   return OK;
 }
 
@@ -847,10 +920,20 @@ function doEndTurn(s: GameState, playerId: string): ActionResult {
   return OK;
 }
 
-/** 차례인 사람이 자원을 쓴 뒤, 열린 제안이 더는 성립할 수 없으면 닫는다. */
+/**
+ * 차례인 사람이 자원을 쓰거나 바꾼 뒤 열린 제안을 다시 본다.
+ * 제안한 자원이 모자라면 제안을 닫고 수락했던 사람의 자원이 모자라게 되면(독점 카드 등) 그 사람의 수락을 되돌린다.
+ */
 function afterAction(s: GameState): void {
   const t = s.trade;
-  if (t && !hasBundle(s.players[t.from].resources, t.give)) closeTrade(s, 'unaffordable');
+  if (!t) return;
+  if (!hasBundle(s.players[t.from].resources, t.give)) {
+    closeTrade(s, 'unaffordable');
+    return;
+  }
+  for (const id of t.to) {
+    if (t.responses[id] === 'accepted' && !hasBundle(s.players[id].resources, t.get)) t.responses[id] = 'pending';
+  }
 }
 
 /** 최장 교역로: 5칸 이상 가장 긴 한 사람. 가진 사람과 같은 길이면 가진 사람이 지키고, 다른 사람끼리 비기면 아무도 갖지 않는다. */

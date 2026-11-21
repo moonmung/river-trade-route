@@ -73,7 +73,7 @@ export function RulesSummary({ open = false }: { open?: boolean }) {
         <li>
           <b>교환</b>: 은행에는 같은 자원 {BANK_RATIO}장을 내고 원하는 자원 1장을 받습니다. 바닷가 해상 교역로에 마을·도시가 닿아 있으면 아무
           자원 {GENERIC_HARBOR_RATIO}장(3:1 교역로)이나 그려진 자원 {SPECIAL_HARBOR_RATIO}장(2:1 교역로)으로 바꿀 수 있습니다. 차례인 사람은 다른
-          플레이어와도 교환할 수 있습니다.
+          플레이어 모두에게 교환을 제안할 수 있고 수락한 사람 중 한 명을 골라 교환을 확정합니다.
         </li>
         <li>
           <b>발전 카드</b>: <CostOf name="한 장" cost={DEV_COST} /> 덱 구성은 {DEV_LIST}장입니다. 산 턴에는 쓸 수 없고 한 턴에 한 장만 씁니다.

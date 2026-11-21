@@ -2,7 +2,7 @@
 import { io as connect, type Socket } from 'socket.io-client';
 import { expect } from 'vitest';
 import { VERTEX_MAP } from '../src/shared/board';
-import { DEV_COST, PIECE_COST, PIECE_LIMIT, RESOURCES, TILES, hasBundle } from '../src/shared/constants';
+import { DEV_COST, PIECE_COST, PIECE_LIMIT, RESOURCES, TILES, emptyBundle, hasBundle } from '../src/shared/constants';
 import type { AckResult, RoomView, SessionInfo } from '../src/shared/protocol';
 import { buildableRoads, buildableVillages, pieceCount, placeableVertices, setupRoadEdges, upgradableVillages } from '../src/shared/rules';
 import type { GameAction } from '../src/shared/types';
@@ -181,7 +181,7 @@ export function chooseAction(v: RoomView, seat: number): GameAction {
   const missing = RESOURCES.find((x) => r[x] < target[x]);
   if (missing) {
     const give = RESOURCES.find((x) => x !== missing && r[x] - target[x] >= g.myTradeRatios[x]);
-    if (give) return { type: 'bank_trade', give, get: missing };
+    if (give) return { type: 'bank_trade', give: { ...emptyBundle(), [give]: g.myTradeRatios[give] }, get: { ...emptyBundle(), [missing]: 1 } };
   }
   return { type: 'end_turn' };
 }

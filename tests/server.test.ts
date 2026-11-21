@@ -40,26 +40,39 @@ async function playToEnd(clients: TestClient[]): Promise<{ trades: number; rejec
       const give = RESOURCES.find((x) => r[x] > 0);
       if (give) {
         const want = RESOURCES.find((x) => x !== give)!;
-        const target = byId(clients, ag.order[(seat + 1) % ag.order.length]);
         const giveB: Bundle = { ...emptyBundle(), [give]: 1 };
         const getB: Bundle = { ...emptyBundle(), [want]: 1 };
-        const res = await actor.act({ type: 'trade_propose', to: target.id, give: giveB, get: getB });
+        // 모두에게 제안하고 받은 사람은 낼 자원이 있으면 수락·없으면 거절한다.
+        const res = await actor.act({ type: 'trade_propose', give: giveB, get: getB });
         expect(res).toEqual({ ok: true });
         await sync(clients, actor.latest!.game!.version);
-        const tv = target.latest!.game!;
-        expect(tv.trade?.get).toEqual(getB);
-        if (tv.myResources[want] >= 1) {
-          const before = { a: { ...actor.latest!.game!.myResources }, t: { ...tv.myResources } };
-          expect(await target.act({ type: 'trade_accept', tradeId: tv.trade!.id })).toEqual({ ok: true });
-          await sync(clients, target.latest!.game!.version);
+        const tradeId = actor.latest!.game!.trade!.id;
+        const others = clients.filter((c) => c !== actor);
+        let accepted: TestClient | null = null;
+        for (const o of others) {
+          const ov = o.latest!.game!;
+          // 열린 제안 내용은 모두에게 보인다
+          expect(ov.trade).toMatchObject({ id: tradeId, from: actor.id, give: giveB, get: getB });
+          if (ov.myResources[want] >= 1) {
+            expect(await o.act({ type: 'trade_accept', tradeId })).toEqual({ ok: true });
+            accepted ??= o;
+          } else expect(await o.act({ type: 'trade_reject', tradeId })).toEqual({ ok: true });
+          await sync(clients, o.latest!.game!.version);
+        }
+        if (accepted) {
+          const before = { a: { ...actor.latest!.game!.myResources }, t: { ...accepted.latest!.game!.myResources } };
+          expect(actor.latest!.game!.trade!.responses[accepted.id]).toBe('accepted');
+          expect(await actor.act({ type: 'trade_confirm', tradeId, with: accepted.id })).toEqual({ ok: true });
+          await sync(clients, actor.latest!.game!.version);
+          expect(actor.latest!.game!.trade).toBeNull();
           expect(actor.latest!.game!.myResources[give]).toBe(before.a[give] - 1);
           expect(actor.latest!.game!.myResources[want]).toBe(before.a[want] + 1);
-          expect(target.latest!.game!.myResources[give]).toBe(before.t[give] + 1);
-          expect(target.latest!.game!.myResources[want]).toBe(before.t[want] - 1);
+          expect(accepted.latest!.game!.myResources[give]).toBe(before.t[give] + 1);
+          expect(accepted.latest!.game!.myResources[want]).toBe(before.t[want] - 1);
           trades++;
         } else {
-          expect(await target.act({ type: 'trade_reject', tradeId: tv.trade!.id })).toEqual({ ok: true });
-          await sync(clients, target.latest!.game!.version);
+          // 모두 거절하면 제안이 저절로 닫힌다
+          expect(actor.latest!.game!.trade).toBeNull();
           rejects++;
         }
         continue;
@@ -90,14 +103,12 @@ function assertPrivacy(clients: TestClient[]): void {
       if (!g) continue;
       for (const p of g.players)
         expect(Object.keys(p).sort()).toEqual(['cities', 'devCardCount', 'id', 'knightsPlayed', 'resourceTotal', 'roadLength', 'roads', 'score', 'seat', 'villages']);
-      if (g.trade && g.trade.from !== me && g.trade.to !== me) {
-        expect(g.trade.give).toBeUndefined();
-        expect(g.trade.get).toBeUndefined();
-      }
+      // 열린 교환 제안은 내용과 응답만 공개하고 누구의 종류별 보유량도 담지 않는다.
+      if (g.trade) expect(Object.keys(g.trade).sort()).toEqual(['from', 'get', 'give', 'id', 'responses', 'to']);
       for (const e of g.events as GameEvent[]) {
         if ((e.kind === 'discard' || e.kind === 'buy_dev') && e.player !== me) expect(e.detail).toBeUndefined();
         if (e.kind === 'steal' && e.player !== me && e.from !== me) expect(e.detail).toBeUndefined();
-        if ((e.kind === 'trade_proposed' || e.kind === 'trade_accepted') && e.from !== me && e.to !== me) expect(e.detail).toBeUndefined();
+        if (e.kind.startsWith('trade_')) expect(e).not.toHaveProperty('detail');
         if (e.kind === 'roll' && e.detail) expect(Object.keys(e.detail)).toEqual([me]);
       }
     }
@@ -210,7 +221,7 @@ async function toMainStep(clients: TestClient[]): Promise<void> {
 }
 
 describe('교환 수락은 한 번만 반영', () => {
-  it('같은 제안을 동시에 두 번 수락해도 자원은 한 번만 옮겨진다', async () => {
+  it('같은 제안을 동시에 두 번 수락·확정해도 자원은 한 번만 옮겨진다', async () => {
     const { clients } = await startedRoom(url, 3);
     await toMainStep(clients);
     const g = clients[0].latest!.game!;
@@ -227,14 +238,22 @@ describe('교환 수락은 한 번만 반영', () => {
     }
     const giveB: Bundle = { ...emptyBundle(), [give]: 1 };
     const getB: Bundle = { ...emptyBundle(), [want]: 1 };
-    expect(await actor.act({ type: 'trade_propose', to: target.id, give: giveB, get: getB })).toEqual({ ok: true });
+    expect(await actor.act({ type: 'trade_propose', give: giveB, get: getB })).toEqual({ ok: true });
     const tv = await target.waitFor((v) => !!v.game!.trade);
     const tradeId = tv.game!.trade!.id;
 
-    // 서로 다른 요청 두 개를 동시에 보낸다 (버튼을 빠르게 두 번 누른 경우).
+    // 서로 다른 요청 두 개를 동시에 보낸다 (버튼을 빠르게 두 번 누른 경우). 수락은 한 번만 기록된다.
+    const [a1r, a2r] = await Promise.all([target.act({ type: 'trade_accept', tradeId }), target.act({ type: 'trade_accept', tradeId })]);
+    expect([a1r, a2r].filter((r) => r.ok)).toHaveLength(1);
+    expect([a1r, a2r].find((r) => !r.ok)).toMatchObject({ ok: false, code: 'NOT_ALLOWED' });
+    // 수락만으로는 자원이 옮겨지지 않는다.
+    await actor.waitFor((v) => v.game!.trade?.responses[target.id] === 'accepted');
+    expect(target.latest!.game!.myResources).toEqual(t0);
+
+    // 제안한 사람이 확정을 두 번 동시에 보내도 한 번만 성공한다.
     const [r1, r2] = await Promise.all([
-      target.act({ type: 'trade_accept', tradeId }),
-      target.act({ type: 'trade_accept', tradeId }),
+      actor.act({ type: 'trade_confirm', tradeId, with: target.id }),
+      actor.act({ type: 'trade_confirm', tradeId, with: target.id }),
     ]);
     const oks = [r1, r2].filter((r) => r.ok);
     expect(oks).toHaveLength(1);
@@ -242,8 +261,8 @@ describe('교환 수락은 한 번만 반영', () => {
     expect(failed).toMatchObject({ ok: false, code: 'TRADE_GONE' });
 
     // 같은 요청이 네트워크에서 다시 도착한 경우: 처음 결과를 돌려주고 다시 반영하지 않는다.
-    const replay = await target.act({ type: 'trade_accept', tradeId }, 'same-request-id');
-    const replay2 = await target.act({ type: 'trade_accept', tradeId }, 'same-request-id');
+    const replay = await actor.act({ type: 'trade_confirm', tradeId, with: target.id }, 'same-request-id');
+    const replay2 = await actor.act({ type: 'trade_confirm', tradeId, with: target.id }, 'same-request-id');
     expect(replay2).toEqual(replay);
 
     await sync(clients, Math.max(...clients.map((c) => c.latest!.game!.version)));
@@ -290,7 +309,7 @@ describe('서버 판정', () => {
     const actor = byId(clients, g.currentPlayerId);
     const other = clients.find((c) => c !== actor)!;
     expect(await other.act({ type: 'end_turn' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
-    expect(await other.act({ type: 'bank_trade', give: 'wood', get: 'stone' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
+    expect(await other.act({ type: 'bank_trade', give: { ...emptyBundle(), wood: 4 }, get: { ...emptyBundle(), stone: 1 } })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
     expect(await other.act({ type: 'roll' })).toMatchObject({ ok: false, code: 'NOT_YOUR_TURN' });
     // 차례인 사람이라도 주사위를 굴리기 전에는 건설·턴 종료를 할 수 없다
     expect(await actor.act({ type: 'end_turn' })).toMatchObject({ ok: false, code: 'WRONG_STEP' });

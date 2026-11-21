@@ -1,6 +1,8 @@
-// 큰 연출: 주사위 굴림과 달성(최장 교역로·최강 기사단) 두루마리. 토스트와 같은 방식의 작은 전역 저장소로 띄운다.
-import { useSyncExternalStore } from 'react';
+// 큰 연출: 주사위 굴림과 달성(최장 교역로·최강 기사단) 공지. 토스트와 같은 방식의 작은 전역 저장소로 띄운다.
+import { useSyncExternalStore, type CSSProperties } from 'react';
+import { colorWord } from '../game/derive';
 import { DieFace, AwardIcon } from '../game/panels';
+import { playerColor } from '../theme';
 import { Emblem } from './icons';
 
 export interface DiceShow {
@@ -10,13 +12,23 @@ export interface DiceShow {
   colorIndex: number;
 }
 
-export interface AwardShow {
-  id: number;
-  award: 'longest_road' | 'largest_army';
-  who: string;
+export interface AwardWho {
   colorIndex: number;
+  nickname: string;
+  /** 화면 주인이 달성했는지 */
+  mine: boolean;
+  /** "이어진 길 6칸 · +2점" 같은 덧붙임 */
   detail: string;
 }
+
+export interface AwardShow extends AwardWho {
+  id: number;
+  award: 'longest_road' | 'largest_army';
+}
+
+const AWARD_LABEL: Record<AwardShow['award'], string> = { longest_road: '최장 교역로', largest_army: '최강 기사단' };
+/** 공지가 떠 있는 시간 (CSS 의 award-banner-life 와 같다) */
+const AWARD_MS = 4200;
 
 interface State {
   dice: DiceShow | null;
@@ -40,16 +52,16 @@ export function showDice(dice: [number, number], who: string, colorIndex: number
   }, 1700);
 }
 
-/** 달성 두루마리가 펼쳐졌다 말리는 연출 (약 3초) */
-export function showAward(award: AwardShow['award'], who: string, colorIndex: number, detail: string): void {
+/** 달성 공지: 화면 위쪽에 "빨강 플레이어 최장 교역로 달성"을 그 색으로 크게 띄운다 (약 4초) */
+export function showAward(award: AwardShow['award'], who: AwardWho): void {
   const id = nextId++;
-  state = { ...state, award: { id, award, who, colorIndex, detail } };
+  state = { ...state, award: { id, award, ...who } };
   emit();
   window.setTimeout(() => {
     if (state.award?.id !== id) return;
     state = { ...state, award: null };
     emit();
-  }, 3200);
+  }, AWARD_MS);
 }
 
 export function SpectacleHost() {
@@ -79,20 +91,38 @@ export function SpectacleHost() {
           </div>
         </div>
       )}
-      {s.award && (
-        <div className="award-show" key={s.award.id} role="status">
-          <div className="award-scroll">
-            <AwardIcon kind={s.award.award} size={44} />
-            <div>
-              <div className="award-title">{s.award.award === 'longest_road' ? '최장 교역로' : '최강 기사단'}</div>
-              <div className="award-who">
-                <Emblem colorIndex={s.award.colorIndex} size={18} /> {s.award.who} <b>+2점</b>
-              </div>
-              <div className="award-detail">{s.award.detail}</div>
-            </div>
+      {s.award && <AwardBanner key={s.award.id} show={s.award} />}
+    </>
+  );
+}
+
+/** 달성 공지 띠: 위에서 내려와 잠시 머물다 올라간다. 색 이름과 그 색으로 누가 달성했는지 먼저 읽히게 한다. */
+function AwardBanner({ show }: { show: AwardShow }) {
+  const color = playerColor(show.colorIndex);
+  const label = AWARD_LABEL[show.award];
+  const word = colorWord(show.colorIndex);
+  return (
+    <div
+      className="award-banner"
+      role="status"
+      aria-live="assertive"
+      aria-label={`${word} 플레이어 ${label} 달성. ${show.nickname}${show.mine ? '(나)' : ''}, ${show.detail}`}
+      style={{ ['--pc' as string]: color.hex, ['--pc-soft' as string]: color.soft, ['--pc-ink' as string]: color.ink } as CSSProperties}
+    >
+      <div className="award-ribbon">
+        <span className="award-seal" aria-hidden>
+          <AwardIcon kind={show.award} size={34} />
+        </span>
+        <div className="award-text">
+          <div className="award-headline">
+            <span className="award-color">{word} 플레이어</span> <span className="award-what">{label} 달성</span>
+          </div>
+          <div className="award-sub">
+            <Emblem colorIndex={show.colorIndex} size={15} /> {show.nickname}
+            {show.mine && <span className="tag">나</span>} · {show.detail}
           </div>
         </div>
-      )}
-    </>
+      </div>
+    </div>
   );
 }

@@ -35,12 +35,7 @@ export function filterEventFor(e: GameEvent, viewer: string): GameEvent {
       const { detail: _hidden, ...rest } = e;
       return rest;
     }
-    case 'trade_proposed':
-    case 'trade_accepted': {
-      if (e.from === viewer || e.to === viewer) return e;
-      const { detail: _hidden, ...rest } = e;
-      return rest;
-    }
+    // 교환 제안·성사 내용은 모두에게 공개한다 (모두에게 한 번에 제안하므로). 종류별 보유량은 기록에 없다.
     default:
       return e;
   }
@@ -48,7 +43,6 @@ export function filterEventFor(e: GameEvent, viewer: string): GameEvent {
 
 export function buildGameView(g: GameState, viewer: string): GameView {
   const t = g.trade;
-  const isParty = !!t && (t.from === viewer || t.to === viewer);
   const me = g.players[viewer];
   return {
     phase: g.phase,
@@ -87,11 +81,7 @@ export function buildGameView(g: GameState, viewer: string): GameView {
     myDevCards: me ? me.devCards.map((c) => ({ ...c })) : [],
     myTradeRatios: tradeRatios(g, viewer),
     myPoints: me ? victoryPoints(g, viewer, true) : 0,
-    trade: t
-      ? isParty
-        ? { id: t.id, from: t.from, to: t.to, give: { ...t.give }, get: { ...t.get } }
-        : { id: t.id, from: t.from, to: t.to }
-      : null,
+    trade: t ? { id: t.id, from: t.from, to: [...t.to], give: { ...t.give }, get: { ...t.get }, responses: { ...t.responses } } : null,
     events: g.events.slice(-EVENT_WINDOW).map((e) => filterEventFor(e, viewer)),
     result: g.result ? structuredClone(g.result) : null,
     version: g.version,

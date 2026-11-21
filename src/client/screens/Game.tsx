@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { PIECE_LABEL, PIECE_LIMIT, TILES } from '../../shared/constants';
+import { PIECE_LABEL, PIECE_LIMIT, TILES, emptyBundle, hasBundle } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
 import { buildableRoads, buildableVillages, longestRoadPath, pieceCount, placeableVertices, setupRoadEdges } from '../../shared/rules';
 import type { PieceKind } from '../../shared/types';
@@ -7,9 +7,8 @@ import type { BoardRenderer, BoardSelection, BoardState, Insets } from '../board
 import BoardView from '../board/BoardView';
 import { FlatBoard } from '../board/FlatBoard';
 import type { PerfStats } from '../board/perf';
-import { boardHighlights, buildBlocker, formatEvent, playDevBlocker, playerMap, roadStatus } from '../game/derive';
+import { boardHighlights, buildBlocker, formatEvent, playDevBlocker, playerMap, roadStatus, turnBlocker } from '../game/derive';
 import {
-  BankTradeDialog,
   DevCardDialog,
   DiscardDialog,
   MenuDialog,
@@ -17,15 +16,16 @@ import {
   ResultOverlay,
   SpotCard,
   StealDialog,
-  TradeDialog,
   prefersReducedMotion,
   type GameSettings,
 } from '../game/dialogs';
 import { useGameEffects } from '../game/effects';
 import { Hand } from '../game/hand';
-import { ActionBar, BuildMenu, PlayersPanel, TopBar, TradeBanner } from '../game/panels';
+import { ActionBar, BuildCosts, BuildMenu, PlayersPanel, TopBar } from '../game/panels';
+import { TradeBanner, TradePanel, handPickToDraft, newDraft, type TradeDraft } from '../game/trade';
 import { useLocalSetting, useMediaQuery } from '../game/ui';
 import { Emblem } from '../ui/icons';
+import { showToast } from '../ui/toast';
 import { SpectacleHost } from '../ui/spectacle';
 
 const DEFAULT_SETTINGS: GameSettings = { quality: 'auto', flat: false, perf: false };
@@ -42,7 +42,9 @@ export default function Game({ view }: { view: RoomView }) {
   const [selected, setSelected] = useState<BoardSelection | null>(null);
   /** 시작 배치에서 고른 마을 자리 (길까지 고른 뒤 함께 보낸다) */
   const [pendingVertex, setPendingVertex] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<null | 'bank' | 'trade' | 'dev' | 'menu'>(null);
+  const [dialog, setDialog] = useState<null | 'dev' | 'menu'>(null);
+  /** 교환 창 (손에 든 카드 위에 붙어 열린다). 고르는 중인 낼 것·받을 것 */
+  const [tradeDraft, setTradeDraft] = useState<TradeDraft | null>(null);
   const [showResult, setShowResult] = useState(true);
   const [perf, setPerf] = useState<PerfStats | null>(null);
   const [glFailed, setGlFailed] = useState(false);
@@ -55,7 +57,10 @@ export default function Game({ view }: { view: RoomView }) {
   useEffect(() => {
     if (buildMode && buildBlocker(view, buildMode)) setBuildMode(null);
     if (menuOpen && (!myTurn || g.step !== 'main')) setMenuOpen(false);
-  }, [view, buildMode, menuOpen]);
+    // 교환 창은 내 차례 main 단계에서만 연다. 자원이 바뀌어 고른 카드가 모자라면 낼 것을 비운다.
+    if (tradeDraft && (!myTurn || g.step !== 'main')) setTradeDraft(null);
+    else if (tradeDraft && !hasBundle(g.myResources, tradeDraft.give)) setTradeDraft({ ...tradeDraft, give: emptyBundle() });
+  }, [view, buildMode, menuOpen, tradeDraft]);
 
   // 단계가 바뀌면 고른 자리를 지운다 (시작 배치 차례, 동상 옮기기, 공짜 길 등).
   useEffect(() => {
@@ -131,6 +136,7 @@ export default function Game({ view }: { view: RoomView }) {
 
   const onTap = (sel: BoardSelection) => {
     setMenuOpen(false);
+    setTradeDraft(null);
     // 시작 배치: 마을 자리(꼭짓점) → 그 마을에 붙일 길(변) 순서로 고른다.
     if (g.phase === 'placement' && g.placementPlayerId === view.you) {
       if (sel.kind === 'vertex' && placeableVertices(g.buildings).includes(sel.id)) {
@@ -228,6 +234,7 @@ export default function Game({ view }: { view: RoomView }) {
             <h3>플레이어</h3>
             <PlayersPanel view={view} players={players} />
           </section>
+          <BuildCosts />
           <section className="side-log">
             <h3>
               최근 기록{' '}
@@ -245,7 +252,8 @@ export default function Game({ view }: { view: RoomView }) {
       )}
 
       <div className="hud-bottom" ref={bottomRef}>
-        {selected && !menuOpen && (
+        {tradeDraft && <TradePanel view={view} draft={tradeDraft} onDraft={setTradeDraft} onClose={() => setTradeDraft(null)} />}
+        {selected && !menuOpen && !tradeDraft && (
           <SpotCard
             view={view}
             players={players}
@@ -275,26 +283,47 @@ export default function Game({ view }: { view: RoomView }) {
             ratios={g.myTradeRatios}
             devCards={g.myDevCards.map((c) => ({ kind: c.kind, fresh: c.boughtTurn >= g.turn }))}
             devPlayable={(kind) => !playDevBlocker(view, kind)}
-            onResource={() => setDialog(myTurn && g.step === 'main' ? 'bank' : 'dev')}
+            onResource={(r) => {
+              // 내 차례 main 단계면 교환 창을 열고 누른 카드를 낼 것에 넣는다.
+              const next = handPickToDraft(view, tradeDraft, r);
+              if (!next) {
+                showToast(turnBlocker(view) ?? '지금은 교환할 수 없습니다.', 'warn');
+                return;
+              }
+              if (next === tradeDraft) {
+                const bank = tradeDraft.mode === 'bank';
+                showToast(bank ? `은행에는 같은 자원을 ${g.myTradeRatios[r]}장씩 냅니다. 남은 카드가 모자랍니다.` : '이 카드는 더 낼 수 없습니다.', 'warn');
+                return;
+              }
+              setMenuOpen(false);
+              setSelected(null);
+              setTradeDraft(next);
+            }}
             onDev={() => setDialog('dev')}
           />
           <ActionBar
             view={view}
             buildMode={buildMode}
             menuOpen={menuOpen}
+            tradeOpen={!!tradeDraft}
             onToggleBuild={() => {
               setSelected(null);
+              setTradeDraft(null);
               if (buildMode) setBuildMode(null);
               else setMenuOpen((o) => !o);
             }}
-            onTrade={() => setDialog('bank')}
+            onTrade={() => {
+              if (tradeDraft) return setTradeDraft(null);
+              setMenuOpen(false);
+              setBuildMode(null);
+              setSelected(null);
+              setTradeDraft(newDraft(view));
+            }}
             onDev={() => setDialog('dev')}
           />
         </div>
       </div>
 
-      {dialog === 'bank' && <BankTradeDialog view={view} onClose={() => setDialog(null)} onPlayerTrade={() => setDialog('trade')} />}
-      {dialog === 'trade' && <TradeDialog view={view} players={players} onClose={() => setDialog(null)} />}
       {dialog === 'dev' && <DevCardDialog view={view} onClose={() => setDialog(null)} />}
       {dialog === 'menu' && (
         <MenuDialog
