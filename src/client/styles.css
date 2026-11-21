@@ -1,4 +1,4 @@
-/* 강줄기 교역로 — 중세 필사본 수채화 풍.
+/* 데블스랜드 — 중세 필사본 수채화 풍.
    물 위에 놓인 양피지 카드, 세피아 먹선, 대청(파랑)·주홍·녹청·황토 물감으로 칠한다.
    외부 폰트와 이미지 파일은 쓰지 않는다. 종이 결, 물감 얼룩, 찢긴 종이 가장자리는 아래 SVG(data URI)로 그린다. */
 :root {
@@ -21,9 +21,9 @@
   --wobble: 10px 14px 9px 15px / 14px 9px 15px 10px;
   --wobble-sm: 7px 10px 6px 11px / 10px 6px 11px 7px;
   --shadow: 0 8px 22px rgba(24, 38, 46, 0.32);
-  --font: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  /* 제목·버튼·숫자: 라틴 글자와 숫자는 Palatino 계열, 한글은 명조 계열로 떨어진다 */
-  --font-title: 'Palatino Linotype', Palatino, 'Book Antiqua', 'Nanum Myeongjo', 'Noto Serif KR', 'Noto Serif CJK KR', 'AppleMyungjo', 'Batang', serif;
+  /* 글꼴: 본문과 제목 모두 함렛(Hahmlet, 로컬 설치). 글꼴 파일을 못 받으면 비슷한 명조 계열로 떨어진다. */
+  --font: 'Hahmlet Variable', 'Nanum Myeongjo', 'Noto Serif KR', 'AppleMyungjo', 'Batang', serif;
+  --font-title: 'Hahmlet Variable', 'Palatino Linotype', Palatino, 'Book Antiqua', 'Nanum Myeongjo', 'Noto Serif KR', 'Noto Serif CJK KR', 'AppleMyungjo', 'Batang', serif;
   /* 종이 결(고운 섬유), 종이 위 물감 얼룩, 물 위 물감 얼룩, 찢긴 종이 가장자리(가로·세로) */
   --tex-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g' filterUnits='userSpaceOnUse' x='0' y='0' width='180' height='180'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.2 0 0 0 0 0.09 0.42 0 0 0 -0.15'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)'/%3E%3C/svg%3E");
   --tex-wash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Cfilter id='wash' filterUnits='userSpaceOnUse' x='0' y='0' width='420' height='420'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.007' numOctaves='4' stitchTiles='stitch' seed='28'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.29 0 0 0 0 0.1 0.75 0 0 0 -0.3'/%3E%3C/filter%3E%3Crect width='420' height='420' filter='url(%23wash)'/%3E%3C/svg%3E");
