@@ -57,8 +57,21 @@ export function DevIcon({ kind, size = 28 }: { kind: DevKind; size?: number }) {
   );
 }
 
-/** 카드를 부채꼴로 펼칠 때 i 번째 카드의 기울기·높이 */
-function fan(i: number, n: number): CSSProperties {
+/** 카드 그림을 먹으로 찍은 듯 가장자리를 살짝 번지게 하는 SVG 필터 (카드 CSS 의 filter: url(#hcard-ink)) */
+function InkFilter() {
+  return (
+    <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
+      <filter id="hcard-ink" x="-10%" y="-10%" width="120%" height="120%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="4" result="noise" />
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.4" xChannelSelector="R" yChannelSelector="G" />
+      </filter>
+    </svg>
+  );
+}
+
+/** 카드를 부채꼴로 펼칠 때 i 번째 카드의 기울기·높이. flat 이면 기울이지 않고 한 줄로 나란히 놓는다. */
+function fan(i: number, n: number, flat = false): CSSProperties {
+  if (flat) return { zIndex: i + 1 };
   const d = i - (n - 1) / 2;
   const spread = Math.min(7, 44 / Math.max(1, n));
   // 양 끝 카드가 조금 내려가 부채꼴이 되지만, 카드가 많아도 가장 끝이 10px 넘게 내려가지 않는다.
@@ -80,10 +93,12 @@ export interface HandProps {
   devPlayable?: (kind: DevKind) => boolean;
   onResource?: (r: Resource) => void;
   onDev?: (kind: DevKind) => void;
+  /** 부채꼴 대신 일자로 나란히 (장면 테스트 미리보기) */
+  flat?: boolean;
 }
 
 /** 내 손: 자원 카드(종류별 묶음)와 발전 카드를 아래에서 부채꼴로 들고 있다. 새로 받은 카드는 위에서 내려와 빛난다. */
-export function Hand({ resources, ratios, devCards, devPlayable, onResource, onDev }: HandProps) {
+export function Hand({ resources, ratios, devCards, devPlayable, onResource, onDev, flat = false }: HandProps) {
   const prev = useRef<Bundle>(resources);
   const [flash, setFlash] = useState<Partial<Record<Resource, 'gain' | 'spend'>>>({});
   // 장수가 실제로 바뀔 때만 연출한다 (화면 정보가 새로 와도 장수가 같으면 그대로 둔다).
@@ -116,9 +131,12 @@ export function Hand({ resources, ratios, devCards, devPlayable, onResource, onD
     return () => ro.disconnect();
   }, []);
   const cw = handRef.current ? parseFloat(getComputedStyle(handRef.current).getPropertyValue('--cw')) || 52 : 52;
-  const ov = n > 1 && width ? Math.max(-(cw - 16), Math.min(-6, Math.floor((width - 28 - n * cw) / (n - 1)))) : -6;
+  // 일자 배치는 카드 사이를 조금 띄우고, 자리가 모자랄 때만 겹친다.
+  const room = n > 1 && width ? Math.floor((width - 28 - n * cw) / (n - 1)) : 0;
+  const ov = n > 1 && width ? Math.max(-(cw - 16), Math.min(flat ? 6 : -6, room)) : flat ? 6 : -6;
   return (
-    <div ref={handRef} className="hand" style={{ ['--ov' as string]: `${ov}px` } as CSSProperties} aria-label={`내 손: 자원 ${total}장, 발전 카드 ${devCards.length}장`}>
+    <div ref={handRef} className={`hand ${flat ? 'hand-flat' : ''}`} style={{ ['--ov' as string]: `${ov}px` } as CSSProperties} aria-label={`내 손: 자원 ${total}장, 발전 카드 ${devCards.length}장`}>
+      <InkFilter />
       {n === 0 && <div className="hand-empty">손에 든 카드가 없습니다</div>}
       {res.map((r, i) => {
         const count = resources[r];
@@ -127,13 +145,15 @@ export function Hand({ resources, ratios, devCards, devPlayable, onResource, onD
             key={r}
             type="button"
             className={`hcard hcard-res hcard-${r} ${flash[r] ? `hcard-${flash[r]}` : ''}`}
-            style={fan(i, n)}
+            style={fan(i, n, flat)}
             data-depth={Math.min(2, count - 1)}
             onClick={() => onResource?.(r)}
             title={`${RESOURCE_LABEL[r]} ${count}장${ratios && ratios[r] < 4 ? ` · 교역로 ${ratios[r]}:1` : ''}`}
           >
             <span className="hcard-face">
-              <ResourceIcon kind={r} size={30} />
+              <span className="hcard-art">
+                <ResourceIcon kind={r} size={28} />
+              </span>
               <span className="hcard-name">{RESOURCE_LABEL[r]}</span>
             </span>
             <b className="hcard-count">{count}</b>
@@ -149,12 +169,14 @@ export function Hand({ resources, ratios, devCards, devPlayable, onResource, onD
             key={`${c.kind}-${j}`}
             type="button"
             className={`hcard hcard-dev ${c.fresh ? 'hcard-fresh' : ''} ${playable ? 'hcard-playable' : ''}`}
-            style={fan(i, n)}
+            style={fan(i, n, flat)}
             onClick={() => onDev?.(c.kind)}
             title={`${DEV_LABEL[c.kind]}${c.fresh ? ' · 이번 턴에 산 카드라 다음 턴부터 쓸 수 있습니다' : playable ? ' · 지금 쓸 수 있습니다' : ''}`}
           >
             <span className="hcard-face">
-              <DevIcon kind={c.kind} size={30} />
+              <span className="hcard-art">
+                <DevIcon kind={c.kind} size={28} />
+              </span>
               <span className="hcard-name">{DEV_LABEL[c.kind]}</span>
             </span>
             {c.fresh && <em className="hcard-new">새 카드</em>}

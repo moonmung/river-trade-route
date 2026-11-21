@@ -10,8 +10,8 @@ const SQRT3 = Math.sqrt(3);
 
 /** 타일 육각형의 외접원 반지름 (가운데 → 꼭짓점) */
 export const HEX_RADIUS = 1.14;
-/** 타일 중심 간격을 정하는 반지름. HEX_RADIUS 보다 커서 타일 사이에 흙길이 생긴다. */
-export const HEX_SPACING = 1.25;
+/** 타일 중심 간격을 정하는 반지름. HEX_RADIUS 보다 커서 타일 사이에 수레가 다닐 만한 흙길(폭 약 0.31)이 생긴다. */
+export const HEX_SPACING = 1.32;
 /** 타일 가운데 → 옆 변까지 거리 */
 export const HEX_APOTHEM = (HEX_RADIUS * SQRT3) / 2;
 export const PLATFORM_TOP = 0.22;

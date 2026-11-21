@@ -219,6 +219,7 @@ export default function Lab() {
               resources={hand}
               ratios={{ wood: 4, grain: 4, wool: 2, brick: 4, stone: 3 }}
               devCards={devHand}
+              flat
               devPlayable={(k) => k !== 'victory'}
               onResource={(r) => spendCard(r)}
               onDev={(k) => setDevHand((d) => d.filter((c, i) => i !== d.findIndex((x) => x.kind === k && !x.fresh)))}

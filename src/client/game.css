@@ -1307,9 +1307,16 @@
   font-size: 0.82rem;
 }
 
+/*
+ * 카드 한 장: 손으로 자른 두꺼운 종이에 찍은 옛 카드처럼 그린다.
+ * 바탕은 종이 결과 물감 얼룩, 가장자리는 누렇게 바랜 띠, 안쪽에 먹으로 그은 두 줄 테두리,
+ * 위쪽 그림 칸은 자원 색 물감을 칠한 창, 아래는 먹 글씨 이름. 반짝임·빛 번짐은 쓰지 않는다.
+ */
 .hcard {
-  --frame: #7a5532;
-  --tint: #efe0c0;
+  --paper: #f1e5c8;
+  --ink: #3a2a1f;
+  --wash: #d9c49a;
+  --line: rgba(58, 42, 31, 0.6);
   position: relative;
   flex: none;
   width: var(--cw);
@@ -1322,7 +1329,7 @@
   isolation: isolate;
   transform-origin: 50% 130%;
   transform: translateY(var(--lift, 0px)) rotate(var(--rot, 0deg));
-  transition: transform 0.18s ease-out, filter 0.18s;
+  transition: transform 0.18s ease-out;
   font: inherit;
 }
 
@@ -1332,35 +1339,63 @@
 
 .hcard:hover,
 .hcard:focus-visible {
-  transform: translateY(-16px) rotate(0deg) scale(1.12);
+  transform: translateY(-14px) rotate(0deg) scale(1.1);
   z-index: 50 !important;
   outline: none;
 }
 
-.hcard-face {
+.hcard-face,
+.hcard::before,
+.hcard::after {
   position: absolute;
   inset: 0;
-  border-radius: 8px;
-  background: radial-gradient(circle at 50% 36%, #fffaf0 0, var(--tint) 72%);
-  border: 2px solid var(--frame);
-  box-shadow: 0 3px 7px rgba(20, 14, 8, 0.38), inset 0 0 0 2px rgba(255, 255, 255, 0.45);
+  /* 모서리마다 조금씩 다르게 둥글려 손으로 오린 느낌 */
+  border-radius: 6px 8px 5px 9px / 8px 5px 9px 6px;
+  background-color: var(--paper);
+  background-image: var(--tex-grain), var(--tex-wash);
+  background-size: 140px 140px, 260px 260px;
+  border: 1px solid rgba(58, 42, 31, 0.7);
+  /* 바랜 가장자리와 종이 두께 */
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 250, 235, 0.55),
+    inset 0 0 9px rgba(120, 78, 30, 0.32),
+    0 1px 0 rgba(58, 42, 31, 0.3),
+    0 3px 6px rgba(30, 20, 10, 0.28);
+}
+
+.hcard-face {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  padding-top: calc(var(--ch) * 0.09);
   gap: 3px;
+  padding: 5px 5px 0;
+  overflow: hidden;
 }
 
-/* 같은 자원이 여러 장이면 뒤에 카드가 겹쳐 보인다 (두께) */
+/* 먹으로 그은 안쪽 두 줄 테두리 */
+.hcard-face::before,
+.hcard-face::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  border-radius: 3px 5px 3px 6px;
+}
+
+.hcard-face::before {
+  inset: 2px;
+  border: 1px solid var(--line);
+}
+
+.hcard-face::after {
+  inset: 4px;
+  border: 0.5px solid var(--line);
+  opacity: 0.6;
+}
+
+/* 같은 자원이 여러 장이면 뒤에 종이가 겹쳐 보인다 (두께) */
 .hcard::before,
 .hcard::after {
   content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 8px;
-  background: var(--tint);
-  border: 2px solid var(--frame);
   z-index: -1;
   opacity: 0;
 }
@@ -1368,20 +1403,47 @@
 .hcard[data-depth='1']::before,
 .hcard[data-depth='2']::before {
   opacity: 1;
-  transform: translate(3px, -3px);
+  transform: translate(3px, -3px) rotate(1.5deg);
+  filter: brightness(0.95);
 }
 
 .hcard[data-depth='2']::after {
   opacity: 1;
-  transform: translate(6px, -6px);
-  filter: brightness(0.92);
+  transform: translate(6px, -5px) rotate(3deg);
+  filter: brightness(0.88);
+}
+
+/* 그림 칸: 자원 색 물감을 칠한 창. 그림은 종이 위에 찍은 것처럼 곱하기로 섞는다. */
+.hcard-art {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 56%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+  border: 1px solid var(--line);
+  border-radius: 2px 3px 2px 3px;
+  background-color: var(--wash);
+  background-image: var(--tex-wash), var(--tex-grain);
+  background-size: 120px 120px, 90px 90px;
+  box-shadow: inset 0 0 6px rgba(58, 42, 31, 0.28);
+}
+
+.hcard-art svg {
+  mix-blend-mode: multiply;
+  filter: url(#hcard-ink);
 }
 
 .hcard-name {
+  position: relative;
+  z-index: 1;
   font-family: var(--font-title);
   font-size: 10px;
   font-weight: 700;
-  color: var(--frame);
+  letter-spacing: 0.02em;
+  color: var(--ink);
   white-space: nowrap;
 }
 
@@ -1389,111 +1451,136 @@
   font-size: 11px;
 }
 
-/* 장수는 왼쪽 위: 오른쪽 카드가 겹쳐도 가리지 않는다 */
+/* 장수: 붉은 밀랍 도장 (왼쪽 위라 오른쪽 카드가 겹쳐도 보인다) */
 .hcard-count {
   position: absolute;
   top: -8px;
   left: -8px;
   z-index: 2;
-  min-width: 21px;
-  height: 21px;
+  min-width: 22px;
+  height: 22px;
   padding: 0 4px;
-  border-radius: 11px;
-  background: var(--ink);
-  border: 1.5px solid #f5e6c2;
-  color: #f5e6c2;
-  font: 700 12px/18px 'Palatino Linotype', Palatino, Georgia, var(--font-title);
+  border-radius: 52% 48% 50% 46% / 47% 53% 48% 52%;
+  background-color: #8a2e21;
+  background-image: var(--tex-grain);
+  color: #f6e7c8;
+  font: 700 12px/22px 'Palatino Linotype', Palatino, Georgia, var(--font-title);
   text-align: center;
+  box-shadow:
+    inset 0 0 0 2px rgba(60, 10, 5, 0.35),
+    inset 0 0 0 3.5px rgba(255, 210, 170, 0.18),
+    0 1px 2px rgba(30, 10, 5, 0.45);
 }
 
+/* 교역로 비율: 그림 칸 모서리에 찍은 먹 도장 */
 .hcard-ratio {
   position: absolute;
-  bottom: 5px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: calc(var(--ch) * 0.56 - 8px);
+  right: 5px;
   z-index: 2;
-  font-style: normal;
-  font-size: 9px;
-  font-weight: 700;
-  color: #fff;
-  background: var(--river);
-  border-radius: 6px;
-  padding: 0 4px;
+  transform: rotate(-6deg);
+  font: italic 700 9px/1.2 'Palatino Linotype', Palatino, Georgia, var(--font-title);
+  color: #2c4a6a;
+  background-color: rgba(246, 236, 212, 0.88);
+  border: 1px solid rgba(44, 74, 106, 0.8);
+  border-radius: 2px;
+  padding: 0 3px;
 }
 
+/* 자원별 물감 색 */
 .hcard-wood {
-  --frame: #7a4f26;
-  --tint: #ecd3ae;
+  --wash: #c8a072;
 }
 
 .hcard-grain {
-  --frame: #a57a12;
-  --tint: #f6e3a4;
+  --wash: #e8cd84;
 }
 
 .hcard-wool {
-  --frame: #5d7f3a;
-  --tint: #e2efc9;
+  --wash: #c9dca2;
 }
 
 .hcard-brick {
-  --frame: #9a4329;
-  --tint: #f1cdb8;
+  --wash: #dea082;
 }
 
 .hcard-stone {
-  --frame: #5d6773;
-  --tint: #dfe3e8;
+  --wash: #c2c8cf;
 }
 
-/* 발전 카드: 짙은 남색 바탕에 금테 */
+/* 발전 카드: 쪽빛으로 물들인 종이에 황토 선 */
 .hcard-dev {
-  --frame: #d0a83c;
-  --tint: #2c4170;
+  --paper: #34466b;
+  --wash: #263553;
+  --line: rgba(214, 177, 92, 0.75);
 }
 
-.hcard-dev .hcard-face {
-  background: radial-gradient(circle at 50% 34%, #4a63a0 0, #2c4170 60%, #1d2b4f);
-  box-shadow: 0 3px 7px rgba(20, 14, 8, 0.45), inset 0 0 0 2px rgba(240, 210, 122, 0.35);
+.hcard-dev .hcard-face,
+.hcard-dev::before,
+.hcard-dev::after {
+  background-image: var(--tex-grain);
+  border-color: #1d2740;
+  box-shadow:
+    inset 0 0 0 1px rgba(214, 177, 92, 0.25),
+    inset 0 0 10px rgba(10, 14, 30, 0.45),
+    0 1px 0 rgba(20, 20, 30, 0.35),
+    0 3px 6px rgba(20, 14, 8, 0.32);
+}
+
+.hcard-dev .hcard-art svg {
+  mix-blend-mode: normal;
 }
 
 .hcard-dev .hcard-name {
-  color: #f3e2b4;
+  color: #f0dfb4;
   font-size: 9px;
 }
 
-/* 지금 쓸 수 있는 카드는 하스스톤처럼 테두리가 빛난다 */
+/* 지금 쓸 수 있는 카드: 금박 테두리가 은은하게 숨 쉬고 살짝 올라와 있다 (빛 번짐 없이) */
+.hcard-playable {
+  --lift: -4px;
+}
+
 .hcard-playable .hcard-face {
-  animation: hcard-ready 1.6s ease-in-out infinite;
+  border-color: #d8ae4a;
+  animation: hcard-ready 1.8s ease-in-out infinite;
 }
 
 @keyframes hcard-ready {
   50% {
-    box-shadow: 0 0 0 2px #7fe08a, 0 0 14px 4px rgba(127, 224, 138, 0.75), inset 0 0 0 2px rgba(240, 210, 122, 0.35);
+    border-color: #f3d27a;
+    box-shadow:
+      0 0 0 2px #c9993a,
+      inset 0 0 0 1px rgba(214, 177, 92, 0.4),
+      inset 0 0 10px rgba(10, 14, 30, 0.45),
+      0 3px 6px rgba(20, 14, 8, 0.32);
   }
 }
 
-.hcard-fresh {
-  filter: saturate(0.7) brightness(0.9);
+.hcard-fresh .hcard-face {
+  filter: saturate(0.6) brightness(0.85);
 }
 
+/* 이번 턴에 산 카드: 핀으로 꽂은 작은 종이쪽지 */
 .hcard-new {
   position: absolute;
-  top: 6px;
+  top: 3px;
   left: 50%;
-  transform: translateX(-50%);
-  z-index: 2;
+  z-index: 3;
+  transform: translateX(-50%) rotate(-5deg);
   font-style: normal;
   font-size: 8px;
   font-weight: 700;
   white-space: nowrap;
-  color: #2c2018;
-  background: #f0d27a;
-  border-radius: 4px;
+  color: #3a2a1f;
+  background-color: #ead9a8;
+  background-image: var(--tex-grain);
+  border: 1px solid rgba(58, 42, 31, 0.55);
   padding: 0 3px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
 }
 
-/* 새로 받은 카드: 위에서 내려와 반짝인다. 쓴 카드: 살짝 가라앉는다. */
+/* 새로 받은 카드: 위에서 내려앉으며 금빛 테두리가 한 번 선명해진다. 쓴 카드: 살짝 가라앉는다. */
 .hcard-gain .hcard-face {
   animation: hcard-gain 0.9s ease-out;
 }
@@ -1512,9 +1599,10 @@
     opacity: 0;
   }
   35% {
-    transform: translateY(4px);
+    transform: translateY(3px);
     opacity: 1;
-    box-shadow: 0 0 0 3px #ffd34d, 0 0 16px 6px rgba(255, 211, 77, 0.8);
+    border-color: #c9993a;
+    box-shadow: 0 0 0 2px #d8ae4a, 0 3px 6px rgba(30, 20, 10, 0.28);
   }
   100% {
     transform: none;
@@ -1523,15 +1611,14 @@
 
 @keyframes hcard-count {
   30% {
-    transform: scale(1.5);
-    background: #b9832a;
+    transform: scale(1.45) rotate(-8deg);
   }
 }
 
 @keyframes hcard-spend {
   40% {
-    transform: translateY(8px) scale(0.94);
-    filter: brightness(0.85);
+    transform: translateY(8px) scale(0.95);
+    filter: brightness(0.88);
   }
 }
 
@@ -1558,13 +1645,16 @@
   border-radius: 2px;
   transform-origin: 50% 100%;
   transform: rotate(var(--r));
-  background: repeating-linear-gradient(45deg, #b07a42 0 2px, #c99a5e 2px 4px);
-  border: 1px solid #5e3f22;
+  background-color: #b98a52;
+  background-image: var(--tex-grain);
+  border: 1px solid #4e341c;
+  box-shadow: inset 0 0 0 1px rgba(255, 240, 210, 0.35);
 }
 
 .mini-dev .mini-fan i {
-  background: repeating-linear-gradient(45deg, #2c4170 0 2px, #3d5590 2px 4px);
-  border-color: #d0a83c;
+  background-color: #34466b;
+  border-color: #1d2740;
+  box-shadow: inset 0 0 0 1px rgba(214, 177, 92, 0.6);
 }
 
 .mini-empty .mini-fan {
