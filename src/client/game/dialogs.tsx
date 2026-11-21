@@ -37,9 +37,9 @@ function ResourcePicker({ picked, onPick, label }: { picked: Resource[]; onPick:
 
 /**
  * 손에 든 발전 카드를 누르면 카드 위에 붙어 열리는 쪽지: 카드가 하는 일 한 줄과 쓰기 버튼.
- * 풍년은 받을 자원 2개, 독점은 가져올 자원 1개를 먼저 고른다.
+ * 풍년은 받을 자원 2개, 독점은 가져올 자원 1개를 먼저 고른다. wait 동안은(주사위·동상 연출 중, game/pace.ts) 쓸 수 없다.
  */
-export function DevPlayCard({ view, kind, onClose }: { view: RoomView; kind: DevKind; onClose: () => void }) {
+export function DevPlayCard({ view, kind, wait = null, onClose }: { view: RoomView; kind: DevKind; wait?: string | null; onClose: () => void }) {
   const g = view.game!;
   const [picked, setPicked] = useState<Resource[]>([]);
   const total = g.myDevCards.filter((c) => c.kind === kind).length;
@@ -47,6 +47,7 @@ export function DevPlayCard({ view, kind, onClose }: { view: RoomView; kind: Dev
   const need = kind === 'year_of_plenty' ? 2 : kind === 'monopoly' ? 1 : 0;
   const pick = (r: Resource) => setPicked((cur) => (need === 1 ? [r] : cur.length >= need ? [r] : [...cur, r]));
   const blocker =
+    wait ??
     playDevBlocker(view, kind) ??
     (picked.length < need ? (kind === 'monopoly' ? '가져올 자원을 고르세요.' : `받을 자원 ${need - picked.length}개를 더 고르세요.`) : null);
   return (

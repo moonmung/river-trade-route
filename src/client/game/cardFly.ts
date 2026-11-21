@@ -1,5 +1,5 @@
 // 자원 카드가 보드에서 손으로 날아드는 연출.
-// 내 생산은 맵이 한 번 밝아지면서 카드가 보드에서 내 손의 그 자원 카드 자리로 슉슉 날아들고, 다른 사람의 생산은 그 사람 상태 창
+// 내 생산은 자원이 나온 칸이 환해진 뒤 카드가 보드에서 내 손의 그 자원 카드 자리로 슉슉 날아들고, 다른 사람의 생산은 그 사람 상태 창
 // 오른쪽 아래(손 카드 뭉치)로 작은 카드가 슈루룩 빨려 들어간다. 여러 장이면 그만큼 날아간다.
 // 날아가는 동안 그 카드는 손 장수에서 빼 두었다가(hold) 닿는 순간 하나씩 더한다(release). 그래서 숫자가 카드가 닿을 때 올라간다.
 import { useSyncExternalStore } from 'react';
@@ -9,6 +9,8 @@ import { RESOURCE_ART } from '../ui/art';
 
 /** 사람마다 아직 날아가는 중이라 손에 넣지 않은 카드 */
 let held: Record<string, Bundle> = {};
+/** clearFlyingCards 마다 바뀐다 */
+let clearGen = 0;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((fn) => fn());
 
@@ -34,14 +36,40 @@ export function useHeldCards(): Record<string, Bundle> {
   );
 }
 
+/** 아직 날아가는 카드가 있는지 (React 밖에서 볼 때) */
+export function cardsFlying(): boolean {
+  return Object.keys(held).length > 0;
+}
+
 export function heldTotal(h: Record<string, Bundle>, player: string): number {
   const b = h[player];
   return b ? RESOURCES.reduce((n, r) => n + b[r], 0) : 0;
 }
 
+/**
+ * 날리기 전에 미리 손 장수에서 빼 둔다 (주사위가 구르는 동안 생산 결과가 손에 먼저 보이지 않게).
+ * 돌려준 함수를 부르면 뺀 것을 거둔다. 그 자리에서 flyCards 로 같은 카드를 날리면 장수는 그대로 이어진다.
+ */
+export function holdCards(cards: { player: string; resource: Resource }[]): () => void {
+  for (const c of cards) adjust(c.player, c.resource, 1);
+  const gen = clearGen;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    window.clearTimeout(safety);
+    // 그사이 화면을 떠나 모두 거뒀으면(clearFlyingCards) 새 게임의 장수를 건드리지 않는다.
+    if (gen === clearGen) for (const c of cards) adjust(c.player, c.resource, -1);
+  };
+  // 주사위 연출이 끊겨 거두지 못해도 장수는 반드시 맞춘다.
+  const safety = window.setTimeout(release, 10_000);
+  return release;
+}
+
 /** 진행 중인 연출을 모두 거두고 장수를 바로 맞춘다 (게임 화면을 떠날 때, 새 게임). */
 export function clearFlyingCards(): void {
   document.querySelectorAll('.fly-card').forEach((el) => el.remove());
+  clearGen += 1;
   held = {};
   emit();
 }
@@ -149,14 +177,4 @@ function launch(card: FlyCard, target: Element, onLand: () => void): void {
   };
   anim.onfinish = finish;
   anim.oncancel = finish;
-}
-
-/** 맵이 한 번 환하게 밝아진다 (내 생산이 있을 때) */
-export function glowBoard(): void {
-  const el = document.querySelector('.board-layer');
-  if (!el) return;
-  el.classList.remove('board-glow');
-  void (el as HTMLElement).offsetWidth;
-  el.classList.add('board-glow');
-  window.setTimeout(() => el.classList.remove('board-glow'), 1300);
 }

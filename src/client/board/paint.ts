@@ -126,24 +126,54 @@ export const paintLock = {
   amount: { value: 0 },
 };
 
+/** 동시에 빛날 수 있는 칸 수 (한 번 굴려 내 자원이 나오는 칸은 대개 한두 칸이다) */
+export const GLOW_SLOTS = 4;
+
+/**
+ * 내 자원이 나온 칸. 이 육각형 안(바닥·밀밭·나무·집 모두)은 빛을 받은 색을 잠깐 환하고 따뜻하게 올린다.
+ * tiles 의 x, y 는 칸 중심 (세계 x, z), z 는 밝기 (0 이면 꺼짐). BoardRenderer.glowTiles 가 바꾼다.
+ */
+export const paintGlow = {
+  tiles: { value: Array.from({ length: GLOW_SLOTS }, () => new THREE.Vector3()) },
+  apothem: { value: 1 },
+};
+
 const LOCK_UNIFORMS = /* glsl */ `
 uniform vec2 uLockCenter;
 uniform float uLockApothem;
 uniform float uLockReach;
 uniform float uLockAmount;
+uniform vec3 uGlowTiles[ ${GLOW_SLOTS} ];
+uniform float uGlowApothem;
+float paintHex( vec2 p ) {
+  vec2 q = abs( p );
+  return max( q.x, dot( q, vec2( 0.5, 0.8660254 ) ) );
+}
 float paintLockGrey( vec3 w ) {
   vec2 p = w.xz - uLockCenter;
-  vec2 q = abs( p );
-  float hex = max( q.x, dot( q, vec2( 0.5, 0.8660254 ) ) );
-  float inside = 1.0 - smoothstep( uLockApothem - 0.02, uLockApothem + 0.03, hex );
+  float inside = 1.0 - smoothstep( uLockApothem - 0.02, uLockApothem + 0.03, paintHex( p ) );
   float reach = 1.0 - smoothstep( uLockReach - 0.35, uLockReach, length( p ) );
   return uLockAmount * inside * reach;
+}
+float paintGlowAmount( vec3 w ) {
+  float g = 0.0;
+  for ( int i = 0; i < ${GLOW_SLOTS}; i++ ) {
+    if ( uGlowTiles[ i ].z <= 0.0 ) continue;
+    float inside = 1.0 - smoothstep( uGlowApothem - 0.06, uGlowApothem + 0.02, paintHex( w.xz - uGlowTiles[ i ].xy ) );
+    g = max( g, uGlowTiles[ i ].z * inside );
+  }
+  return g;
 }`;
 
-/** 빛까지 다 칠한 색을 밝기만 남긴 회색으로 바꾼다 (잠긴 칸이 또렷이 죽어 보이도록 조금 어둡게). */
+/**
+ * 빛까지 다 칠한 색을 밝기만 남긴 회색으로 바꾼다 (잠긴 칸이 또렷이 죽어 보이도록 조금 어둡게).
+ * 내 자원이 나온 칸은 그 칸 안만 햇빛이 든 듯 환하고 따뜻하게 올린다.
+ */
 const LOCK_FRAGMENT = /* glsl */ `
   float lockGrey = paintLockGrey( vPaintWorld );
   outgoingLight = mix( outgoingLight, vec3( dot( outgoingLight, vec3( 0.2126, 0.7152, 0.0722 ) ) * 0.93 ), lockGrey );
+  float glowAmt = paintGlowAmount( vPaintWorld );
+  outgoingLight = outgoingLight * ( 1.0 + 0.55 * glowAmt ) + vec3( 0.22, 0.17, 0.06 ) * glowAmt;
   #include <opaque_fragment>`;
 
 const WORLD_VERTEX = /* glsl */ `#include <project_vertex>
@@ -158,6 +188,8 @@ function bindLockUniforms(shader: THREE.WebGLProgramParametersWithUniforms): voi
   shader.uniforms.uLockApothem = paintLock.apothem;
   shader.uniforms.uLockReach = paintLock.reach;
   shader.uniforms.uLockAmount = paintLock.amount;
+  shader.uniforms.uGlowTiles = paintGlow.tiles;
+  shader.uniforms.uGlowApothem = paintGlow.apothem;
 }
 
 /**

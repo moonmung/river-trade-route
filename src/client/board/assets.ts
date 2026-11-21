@@ -11,7 +11,8 @@ import { buildProp, propAssetName, type PropKey } from './art/builders';
 import { MATERIALS, materialKeyFromName, type MaterialKey } from './art/materials';
 import { paintMaterial, paintVariant } from './paint';
 
-// 보드 밖은 무늬 없는 물이라 풀밭(ground_grass)·물결(water_normal) 텍스처는 불러오지 않는다. 파일과 manifest 항목은 남아 있다.
+// 보드 밖은 무늬 없는 물이라 풀밭(ground_grass)·물결(water_normal) 텍스처는 불러오지 않는다.
+// 빈 변은 흙 땅 셰이더가 희끄무레한 샛길로 칠하므로 예전 흙길 띠(ground_road)도 불러오지 않는다. 세 파일과 manifest 항목은 남아 있다.
 // 모래(ground_sand)는 바닷가 모래밭에 쓴다.
 export type GroundTextureKey =
   | 'ground_dirt'
@@ -22,7 +23,6 @@ export type GroundTextureKey =
   | 'ground_clay'
   | 'ground_cobble'
   | 'ground_sand'
-  | 'ground_road'
   | 'contact_shadow';
 
 export interface ManifestEntry {
@@ -236,7 +236,6 @@ export async function loadArtLibrary(
     'ground_clay',
     'ground_cobble',
     'ground_sand',
-    'ground_road',
     'contact_shadow',
   ];
   const uniqueProps = [...new Map(propList.map((p) => [propAssetName(p.key, p.variant), p])).values()];

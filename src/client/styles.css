@@ -172,44 +172,18 @@ h2 {
   text-align: center;
 }
 
-/* 브랜드 */
+/* 게임 이름: 본문과 같은 글꼴, 같은 먹색. 머리글자 색이나 로고 같은 장식은 넣지 않는다. */
 .brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.brand-mark {
-  width: 56px;
-  height: 56px;
-  flex: none;
-}
-
-.brand-small .brand-mark {
-  width: 38px;
-  height: 38px;
-}
-
-.brand-title {
-  font-family: var(--font-title);
+  font-family: var(--font);
+  color: var(--ink);
   font-size: 1.7rem;
   font-weight: 700;
+  line-height: 1.2;
   letter-spacing: 0.04em;
 }
 
-/* 주홍 머리글자 (필사본의 붉은 첫 글자) */
-.brand-title::first-letter {
-  color: var(--vermilion);
-  font-size: 1.22em;
-}
-
-.brand-small .brand-title {
+.brand-small {
   font-size: 1.2rem;
-}
-
-.brand-sub {
-  color: var(--ink-soft);
-  font-size: 0.9rem;
 }
 
 /* 폼 */
@@ -481,11 +455,6 @@ h2 {
   margin: 0;
 }
 
-.home-actions p {
-  margin: 0;
-  font-size: 0.88rem;
-}
-
 @media (max-width: 560px) {
   .home-actions {
     grid-template-columns: 1fr;
@@ -681,9 +650,9 @@ h2 {
   align-items: start;
 }
 
-.invite p {
-  margin: 0 0 8px;
-  font-size: 0.92rem;
+/* 격자 칸이 긴 주소·고르기 상자 너비만큼 넓어져 휴대폰에서 쪽지 오른쪽 여백을 먹지 않게 한다 */
+.invite-text {
+  min-width: 0;
 }
 
 .invite-link {
@@ -894,7 +863,8 @@ h2 {
   box-shadow: 1px 1px 0 rgba(58, 42, 31, 0.25);
 }
 
-.owner-badge {
+/* 소유자 표식: 누른 마을·도시 위에만 뜬다. 바깥 상자(.owner-badge)는 화면 위치만 잡고 안쪽 조각이 톡 떠오른다. */
+.owner-badge-chip {
   background: rgba(242, 230, 204, 0.94);
   border: 1px solid rgba(58, 42, 31, 0.6);
   border-radius: 50%;
@@ -904,12 +874,31 @@ h2 {
   align-items: center;
   justify-content: center;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  transform-origin: 50% 100%;
+  animation: owner-badge-pop 0.34s cubic-bezier(0.2, 1.5, 0.4, 1) both;
 }
 
 /* 도시는 표식도 한 단계 크게 */
-.owner-badge-city {
+.owner-badge-city .owner-badge-chip {
   width: 25px;
   height: 25px;
+}
+
+@keyframes owner-badge-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.35);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .owner-badge-chip {
+    animation: none;
+  }
 }
 
 .float-label {
@@ -1202,8 +1191,19 @@ h2 {
   pointer-events: none;
 }
 
+/* 빈 변: 3D 보드의 샛길처럼 희끄무레한 오솔길. 플레이어 색 길은 이보다 훨씬 굵어 바로 구별된다. */
+.flat-trail {
+  fill: none;
+  stroke: #f1e8d2;
+  stroke-width: 0.05;
+  stroke-linecap: round;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+/* 안내 점선은 희끄무레한 샛길 위에 그려지므로 진한 적갈색으로 칠한다 (3D 보드의 안내 점과 같은 색). */
 .flat-hint-line {
-  stroke: #fff4cf;
+  stroke: #8f3f10;
   stroke-width: 0.08;
   stroke-dasharray: 0.06 0.12;
   stroke-linecap: round;

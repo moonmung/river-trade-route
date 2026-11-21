@@ -331,7 +331,7 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
   if (sel.kind === 'tile') {
     if (g.phase !== 'playing' || g.step !== 'robber' || g.currentPlayerId !== me) return null;
     return {
-      label: '여기로 기사단 동상 옮기기',
+      label: '기사단 동상 옮기기',
       blocker: g.robber === sel.id ? '동상은 다른 칸으로 옮겨야 합니다.' : null,
       action: { type: 'move_robber', tileId: sel.id },
     };
@@ -340,7 +340,7 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
   if (sel.kind === 'vertex') {
     // 시작 배치: 고른 자리에서 ✓ 를 누르면 마을을 짓는다 (길은 그다음에 따로 고른다).
     if (placing && !g.setupVillage && placeableVertices(g.buildings).includes(sel.id)) {
-      return { label: '여기에 마을 짓기', blocker: null, action: { type: 'place_village', vertexId: sel.id }, confirm: true };
+      return { label: '마을 짓기', blocker: null, action: { type: 'place_village', vertexId: sel.id }, confirm: true };
     }
     const b = g.buildings.find((x) => x.vertexId === sel.id);
     if (myMain && b && b.owner === me && b.kind === 'village') return { label: '도시로 올리기', blocker: buildBlocker(view, 'city'), action: { type: 'build_city', vertexId: sel.id } };
@@ -350,7 +350,7 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
   if (g.roads.some((r) => r.edgeId === sel.id)) return null;
   if (placing) {
     if (!g.setupVillage || !setupRoadEdges(g.roads, g.setupVillage).includes(sel.id)) return null;
-    return { label: '여기에 길 놓기', blocker: null, action: { type: 'place_road', edgeId: sel.id }, confirm: true };
+    return { label: '길 놓기', blocker: null, action: { type: 'place_road', edgeId: sel.id }, confirm: true };
   }
   if (!buildSpots(view, 'road').includes(sel.id)) return null;
   if (g.phase === 'playing' && g.step === 'road_building' && g.currentPlayerId === me) {

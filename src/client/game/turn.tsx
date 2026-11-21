@@ -72,8 +72,8 @@ export function TurnTimer({ clock, size = 30, mine }: { clock: TurnClock; size?:
   );
 }
 
-/** 지금 단계를 한 줄로 */
-function statusText(view: RoomView, players: Players): ReactNode {
+/** 지금 단계를 한 줄로. wait 가 있으면(주사위·동상 연출을 기다리는 중) 다음 단계 대신 그 말을 적는다. */
+function statusText(view: RoomView, players: Players, wait: string | null): ReactNode {
   const g = view.game!;
   const me = view.you;
   const who = (id: string | null) => {
@@ -92,6 +92,14 @@ function statusText(view: RoomView, players: Players): ReactNode {
     return <span>{who(g.placementPlayerId)}이(가) {g.setupVillage ? '길을' : '마을 자리를'} 고르는 중</span>;
   }
   if (g.phase === 'finished') return <b>게임 종료</b>;
+  if (wait) {
+    if (isMyTurn(view)) return <b className="turn-me">{wait}</b>;
+    return (
+      <span>
+        {who(g.currentPlayerId)}의 차례 · {wait}
+      </span>
+    );
+  }
   if (g.step === 'discard') {
     const n = g.discards[me];
     return n ? <b className="turn-me">7! 자원 {n}장을 버리세요</b> : <span>7! 자원이 많은 사람들이 절반을 버리는 중</span>;
@@ -126,7 +134,20 @@ function statusText(view: RoomView, players: Players): ReactNode {
  * 차례 상태 쪽지: [☰] [n턴] [마지막 주사위] [남은 시간] 한 줄과 지금 할 일 한 줄.
  * 넓은 화면은 오른쪽 패널 맨 위, 좁은 화면은 보드 왼쪽 위에 작게 뜬다.
  */
-export function TurnStatus({ view, players, onMenu, compact = false }: { view: RoomView; players: Players; onMenu: () => void; compact?: boolean }) {
+export function TurnStatus({
+  view,
+  players,
+  onMenu,
+  wait = null,
+  compact = false,
+}: {
+  view: RoomView;
+  players: Players;
+  onMenu: () => void;
+  /** 연출을 기다리는 까닭 (game/pace.ts) */
+  wait?: string | null;
+  compact?: boolean;
+}) {
   const g = view.game!;
   const dice = useDiceUi();
   const clock = useTurnClock(g);
@@ -159,7 +180,7 @@ export function TurnStatus({ view, players, onMenu, compact = false }: { view: R
         </span>
         {clock && <TurnTimer clock={clock} mine={mineNow} size={compact ? 28 : 32} />}
       </div>
-      <div className="turn-line">{statusText(view, players)}</div>
+      <div className="turn-line">{statusText(view, players, wait)}</div>
       {clock && mineNow && <div className={`ts-bar ${clock.left <= 10_000 ? 'ts-bar-low' : ''}`} style={{ ['--f' as string]: clock.left / clock.total } as CSSProperties} />}
     </div>
   );

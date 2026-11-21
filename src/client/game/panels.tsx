@@ -206,8 +206,19 @@ function CostRow({ cost, have }: { cost: Bundle; have: Bundle }) {
  * 손 카드 옆의 네모 버튼 네 개: [도로] [마을] [도시] [발전 카드].
  * 도로·마을·도시는 누르면 지을 수 있는 자리가 빛나고 그 자리를 누르면 바로 짓는다. 발전 카드는 누르면 바로 산다.
  * 못 하는 까닭은 마우스를 올리거나 누르면 버튼 위 말풍선으로 짧게 알려 준다.
+ * wait: 주사위·생산·동상 연출이 끝나기를 기다리는 중이면 그 까닭 (game/pace.ts). 그동안은 모두 막는다.
  */
-export function BuildBar({ view, buildMode, onBuild }: { view: RoomView; buildMode: PieceKind | null; onBuild: (kind: PieceKind | null) => void }) {
+export function BuildBar({
+  view,
+  buildMode,
+  wait = null,
+  onBuild,
+}: {
+  view: RoomView;
+  buildMode: PieceKind | null;
+  wait?: string | null;
+  onBuild: (kind: PieceKind | null) => void;
+}) {
   const g = view.game!;
   const [tip, setTip] = useState<{ key: BuildKey; n: number } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -221,7 +232,7 @@ export function BuildBar({ view, buildMode, onBuild }: { view: RoomView; buildMo
     <div className="build-bar" role="group" aria-label="건설과 발전 카드">
       {BUILD_ITEMS.map((item) => {
         const active = item.key !== 'dev' && buildMode === item.key;
-        const blocker = active ? null : item.key === 'dev' ? buyDevBlocker(view) : buildBlocker(view, item.key);
+        const blocker = active ? null : (wait ?? (item.key === 'dev' ? buyDevBlocker(view) : buildBlocker(view, item.key)));
         const left =
           item.key === 'dev'
             ? `남은 카드 ${g.devDeckCount}장`
@@ -263,8 +274,8 @@ export function BuildBar({ view, buildMode, onBuild }: { view: RoomView; buildMo
   );
 }
 
-/** 건설 버튼 줄 옆의 큰 버튼: 굴리기 단계에는 주사위 굴리기, 그 밖에는 교환과 턴 종료 */
-export function ActionBar({ view, tradeOpen, onTrade }: { view: RoomView; tradeOpen: boolean; onTrade: () => void }) {
+/** 건설 버튼 줄 옆의 큰 버튼: 굴리기 단계에는 주사위 굴리기, 그 밖에는 교환과 턴 종료. wait 는 BuildBar 와 같다. */
+export function ActionBar({ view, tradeOpen, wait = null, onTrade }: { view: RoomView; tradeOpen: boolean; wait?: string | null; onTrade: () => void }) {
   const g = view.game!;
   const mine = isMyTurn(view);
   const [rolling, setRolling] = useState(false);
@@ -277,7 +288,7 @@ export function ActionBar({ view, tradeOpen, onTrade }: { view: RoomView; tradeO
         <ActionButton
           className="btn btn-primary act act-roll"
           label={rolling ? '굴리는 중…' : '주사위 굴리기'}
-          blocker={null}
+          blocker={wait}
           onClick={async () => {
             setRolling(true);
             // 3D 주사위를 던지고 서버에 굴리기를 보낸다 (주사위는 값이 오기 전부터 날아간다).
@@ -293,18 +304,19 @@ export function ActionBar({ view, tradeOpen, onTrade }: { view: RoomView; tradeO
       </div>
     );
   }
-  const endBlocker = turnBlocker(view);
+  const endBlocker = wait ?? turnBlocker(view);
+  const bankable = !wait && canBankNow(view);
   return (
     <div className="actions">
       <ActionButton
-        className={`btn act act-trade ${canBankNow(view) ? 'act-bankable' : ''}`}
+        className={`btn act act-trade ${bankable ? 'act-bankable' : ''}`}
         label="교환"
         active={tradeOpen}
-        blocker={tradeOpen ? null : tradeButtonBlocker(view)}
+        blocker={tradeOpen ? null : (wait ?? tradeButtonBlocker(view))}
         onClick={onTrade}
         icon={
           <span className="act-ico">
-            ⇄{canBankNow(view) && <i className="act-dot" title="은행·교역로와 바로 바꿀 수 있는 자원이 있습니다" aria-label="은행 교환 가능" />}
+            ⇄{bankable && <i className="act-dot" title="은행·교역로와 바로 바꿀 수 있는 자원이 있습니다" aria-label="은행 교환 가능" />}
           </span>
         }
       />

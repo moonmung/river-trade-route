@@ -1,7 +1,8 @@
 // 교환 창과 교환 증서.
-// 교환 창은 손에 든 카드 바로 위에 붙어 열리고 "낼 것"과 "받을 것" 두 줄에서 카드를 눌러 고른다.
+// 교환 창은 손에 든 카드 바로 위에 붙어 열리고 위 줄 "받을 것"과 손 쪽 아래 줄 "낼 것"에서 카드를 눌러 고른다.
 // 은행·교역로 탭은 내 비율(4:1, 교역로 3:1·2:1)만큼 한 묶음씩 고르고 플레이어 탭은 한 장씩 골라 모두에게(또는 한 사람에게) 제안한다.
 // 열린 제안은 화면 왼쪽 위에 중세 거래 증서처럼 쌓이고 모두에게 보인다 (차례인 사람이 동시에 3개까지).
+// 교환 창과 증서 모두 보는 사람 기준으로 내 쪽(내가 줄 것)을 아래, 상대 쪽(내가 받을 것)을 위에 둔다.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { harborVertices } from '../../shared/board';
 import { BANK_RATIO, MAX_OPEN_TRADES, MAX_TRADE_AMOUNT, RESOURCES, RESOURCE_LABEL, bundleTotal, emptyBundle } from '../../shared/constants';
@@ -133,7 +134,7 @@ function CardRow({ label, hint, side, slots }: { label: string; hint?: ReactNode
 
 /**
  * 교환 창. 손에 든 카드 위에 붙어 열린다.
- * 위 줄은 내가 낼 카드(내 손에서 고른다), 아래 줄은 받을 카드. 고른 내용으로 은행과 바로 바꾸거나 모두에게 제안한다.
+ * 위 줄은 받을 카드, 손에 든 카드와 맞닿은 아래 줄은 내가 낼 카드(내 손에서 고른다). 고른 내용으로 은행과 바로 바꾸거나 모두에게 제안한다.
  */
 export function TradePanel({
   view,
@@ -249,16 +250,16 @@ export function TradePanel({
         </button>
       </div>
 
-      <CardRow label="낼 것" side="give" hint={bank ? '비율만큼 한 묶음씩' : '내 카드에서 고르세요'} slots={giveSlots} />
-      <div className="trade-arrow" aria-hidden>
-        <span>⇅</span>
-      </div>
       <CardRow
         label="받을 것"
         side="get"
         hint={bank ? (units > 0 ? `${units}장 고를 수 있음` : '낼 묶음 수만큼') : '원하는 카드를 고르세요'}
         slots={getSlots}
       />
+      <div className="trade-arrow" aria-hidden>
+        <span>⇅</span>
+      </div>
+      <CardRow label="낼 것" side="give" hint={bank ? '비율만큼 한 묶음씩' : '내 카드에서 고르세요'} slots={giveSlots} />
 
       <p className="trade-note small">
         {bank ? (
@@ -336,11 +337,11 @@ export interface ClosedDeed {
   seq: number;
 }
 
-/** 도장이 찍힌 증서가 화면에 남아 있는 시간 (CSS 의 deed-out 과 같다) */
+/** 닫힌 증서가 결과 글씨를 단 채 화면에 남아 있는 시간 (CSS 의 deed-out 과 같다) */
 export const STAMP_MS = 2800;
 
 /**
- * 막 닫힌 교환 제안. 열린 제안 목록에서 빠진 제안을 기록(trade_closed·trade_accepted)과 맞춰 도장을 찍어 잠깐 남긴다.
+ * 막 닫힌 교환 제안. 열린 제안 목록에서 빠진 제안을 기록(trade_closed·trade_accepted)과 맞춰 결과 글씨를 단 채 잠깐 남긴다.
  * 처음 받은 화면(새로고침)에서는 지난 기록을 다시 보여 주지 않는다.
  */
 export function useClosedDeeds(view: RoomView): ClosedDeed[] {
@@ -383,7 +384,7 @@ export function useClosedDeeds(view: RoomView): ClosedDeed[] {
   return closed;
 }
 
-/** 도장 글씨 */
+/** 닫힌 증서 가운데에 적는 결과 글씨 */
 const STAMP_TEXT: Record<DeedOutcome, string> = {
   accepted: '체결',
   rejected: '거절됨',
@@ -392,11 +393,11 @@ const STAMP_TEXT: Record<DeedOutcome, string> = {
   unaffordable: '무효',
 };
 
-/** 장부 한 칸: 자원마다 "목재 ······ 2" */
-function LedgerColumn({ title, bundle }: { title: string; bundle: Bundle }) {
+/** 장부 한 줄: 왼쪽에 제목, 오른쪽에 자원 그림 카드 (장수는 밀랍) */
+function LedgerColumn({ title, bundle, side }: { title: string; bundle: Bundle; side: 'theirs' | 'mine' }) {
   const items = RESOURCES.filter((r) => bundle[r] > 0);
   return (
-    <div className="deed-col">
+    <div className={`deed-col deed-col-${side}`}>
       <h4>{title}</h4>
       <div className="deed-cards">
         {items.map((r) => (
@@ -415,8 +416,9 @@ const RESP_LABEL = { pending: '생각 중', accepted: '수락', rejected: '거�
 
 /**
  * 교환 증서 한 장: 중세 상인의 거래 내역서처럼 번호·제안자·내놓는 것·받는 것을 장부에 적고, 아래 서명란에 상대별 응답을 적는다.
+ * 장부는 위아래 두 줄로, 보는 사람 기준으로 위에는 상대에게서 받을 것, 아래에는 내가 줄 것을 적는다.
  * 받은 사람은 수락·거절(수락 뒤에도 거절로 바꿀 수 있다), 제안한 사람은 수락한 사람 옆 확정 버튼이나 취소를 누른다.
- * closed 가 있으면 도장(거절됨·취소됨·체결)이 찍힌 채 잠깐 남았다가 사라진다.
+ * closed 가 있으면 결과 글씨(거절됨·취소됨·체결)를 단 채 움직이지 않고 잠깐 남았다가 옅어지며 사라진다.
  */
 export function TradeDeed({
   view,
@@ -446,8 +448,13 @@ export function TradeDeed({
   const fromName = from?.nickname ?? '?';
   const outcome = closed?.outcome;
 
-  // 화면 주인 기준으로 주고받는 쪽을 적는다.
-  const [leftTitle, rightTitle] = mineOffer ? ['내가 줄 것', '내가 받을 것'] : targeted ? ['내가 받을 것', '내가 줄 것'] : [`${fromName} 줄 것`, `${fromName} 받을 것`];
+  // 화면 주인 기준으로 위에는 상대 쪽(받을 것), 아래에는 내 쪽(줄 것)을 적는다.
+  // 받은 사람에게는 제안자가 내놓는 것(give)이 받을 것이다. 구경하는 사람은 제안한 사람 화면처럼 제안자가 내는 것을 아래에 둔다.
+  const receiver = targeted && !mineOffer;
+  const theirs = receiver
+    ? { title: '내가 받을 것', bundle: t.give }
+    : { title: mineOffer ? '내가 받을 것' : `${fromName} 받을 것`, bundle: t.get };
+  const ours = receiver ? { title: '내가 줄 것', bundle: t.get } : { title: mineOffer ? '내가 줄 것' : `${fromName} 줄 것`, bundle: t.give };
 
   return (
     <article
@@ -472,16 +479,16 @@ export function TradeDeed({
 
       {folded ? (
         <div className="deed-slip">
-          <BundleChips bundle={t.give} /> <span aria-hidden>⇄</span> <BundleChips bundle={t.get} />
+          <BundleChips bundle={theirs.bundle} /> <span aria-hidden>⇄</span> <BundleChips bundle={ours.bundle} />
         </div>
       ) : (
         <>
           <div className="deed-ledger">
-            <LedgerColumn title={leftTitle} bundle={t.give} />
+            <LedgerColumn title={theirs.title} bundle={theirs.bundle} side="theirs" />
             <span className="deed-swap" aria-hidden>
-              ⇄
+              <span>⇅</span>
             </span>
-            <LedgerColumn title={rightTitle} bundle={t.get} />
+            <LedgerColumn title={ours.title} bundle={ours.bundle} side="mine" />
           </div>
 
           <ol className="deed-signs" aria-label="응답">
@@ -498,13 +505,13 @@ export function TradeDeed({
                   {canPick ? (
                     <ActionButton
                       className="btn btn-small btn-primary deed-pick"
-                      label="이 사람과 확정"
+                      label="확정"
                       blocker={null}
                       onClick={() => sendAction({ type: 'trade_confirm', tradeId: t.id, with: id })}
                     />
                   ) : (
                     <span className="sign-mark">
-                      {won ? '✓ 체결' : resp === 'accepted' ? '✓ 수락' : resp === 'rejected' ? '✕ 거절' : `… ${RESP_LABEL.pending}`}
+                      {won ? '✓ 체결' : resp === 'accepted' ? '✓ 수락' : resp === 'rejected' ? RESP_LABEL.rejected : `… ${RESP_LABEL.pending}`}
                     </span>
                   )}
                 </li>
@@ -546,11 +553,6 @@ export function TradeDeed({
 
       {closed && (
         <div className={`deed-stamp stamp-${closed.outcome}`} aria-hidden>
-          {closed.outcome === 'rejected' && (
-            <svg className="stamp-x" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <path d="M8 10 L92 90 M92 8 L10 92" />
-            </svg>
-          )}
           <span className="stamp-word">
             {STAMP_TEXT[closed.outcome]}
             {closed.outcome === 'accepted' && closed.partner && <small>{name(closed.partner)}</small>}
@@ -561,7 +563,7 @@ export function TradeDeed({
   );
 }
 
-/** 열린 교환 증서들과 막 닫힌 증서(도장이 찍힌 채 잠깐 남는다). 화면 왼쪽 위에 쌓는다. */
+/** 열린 교환 증서들과 막 닫힌 증서(결과 글씨를 단 채 잠깐 남는다). 화면 왼쪽 위에 쌓는다. */
 export function TradeDeeds({ view, players, compact = false }: { view: RoomView; players: Players; compact?: boolean }) {
   const g = view.game;
   const closed = useClosedDeeds(view);

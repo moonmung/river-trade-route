@@ -9,9 +9,17 @@ import { josa } from '../ui/josa';
 import { rollDice, settleDice } from '../dice';
 import { showAward } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
-import { flyCards, glowBoard, type FlyCard } from './cardFly';
+import { flyCards, holdCards, type FlyCard } from './cardFly';
 import { bundleText, tileName, type PlayerInfo } from './derive';
+import { resetPace, startPaced } from './pace';
 import { RESOURCES } from '../../shared/constants';
+
+/** 주사위가 멈춘 뒤 다음 행동을 열기까지: 7 은 합계 봉인이 튀어나와 두 번 흔들릴 때까지 (dice.css) */
+const SEVEN_READ_MS = 1450;
+/** 보통 굴림은 칸이 빛나는 것을 볼 틈. 내 손으로 날아오는 카드가 있으면 다 닿을 때까지 더 기다린다 (pace.ts) */
+const ROLL_READ_MS = 600;
+/** 옮긴 동상이 날아가 내려앉기까지 (BoardRenderer 의 syncRobber) */
+const ROBBER_FLIGHT_MS = 1200;
 
 /** 보드 위 꼭짓점의 화면 좌표 (렌더러가 없으면 보드 가운데) */
 function boardPoint(renderer: BoardRenderer | null, vertexId: string): { x: number; y: number } {
@@ -60,6 +68,8 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
       lastTurn.current = g.currentPlayerId ?? g.placementPlayerId;
       // 이미 지난 굴림은 멈춘 것으로 쳐서 위쪽 줄에 바로 보이게 하고, 이후 굴림만 주사위가 멈출 때까지 감춘다.
       settleDice(g.events.reduce((n, e) => (e.kind === 'roll' ? e.seq : n), 0), true);
+      // 지난 굴림·동상 연출을 기다리지 않고 지금 단계의 버튼과 창을 바로 연다.
+      resetPace(g.events);
       return;
     }
     const fresh = g.events.filter((e) => e.seq > lastSeq.current!);
@@ -86,8 +96,15 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             }
           }
           // 3D 주사위가 서버가 정한 값으로 멈춘 뒤에 결과 알림과 보드 생산 연출을 낸다.
+          // 다음 행동(동상 칸 빛, 버리기 창, 건설·교환 버튼)은 합계를 읽을 틈이 지나고 내 손으로 오는 카드가 다 닿은 뒤에 열린다.
           const who = e.player === me ? '나' : name(e.player);
+          const open = startPaced('roll', e.seq);
+          // 생산한 카드는 주사위가 구르는 동안 손 장수에 미리 보이지 않게 빼 두었다가, 멈춘 뒤 날아와 닿을 때 더한다.
+          const release = holdCards(items.flatMap((it) => Array.from({ length: it.amount }, () => ({ player: it.owner, resource: it.resource }))));
           void rollDice(e.dice, { who, colorIndex: color(e.player), mine: e.player === me, animate, seq: e.seq }).then(() => {
+            open(animate ? (total === 7 ? SEVEN_READ_MS : ROLL_READ_MS) : 0);
+            // 같은 카드를 아래 flyCards 가 이 자리에서 다시 빼 두므로 장수가 그사이 튀지 않는다.
+            release();
             if (total === 7) {
               if (discard) {
                 showToast(`7! 자원 ${discard}장을 버려야 합니다.`, 'warn', 4200);
@@ -99,18 +116,22 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             if (blocked.length) showToast(`${blocked.join(', ')} 칸은 기사단 동상에 막혀 생산하지 않았습니다.`, 'warn', 3200);
             if (!animate) return;
             rendererRef.current?.playRoll(e.tiles, e.blocked, items);
-            // 생산물이 마을·도시에 닿을 즈음 카드가 그 자리에서 손으로 날아든다. 내 것이 있으면 맵이 한 번 밝아진다.
+            // 내 자원이 나온 칸만 환해지고, 생산물이 마을·도시에 닿을 즈음 카드가 그 자리에서 손으로 날아든다.
+            // 내 카드가 먼저 날아온다 (내 버튼은 내 카드가 다 닿으면 열린다).
             const cards: FlyCard[] = [];
             let n = 0;
-            items.forEach((it) => {
+            [...items.filter((it) => it.owner === me), ...items.filter((it) => it.owner !== me)].forEach((it) => {
               const from = boardPoint(rendererRef.current, it.vertexId);
               for (let k = 0; k < it.amount; k++) {
                 cards.push({ player: it.owner, resource: it.resource, from, delay: 900 + n * 130, mine: it.owner === me });
                 n++;
               }
             });
-            if (cards.some((c) => c.mine)) glowBoard();
+            rendererRef.current?.glowTiles(items.filter((it) => it.owner === me).map((it) => it.tileId));
             flyCards(cards, { reduced: reducedMotion() });
+          }, () => {
+            open();
+            release();
           });
           break;
         }
@@ -125,7 +146,9 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
               delay: 450 + i * 150,
               mine: e.player === me,
             }));
-            if (e.player === me && cards.length) glowBoard();
+            if (e.player === me && cards.length) {
+              rendererRef.current?.glowTiles((VERTEX_MAP[e.vertexId]?.tiles ?? []).filter((t) => TILE_MAP[t]?.kind !== 'plaza'));
+            }
             flyCards(cards, { reduced: reducedMotion() });
           }
           break;
@@ -140,6 +163,8 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           else showToast(`${name(e.player)}의 시간이 다 되어 자동으로 진행했습니다.`, 'info', 2600);
           break;
         case 'robber':
+          // 3D 보드에서는 동상이 들려 날아가 내려앉는다. 내려앉은 뒤에 빼앗기 창과 버튼을 연다.
+          startPaced('robber', e.seq)(animate && rendererRef.current ? ROBBER_FLIGHT_MS : 0);
           if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} 기사단 동상을 ${tileName(g.numbers, e.tileId)} 칸으로 옮겼습니다.`, 'warn');
           break;
         case 'steal':

@@ -33,11 +33,12 @@ function useTrayPlace(open: boolean): CSSProperties {
   return place;
 }
 
-export function DiceTray({ view, paused = false }: { view: RoomView; paused?: boolean }) {
+/** hold: 앞사람 주사위·생산 연출이 아직 끝나지 않아 자리를 띄우지 않는다 (game/pace.ts) */
+export function DiceTray({ view, paused = false, hold = false }: { view: RoomView; paused?: boolean; hold?: boolean }) {
   const g = view.game;
   const active = !!g && g.phase === 'playing' && g.currentPlayerId === view.you && g.step === 'roll';
   const ui = useDiceUi();
-  const open = active && !ui.throwing;
+  const open = active && !ui.throwing && !hold;
   const felt = useRef<HTMLDivElement>(null);
   const holding = useRef(false);
   const [held, setHeld] = useState(false);

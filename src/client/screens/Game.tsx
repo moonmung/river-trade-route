@@ -21,6 +21,7 @@ import {
 } from '../game/dialogs';
 import { clearFlyingCards, useHeldCards } from '../game/cardFly';
 import { useGameEffects } from '../game/effects';
+import { usePaceWait } from '../game/pace';
 import { Hand } from '../game/hand';
 import { ActionBar, BuildBar, PlayersPanel } from '../game/panels';
 import { TradeDeeds, TradePanel, handPickToDraft, newDraft, type TradeDraft } from '../game/trade';
@@ -62,6 +63,11 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   /** 자리 순서가 막 정해져 결과를 잠깐 보여 주는 중 */
   const [orderDone, setOrderDone] = useState(false);
   const myTurn = g.phase === 'playing' && g.currentPlayerId === view.you;
+  /**
+   * 주사위가 멈추고 합계를 읽을 틈, 생산 카드가 손에 닿을 때, 옮긴 동상이 내려앉을 때까지 기다리는 중이면 그 까닭.
+   * 서버는 이미 다음 단계지만 그동안은 단계에 따라 열리는 것(빛나는 자리, 버리기·빼앗기 창, 버튼)을 미룬다.
+   */
+  const wait = usePaceWait(view);
   const held = useHeldCards();
   // 날아오는 중인 카드는 손에 닿을 때 센다.
   const shownResources = useMemo<Bundle>(() => {
@@ -107,19 +113,20 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   useEffect(() => () => window.clearTimeout(orderTimer.current), []);
 
   const highlights = useMemo<BoardState['highlights']>(() => {
+    if (wait) return null;
     const h = boardHighlights(view, buildMode);
     if (!h.vertices.length && !h.edges.length && !h.tiles.length) return null;
     return { ...h, kind: g.phase === 'placement' ? 'placeable' : 'buildable' };
-  }, [view, buildMode, g.phase]);
+  }, [view, buildMode, g.phase, wait]);
   // 내 차례(건설 모드 밖)에는 길을 이을 수 있는 변과 마을을 지을 수 있는 꼭짓점을 은은하게 보여 준다.
   const hints = useMemo<BoardState['hints']>(() => {
-    if (!myTurn || g.step !== 'main' || buildMode) return null;
+    if (!myTurn || g.step !== 'main' || buildMode || wait) return null;
     const me = view.you;
     return {
       edges: pieceCount(g.buildings, g.roads, me, 'road') < PIECE_LIMIT.road ? buildableRoads(g.buildings, g.roads, me) : [],
       vertices: pieceCount(g.buildings, g.roads, me, 'village') < PIECE_LIMIT.village ? buildableVillages(g.buildings, g.roads, me) : [],
     };
-  }, [myTurn, g.step, buildMode, g.buildings, g.roads, view.you]);
+  }, [myTurn, g.step, buildMode, wait, g.buildings, g.roads, view.you]);
   // 길에 마우스를 올리거나 길을 누르면 그 주인의 가장 긴 교역로를 금빛으로 따라 그린다.
   const traceOwner =
     (hoverRoad && g.roads.find((r) => r.edgeId === hoverRoad.edgeId)?.owner) ||
@@ -174,6 +181,8 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   };
 
   const onTap = (sel: BoardSelection) => {
+    // 연출이 끝나기 전에는 동상 칸·공짜 길 자리를 고를 수 없다.
+    if (wait) return;
     setTradeDraft(null);
     setDevOpen(null);
     // 시작 배치: 빛나는 자리를 고르면 ✓ 버튼이 뜨고, 눌러야 짓는다 (마을 → 길 순서).
@@ -201,8 +210,9 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   const useFlat = settings.flat || glFailed;
   // 오른쪽 패널에는 점수와 이어진 기록만 몇 줄 (전체 기록은 메뉴)
   const recent = g.events.filter(isScoreEvent).slice(-4).reverse();
-  const stepBanner =
-    myTurn && g.step === 'robber'
+  const stepBanner = wait
+    ? null
+    : myTurn && g.step === 'robber'
       ? '기사단 동상을 옮길 칸을 누르세요. 그 칸은 동상이 떠날 때까지 생산하지 않습니다.'
       : myTurn && g.step === 'road_building'
         ? `길 건설 카드: 빛나는 변을 눌러 공짜 길 ${g.freeRoads}개를 놓으세요.`
@@ -268,7 +278,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       <div className="hud-top">
         {!wide && (
           <div className="hud-status" ref={topRef}>
-            <TurnStatus view={view} players={players} onMenu={openMenu} compact />
+            <TurnStatus view={view} players={players} onMenu={openMenu} wait={wait} compact />
             <PlayersPanel view={view} players={players} emotes={chat.emotes} compact />
           </div>
         )}
@@ -280,7 +290,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
 
       {wide && (
         <aside className="hud-side" ref={sideRef}>
-          <TurnStatus view={view} players={players} onMenu={openMenu} />
+          <TurnStatus view={view} players={players} onMenu={openMenu} wait={wait} />
           {banners}
           <section className="side-log">
             <h3>
@@ -314,16 +324,20 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
           </div>
         )}
         {tradeDraft && <TradePanel view={view} players={players} draft={tradeDraft} onDraft={setTradeDraft} onClose={() => setTradeDraft(null)} />}
-        {devOpen && !tradeDraft && <DevPlayCard key={devOpen} view={view} kind={devOpen} onClose={() => setDevOpen(null)} />}
-        {selected && !tradeDraft && !devOpen && <SpotCard view={view} sel={selected} onClose={() => setSelected(null)} onDone={clearPick} />}
+        {devOpen && !tradeDraft && <DevPlayCard key={devOpen} view={view} kind={devOpen} wait={wait} onClose={() => setDevOpen(null)} />}
+        {selected && !tradeDraft && !devOpen && !wait && <SpotCard view={view} sel={selected} onClose={() => setSelected(null)} onDone={clearPick} />}
         <div className="me-row">
           <Hand
             resources={shownResources}
             ratios={g.myTradeRatios}
             devCards={g.myDevCards.map((c) => ({ kind: c.kind, fresh: c.boughtTurn >= g.turn }))}
-            devPlayable={(kind) => !playDevBlocker(view, kind)}
+            devPlayable={(kind) => !wait && !playDevBlocker(view, kind)}
             activeDev={devOpen}
             onResource={(r) => {
+              if (wait) {
+                showToast(wait, 'info');
+                return;
+              }
               // 내 차례 main 단계면 교환 창을 열고 누른 카드를 낼 것에 넣는다.
               const next = handPickToDraft(view, tradeDraft, r);
               if (!next) {
@@ -350,6 +364,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             <BuildBar
               view={view}
               buildMode={buildMode}
+              wait={wait}
               onBuild={(kind) => {
                 setSelected(null);
                 setTradeDraft(null);
@@ -360,6 +375,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             <ActionBar
               view={view}
               tradeOpen={!!tradeDraft}
+              wait={wait}
               onTrade={() => {
                 if (tradeDraft) return setTradeDraft(null);
                 setBuildMode(null);
@@ -388,10 +404,10 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
           onClose={() => setDialog(null)}
         />
       )}
-      {g.phase === 'playing' && g.step === 'discard' && g.discards[view.you] > 0 && <DiscardDialog key={`d-${g.turn}`} view={view} />}
-      {myTurn && g.step === 'steal' && <StealDialog view={view} players={players} />}
+      {g.phase === 'playing' && g.step === 'discard' && g.discards[view.you] > 0 && !wait && <DiscardDialog key={`d-${g.turn}`} view={view} />}
+      {myTurn && g.step === 'steal' && !wait && <StealDialog view={view} players={players} />}
       <SpectacleHost />
-      <DiceTray view={view} paused={dialog !== null} />
+      <DiceTray view={view} paused={dialog !== null} hold={!!wait} />
       {g.phase === 'finished' && showResult && <ResultOverlay view={view} players={players} onClose={() => setShowResult(false)} />}
       {g.phase === 'finished' && !showResult && (
         <button className="btn btn-primary result-reopen" onClick={() => setShowResult(true)}>
