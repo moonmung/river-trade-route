@@ -9,7 +9,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildProp, propAssetName, type PropKey } from './art/builders';
 import { MATERIALS, materialKeyFromName, type MaterialKey } from './art/materials';
-import { paintMaterial } from './paint';
+import { paintMaterial, paintVariant } from './paint';
 
 // 보드 밖은 무늬 없는 물이라 풀밭(ground_grass)·물결(water_normal) 텍스처는 불러오지 않는다. 파일과 manifest 항목은 남아 있다.
 // 모래(ground_sand)는 바닷가 모래밭에 쓴다.
@@ -63,7 +63,11 @@ export interface ArtReport {
 }
 
 export interface ArtLibrary {
-  prop(key: PropKey, variant: number): PropTemplate;
+  /**
+   * 소품 하나의 도형과 재질. keepColor 면 기사단 동상이 선 칸 안에서도 무채색이 되지 않는 재질을 쓴다
+   * (도형은 같고 재질만 따로 만든다): 플레이어 조각, 동상·사슬·자물쇠, 교역인, 날아가는 생산물.
+   */
+  prop(key: PropKey, variant: number, keepColor?: boolean): PropTemplate;
   ground(key: GroundTextureKey): THREE.Texture | null;
   report: ArtReport;
   dispose(): void;
@@ -201,6 +205,16 @@ export async function loadArtLibrary(
   const templates = new Map<string, PropTemplate>();
   const textures = new Map<GroundTextureKey, THREE.Texture>();
   const sharedMaterials = new Map<string, THREE.Material>();
+  const keptMaterials = new Map<THREE.Material, THREE.Material>();
+  const keptTemplates = new Map<string, PropTemplate>();
+  const keepColor = (m: THREE.Material) => {
+    let v = keptMaterials.get(m);
+    if (!v) {
+      v = paintVariant(m, { lock: false });
+      keptMaterials.set(m, v);
+    }
+    return v;
+  };
   let ktx2: KTX2Loader | null = null;
 
   let manifest: ArtManifest | null = null;
@@ -301,14 +315,20 @@ export async function loadArtLibrary(
   }
 
   return {
-    prop(key, variant) {
+    prop(key, variant, keep = false) {
       const name = propAssetName(key, variant);
       let t = templates.get(name);
       if (!t) {
         t = fallbackTemplate(key, variant);
         templates.set(name, t);
       }
-      return t;
+      if (!keep) return t;
+      let kept = keptTemplates.get(name);
+      if (!kept) {
+        kept = { source: t.source, parts: t.parts.map((p) => ({ ...p, material: keepColor(p.material) })) };
+        keptTemplates.set(name, kept);
+      }
+      return kept;
     },
     ground(key) {
       return textures.get(key) ?? null;
@@ -317,6 +337,7 @@ export async function loadArtLibrary(
     dispose() {
       for (const t of templates.values()) for (const p of t.parts) p.geometry.dispose();
       for (const m of sharedMaterials.values()) disposeMaterial(m);
+      for (const [from, kept] of keptMaterials) if (kept !== from) kept.dispose();
       for (const t of textures.values()) t.dispose();
       ktx2?.dispose();
     },
