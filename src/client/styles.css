@@ -863,7 +863,8 @@ h2 {
   box-shadow: 1px 1px 0 rgba(58, 42, 31, 0.25);
 }
 
-.owner-badge {
+/* 소유자 표식: 누른 마을·도시 위에만 뜬다. 바깥 상자(.owner-badge)는 화면 위치만 잡고 안쪽 조각이 톡 떠오른다. */
+.owner-badge-chip {
   background: rgba(242, 230, 204, 0.94);
   border: 1px solid rgba(58, 42, 31, 0.6);
   border-radius: 50%;
@@ -873,12 +874,31 @@ h2 {
   align-items: center;
   justify-content: center;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  transform-origin: 50% 100%;
+  animation: owner-badge-pop 0.34s cubic-bezier(0.2, 1.5, 0.4, 1) both;
 }
 
 /* 도시는 표식도 한 단계 크게 */
-.owner-badge-city {
+.owner-badge-city .owner-badge-chip {
   width: 25px;
   height: 25px;
+}
+
+@keyframes owner-badge-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.35);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .owner-badge-chip {
+    animation: none;
+  }
 }
 
 .float-label {

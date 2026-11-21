@@ -1620,39 +1620,44 @@ export class BoardRenderer {
     this.updatePieceInstances();
     this.planTraders();
 
-    // 마을·도시 위 소유자 표식 (HTML: 색 + 모양)
-    const seen = new Set<string>();
-    for (const b of s.buildings) {
-      const p = this.vertexWorld(b.vertexId);
-      if (!p) continue;
-      seen.add(b.vertexId);
-      let item = this.badges.get(b.vertexId);
+    // 마을·도시 위 소유자 표식 (HTML: 색 + 모양). 늘 떠 있으면 바로 위쪽 길을 가리므로
+    // 평소에는 지붕 색으로만 구별하고 누른 마을·도시 위에만 표식을 띄운다.
+    const sel = s.selected?.kind === 'vertex' ? s.selected.id : null;
+    const picked = sel ? s.buildings.find((b) => b.vertexId === sel) : undefined;
+    const pickedAt = picked ? this.vertexWorld(picked.vertexId) : null;
+    for (const [id, item] of this.badges) {
+      if (id !== picked?.vertexId || !pickedAt) {
+        item.el.remove();
+        this.badges.delete(id);
+      }
+    }
+    let newBadge = false;
+    if (picked && pickedAt) {
+      let item = this.badges.get(picked.vertexId);
       if (!item) {
         const el = document.createElement('div');
         el.className = 'owner-badge';
         this.overlay.appendChild(el);
-        item = { el, world: p.clone(), anchor: 'translate(-50%, -100%)' };
-        this.badges.set(b.vertexId, item);
+        item = { el, world: pickedAt.clone(), anchor: 'translate(-50%, -100%)' };
+        this.badges.set(picked.vertexId, item);
+        newBadge = true;
       }
-      item.world.set(p.x, p.y + BADGE_LIFT[b.kind], p.z);
-      const key = `${b.owner}:${b.colorIndex}:${b.kind}`;
+      item.world.set(pickedAt.x, pickedAt.y + BADGE_LIFT[picked.kind], pickedAt.z);
+      const key = `${picked.owner}:${picked.colorIndex}:${picked.kind}`;
       if (item.el.dataset.key !== key) {
         item.el.dataset.key = key;
-        item.el.innerHTML = this.options.emblemMarkup(b.colorIndex);
-        item.el.title = b.label;
-        item.el.classList.toggle('owner-badge-city', b.kind === 'city');
-      }
-    }
-    for (const [id, item] of this.badges) {
-      if (!seen.has(id)) {
-        item.el.remove();
-        this.badges.delete(id);
+        // 안쪽 조각이 톡 떠오른다 (바깥 상자의 transform 은 화면 위치에 쓴다).
+        item.el.innerHTML = `<div class="owner-badge-chip">${this.options.emblemMarkup(picked.colorIndex)}</div>`;
+        item.el.title = picked.label;
+        item.el.classList.toggle('owner-badge-city', picked.kind === 'city');
       }
     }
     this.syncNumbers();
     this.syncHarbors();
     this.syncRobber();
     this.updateHighlights();
+    // 새로 띄운 표식은 다음 그림을 기다리지 않고 바로 제자리에 놓는다 (화면 구석에 잠깐 비치지 않게).
+    if (newBadge) this.updateOverlay();
     this.requestRender();
   }
 
