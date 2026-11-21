@@ -45,6 +45,11 @@ function getStage(): DiceStage | null {
   return stage;
 }
 
+/** 지금 주사위 상태 (React 밖에서 볼 때) */
+export function diceState(): DiceUi {
+  return ui;
+}
+
 export function useDiceUi(): DiceUi {
   return useSyncExternalStore(
     (fn) => {
@@ -103,8 +108,12 @@ export function throwDice(): Promise<boolean> {
 
 const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
+/** 처음 받은 화면·새 게임마다 바뀐다. 지난 게임의 주사위가 늦게 멈춰도 새 게임의 기록 번호를 건드리지 않게 한다. */
+let epoch = 0;
+
 /** 이 기록 번호까지의 굴림은 주사위가 멈춘 것으로 친다 (처음 받은 화면처럼 연출 없이 지나간 굴림 포함). */
 export function settleDice(seq: number, reset = false): void {
+  if (reset) epoch += 1;
   if (reset ? ui.landedSeq !== seq : (ui.landedSeq ?? -1) < seq) set({ landedSeq: seq });
 }
 
@@ -117,10 +126,11 @@ export async function rollDice(
   dice: [number, number],
   info: { who: string; colorIndex: number; mine: boolean; animate: boolean; seq: number },
 ): Promise<void> {
+  const e = epoch;
   try {
     await revealRoll(dice, info);
   } finally {
-    settleDice(info.seq);
+    if (e === epoch) settleDice(info.seq);
   }
 }
 

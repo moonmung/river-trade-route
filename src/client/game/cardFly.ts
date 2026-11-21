@@ -9,6 +9,8 @@ import { RESOURCE_ART } from '../ui/art';
 
 /** 사람마다 아직 날아가는 중이라 손에 넣지 않은 카드 */
 let held: Record<string, Bundle> = {};
+/** clearFlyingCards 마다 바뀐다 */
+let clearGen = 0;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((fn) => fn());
 
@@ -34,14 +36,40 @@ export function useHeldCards(): Record<string, Bundle> {
   );
 }
 
+/** 아직 날아가는 카드가 있는지 (React 밖에서 볼 때) */
+export function cardsFlying(): boolean {
+  return Object.keys(held).length > 0;
+}
+
 export function heldTotal(h: Record<string, Bundle>, player: string): number {
   const b = h[player];
   return b ? RESOURCES.reduce((n, r) => n + b[r], 0) : 0;
 }
 
+/**
+ * 날리기 전에 미리 손 장수에서 빼 둔다 (주사위가 구르는 동안 생산 결과가 손에 먼저 보이지 않게).
+ * 돌려준 함수를 부르면 뺀 것을 거둔다. 그 자리에서 flyCards 로 같은 카드를 날리면 장수는 그대로 이어진다.
+ */
+export function holdCards(cards: { player: string; resource: Resource }[]): () => void {
+  for (const c of cards) adjust(c.player, c.resource, 1);
+  const gen = clearGen;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    window.clearTimeout(safety);
+    // 그사이 화면을 떠나 모두 거뒀으면(clearFlyingCards) 새 게임의 장수를 건드리지 않는다.
+    if (gen === clearGen) for (const c of cards) adjust(c.player, c.resource, -1);
+  };
+  // 주사위 연출이 끊겨 거두지 못해도 장수는 반드시 맞춘다.
+  const safety = window.setTimeout(release, 10_000);
+  return release;
+}
+
 /** 진행 중인 연출을 모두 거두고 장수를 바로 맞춘다 (게임 화면을 떠날 때, 새 게임). */
 export function clearFlyingCards(): void {
   document.querySelectorAll('.fly-card').forEach((el) => el.remove());
+  clearGen += 1;
   held = {};
   emit();
 }

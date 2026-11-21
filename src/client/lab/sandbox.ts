@@ -10,6 +10,9 @@ import { botSideAction, botTurnAction } from './bot';
 
 export const LAB_CODE = 'LAB1';
 const NAMES = ['나', '버들', '물레', '나루'];
+/** 화면 연출이 끝났는지 다시 보는 간격과, 아무리 길어도 이만큼 지나면 봇이 두는 시간 */
+const BUSY_POLL_MS = 150;
+const BUSY_MAX_MS = 10_000;
 
 export interface LabPlayer {
   id: string;
@@ -37,6 +40,12 @@ export class Sandbox {
   bots = true;
   /** 봇이 한 수를 두기까지 기다리는 시간 */
   botDelay = 750;
+  /**
+   * 화면이 아직 주사위·생산·동상 연출을 보여 주는 중인지 (실험실 화면이 game/pace.ts 로 정한다).
+   * 그동안 봇은 다음 수를 미루고, 끝나면 botDelay 만큼 더 쉬었다가 둔다. 사람 화면의 버튼이 열리는 때와 같은 차례다.
+   */
+  busy: (() => boolean) | null = null;
+  private busySince = 0;
   private clock: { key: string; deadline: number } | null = null;
   private clockPaused = false;
   private readonly listeners = new Set<Listener>();
@@ -191,12 +200,26 @@ export class Sandbox {
   /** 지금 무언가 해야 하는 봇이 있으면 잠시 뒤 한 수를 둔다 (한 번에 한 수씩, 연출이 보이게). */
   private scheduleBot(): void {
     window.clearTimeout(this.botTimer);
+    this.busySince = 0;
     if (!this.tickTimer || !this.bots || this.state.phase === 'finished') return;
     this.botTimer = window.setTimeout(() => this.botStep(), this.botDelay);
   }
 
   private botStep(): void {
     if (!this.bots) return;
+    // 화면의 연출이 끝날 때까지 기다린다. 연출이 끝나지 않아도 BUSY_MAX_MS 가 지나면 그냥 둔다.
+    if (this.busy?.()) {
+      if (!this.busySince) this.busySince = Date.now();
+      if (Date.now() - this.busySince < BUSY_MAX_MS) {
+        this.botTimer = window.setTimeout(() => this.botStep(), BUSY_POLL_MS);
+        return;
+      }
+    } else if (this.busySince) {
+      // 연출이 막 끝났다: 사람처럼 결과를 한 번 보고 둔다.
+      this.busySince = 0;
+      this.botTimer = window.setTimeout(() => this.botStep(), this.botDelay);
+      return;
+    }
     const s = this.state;
     const others = this.players.filter((p) => p.id !== this.you);
     // 차례와 상관없는 일 먼저 (순서 주사위, 7 버리기, 교환 응답)

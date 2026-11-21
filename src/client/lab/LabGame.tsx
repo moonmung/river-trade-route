@@ -7,6 +7,7 @@ import { autoPlay, buildingAt, computeResult, tradeRatios, vertexOpen } from '..
 import type { Bundle, DevKind, Resource } from '../../shared/types';
 import type { BoardRenderer } from '../board/BoardRenderer';
 import { colorWord } from '../game/derive';
+import { paceBusy } from '../game/pace';
 import { setActionSink } from '../game/ui';
 import { injectChat, injectEmote, setChatSink } from '../net/chat';
 import Game from '../screens/Game';
@@ -40,6 +41,8 @@ export function LabGame({ onScene }: { onScene: () => void }) {
     });
     sb.onChat = (m) => injectChat(LAB_CODE, m);
     sb.onEmote = (e) => injectEmote(LAB_CODE, e);
+    // 봇은 화면이 주사위·생산·동상 연출을 다 보여 준 뒤에 다음 수를 둔다.
+    sb.busy = () => paceBusy(sb.state.events);
     if (!welcomed) {
       welcomed = true;
       sb.say('p1', '실험실 모의 게임입니다. 왼쪽 🧪 서랍에서 자리 바꾸기·주사위 정하기·해양 교역 배 같은 연출을 시험해 보세요.');
@@ -50,6 +53,7 @@ export function LabGame({ onScene }: { onScene: () => void }) {
     return () => {
       setActionSink(null);
       setChatSink(null);
+      sb.busy = null;
       sb.stop();
     };
   }, [sb]);
