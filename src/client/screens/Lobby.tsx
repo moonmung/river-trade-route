@@ -99,7 +99,6 @@ export function Lobby({ view }: { view: RoomView }) {
         <section className="invite">
           <div className="invite-text">
             <h2>초대</h2>
-            <p className="muted">같은 와이파이에 연결된 휴대폰이나 PC에서 아래 링크를 열거나 QR 코드를 찍으세요.</p>
             <div className="invite-link">
               <code>{link}</code>
               <button

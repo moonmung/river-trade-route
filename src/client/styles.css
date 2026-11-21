@@ -172,44 +172,18 @@ h2 {
   text-align: center;
 }
 
-/* 브랜드 */
+/* 게임 이름: 본문과 같은 글꼴, 같은 먹색. 머리글자 색이나 로고 같은 장식은 넣지 않는다. */
 .brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.brand-mark {
-  width: 56px;
-  height: 56px;
-  flex: none;
-}
-
-.brand-small .brand-mark {
-  width: 38px;
-  height: 38px;
-}
-
-.brand-title {
-  font-family: var(--font-title);
+  font-family: var(--font);
+  color: var(--ink);
   font-size: 1.7rem;
   font-weight: 700;
+  line-height: 1.2;
   letter-spacing: 0.04em;
 }
 
-/* 주홍 머리글자 (필사본의 붉은 첫 글자) */
-.brand-title::first-letter {
-  color: var(--vermilion);
-  font-size: 1.22em;
-}
-
-.brand-small .brand-title {
+.brand-small {
   font-size: 1.2rem;
-}
-
-.brand-sub {
-  color: var(--ink-soft);
-  font-size: 0.9rem;
 }
 
 /* 폼 */
@@ -481,11 +455,6 @@ h2 {
   margin: 0;
 }
 
-.home-actions p {
-  margin: 0;
-  font-size: 0.88rem;
-}
-
 @media (max-width: 560px) {
   .home-actions {
     grid-template-columns: 1fr;
@@ -681,9 +650,9 @@ h2 {
   align-items: start;
 }
 
-.invite p {
-  margin: 0 0 8px;
-  font-size: 0.92rem;
+/* 격자 칸이 긴 주소·고르기 상자 너비만큼 넓어져 휴대폰에서 쪽지 오른쪽 여백을 먹지 않게 한다 */
+.invite-text {
+  min-width: 0;
 }
 
 .invite-link {

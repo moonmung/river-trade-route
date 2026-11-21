@@ -111,7 +111,6 @@ export function Home() {
         <div className="home-actions">
           <section>
             <h2>방 만들기</h2>
-            <p className="muted">이 PC가 방장입니다. 만든 뒤 초대 링크나 QR 코드를 같은 와이파이의 친구에게 보여 주세요. 2명이면 일대일로 겨룹니다.</p>
             <div className="wp-row">
               <span>승리 점수</span>
               <WinPointsStepper value={winPoints} onChange={setWinPoints} />
