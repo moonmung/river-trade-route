@@ -1244,6 +1244,8 @@ h2 {
 
 .lab-hand .hand {
   margin-top: 14px;
+  /* 가운데 정렬된 세로 상자 안에서도 손이 패널 폭을 다 쓰게 한다 (카드 내용 폭만큼 줄어들지 않게) */
+  align-self: stretch;
 }
 
 .lab-row {

@@ -504,6 +504,67 @@ export function groundClay(size = 512): Img {
   return img;
 }
 
+/**
+ * 타일 사이 중세 흙길: 가로(u)가 길 방향이고 세로(v)가 길 폭이다. 가로 512 × 세로 128 픽셀이 길 1칸 길이 × 길 폭.
+ * 수레바퀴가 파 놓은 두 줄 자국(군데군데 물이 고임), 바퀴 사이 풀이 난 둔덕, 길가 풀섶, 박힌 잔돌을 물감으로 칠한다.
+ * 가로로만 이어 붙여 쓴다 (세로는 길가에서 끝난다).
+ */
+export function groundRoad(w = 512, h = 128): Img {
+  const img = new Img(w, h);
+  const aspect = h / w;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const u = x / w;
+      const v = y / h;
+      const va = v * aspect;
+      // 바퀴 자국은 길을 따라 조금씩 구불거린다.
+      const wob = (fbm(u, 0.5, 6, 1, 2, 301) - 0.5) * 0.1;
+      let c = mix(hex('#b8946a'), hex('#d8bd90'), fbm(u, va, 10, 3, 4, 303));
+      const b = bloom(u, va, 6, 305, 0.6);
+      c = mix(c, hex('#a7845c'), b.inside * 0.25);
+      c = scale(c, 1 - b.rim * 0.06);
+      // 두 줄 수레바퀴 자국: 파인 곳은 진하고(길을 따라 진하기가 들쭉날쭉), 가장자리에 밀려난 흙은 밝다.
+      const rut = (center: number) => {
+        const d = Math.abs(v + wob - center);
+        // 자국 폭도 길을 따라 들쭉날쭉하다.
+        const wv = 0.045 + (fbm(u, center, 9, 1, 2, 329) - 0.5) * 0.03;
+        return { core: 1 - smooth(wv * 0.4, wv + 0.035, d), lip: smooth(wv + 0.02, wv + 0.04, d) * (1 - smooth(wv + 0.04, wv + 0.08, d)) };
+      };
+      const r1 = rut(0.33);
+      const r2 = rut(0.67);
+      const core = Math.max(r1.core, r2.core);
+      const lip = Math.max(r1.lip, r2.lip);
+      const depth = 0.18 + 0.3 * fbm(u, va, 14, 3, 2, 323);
+      c = mix(c, hex('#8a6a46'), core * depth);
+      c = mix(c, hex('#e3cda2'), lip * 0.18);
+      // 자국 안 짧은 물웅덩이: 흙탕물 빛
+      const puddle = smooth(0.68, 0.73, fbm(u, va, 22, 4, 3, 307)) * core;
+      c = mix(c, hex('#8f8b7a'), puddle * 0.5);
+      // 바퀴 사이 둔덕: 밝은 흙에 잔풀이 듬성듬성
+      const mid = 1 - smooth(0.04, 0.1, Math.abs(v + wob - 0.5));
+      c = mix(c, hex('#ddc597'), mid * 0.3);
+      const midGrass = smooth(0.7, 0.76, fbm(u, va, 56, 56, 2, 309)) * mid;
+      c = mix(c, hex('#93ad62'), midGrass * 0.45);
+      // 길가 풀섶: 양쪽 끝에서 들쭉날쭉 길 안으로 번진다.
+      const edge = Math.min(v, 1 - v) + (fbm(u, va, 14, 14, 3, 311) - 0.5) * 0.16;
+      const verge = 1 - smooth(0.08, 0.17, edge);
+      c = mix(c, mix(hex('#6f9447'), hex('#9cbb68'), fbm(u, va, 30, 8, 2, 313)), verge * 0.85);
+      // 박힌 잔돌: 작고 모난 돌이 드문드문, 먹선으로 테두리
+      const vo = voronoi(u, va, 22, 315, 0.9);
+      if (hash2(vo.id, 3, 317) > 0.86 - verge * 0.06) {
+        const r = 0.13 + (fbm(u, va, 64, 16, 2, 325) - 0.5) * 0.08 + hash2(vo.id, 9, 327) * 0.06;
+        const bodyMask = 1 - smooth(r - 0.03, r, vo.f1);
+        const pen = smooth(r - 0.035, r - 0.005, vo.f1) * (1 - smooth(r, r + 0.03, vo.f1));
+        const tone = hash2(vo.id, 5, 319) > 0.5 ? hex('#bdb29b') : hex('#a2977f');
+        c = mix(c, scale(tone, 1 + (-vo.dx - vo.dy) * 0.4), bodyMask * 0.85);
+        c = mix(c, hex('#5e4a36'), pen * 0.45);
+      }
+      img.set(x, y, granulate(c, u, v, 321));
+    }
+  }
+  return img;
+}
+
 export function groundSand(size = 512): Img {
   const img = new Img(size, size);
   each(size, (u, v, x, y) => {

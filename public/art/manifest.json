@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generatedBy": "scripts/generate-assets.ts",
-  "generatedAt": "2026-11-20T16:52:59.875Z",
+  "generatedAt": "2026-11-20T17:42:13.106Z",
   "note": "temporary: true 인 항목은 코드로 만든 임시 에셋입니다. 최종 모델·텍스처로 바꾸면 false 로 고치세요.",
   "models": {
     "house": {
@@ -363,6 +363,12 @@
       "node": "brickrows",
       "temporary": true,
       "note": "코드로 만든 임시 모델"
+    },
+    "roadjoint": {
+      "url": "models/village_kit.glb",
+      "node": "roadjoint",
+      "temporary": true,
+      "note": "코드로 만든 임시 모델"
     }
   },
   "textures": {
@@ -408,6 +414,11 @@
     },
     "ground_sand": {
       "url": "textures/ground_sand.ktx2",
+      "temporary": true,
+      "note": "절차적으로 만든 임시 텍스처"
+    },
+    "ground_road": {
+      "url": "textures/ground_road.ktx2",
       "temporary": true,
       "note": "절차적으로 만든 임시 텍스처"
     },

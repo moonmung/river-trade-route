@@ -29,7 +29,7 @@ import {
   type BoardMetrics,
   type Placement,
 } from './layout';
-import { hashString, smoothstep } from './art/rng';
+import { hashString, mulberry32, smoothstep } from './art/rng';
 import { PaintedRenderer, paintMaterial, paintTime } from './paint';
 import { PerfMeter, type PerfRecording, type PerfStats } from './perf';
 
@@ -106,7 +106,7 @@ const LIGHT_DIR = new THREE.Vector3(-0.55, 1, 0.5).normalize();
 /** 그림자가 빛 반대쪽(오른쪽 뒤)으로 살짝 밀리도록 한 오프셋. 조명 방향과 맞춘다. */
 const SHADOW_SHIFT = new THREE.Vector2(0.07, -0.06);
 const RESOURCE_TOKEN_COLOR: Record<Resource, string> = { wood: '#9a6332', grain: '#e7b52c', wool: '#f1ead8', brick: '#b85c3c', stone: '#a7b0ba' };
-type BoardPieceKind = 'village' | 'city' | 'road';
+type BoardPieceKind = 'village' | 'city' | 'road' | 'joint';
 /** 가마 하나에서 동시에 피어오르는 연기 공 수 */
 const SMOKE_PUFFS = 5;
 /** 바람·양·연기만 움직일 때 프레임 간격 (약 30fps) */
@@ -143,6 +143,19 @@ const TILE_GROUND: Record<TileKind, GroundTextureKey> = {
   stone: 'ground_quarry',
   plaza: 'ground_cobble',
 };
+/** 타일 옆면(둑) 색: 길보다 한 뼘 높은 풀·흙 둑처럼 보이게 지형마다 흙빛을 다르게 한다. */
+const TILE_SIDE: Record<TileKind, string> = {
+  wood: '#5f6e3c',
+  grain: '#94773f',
+  wool: '#748f46',
+  brick: '#93593b',
+  stone: '#857f72',
+  plaza: '#9d8a6a',
+};
+/** 타일 사이 흙길 띠 폭 (타일 사이 틈보다 넓어 양쪽 끝은 타일 밑에 숨는다) */
+const ROAD_STRIP_WIDTH = 0.4;
+/** 흙길 텍스처 한 장이 덮는 길이 */
+const ROAD_TEX_LENGTH = 1.0;
 /** 바닷가 변에서 흙 땅이 바다 쪽으로 더 나간 폭 */
 const LAND_MARGIN = 0.3;
 /** 모래밭 윗면 높이 (흙 땅보다 낮다) */
@@ -439,6 +452,7 @@ export class BoardRenderer {
       { key: 'house' as PropKey, variant: 0 },
       { key: 'city' as PropKey, variant: 0 },
       { key: 'road' as PropKey, variant: 0 },
+      { key: 'roadjoint' as PropKey, variant: 0 },
       ...(['statue', 'chain', 'padlock', 'pier', 'dock', 'boat', 'logpile', 'sheep', 'blocks', 'barrel'] as PropKey[]).map((key) => ({ key, variant: key === 'sheep' ? 1 : 0 })),
       { key: 'sack' as PropKey, variant: 0 },
       { key: 'sack' as PropKey, variant: 1 },
@@ -470,7 +484,37 @@ export class BoardRenderer {
   }
 
   private allStaticPlacements(): Placement[] {
-    return this.options.tiles.flatMap((t) => tilePlacements(t, this.metrics).map((p) => ({ ...p, tile: t.id })));
+    return [...this.options.tiles.flatMap((t) => tilePlacements(t, this.metrics).map((p) => ({ ...p, tile: t.id }))), ...this.roadsidePlacements()];
+  }
+
+  /** 길가 잔돌과 풀 포기: 변마다 한두 개를 길 가장자리(길 판자와 마을 자리를 피해)에 둔다. */
+  private roadsidePlacements(): Placement[] {
+    const out: Placement[] = [];
+    for (const e of this.geo.edges) {
+      const ew = this.edgeWorld(e.id);
+      if (!ew) continue;
+      const rand = mulberry32(hashString(e.id) + 17);
+      const dir = ew.b.clone().sub(ew.a).normalize();
+      const nrm = new THREE.Vector3(-dir.z, 0, dir.x);
+      const n = rand() < 0.45 ? 2 : 1;
+      for (let k = 0; k < n; k++) {
+        const t = 0.28 + rand() * 0.44;
+        const side = rand() < 0.5 ? 1 : -1;
+        const p = ew.a.clone().lerp(ew.b, t).addScaledVector(nrm, side * (0.12 + rand() * 0.02));
+        const stone = rand() < 0.55;
+        out.push({
+          key: stone ? 'pebbles' : 'tuft',
+          variant: Math.floor(rand() * 2),
+          x: p.x,
+          y: PLATFORM_TOP,
+          z: p.z,
+          rotY: rand() * 6.28,
+          scale: stone ? 0.42 + rand() * 0.15 : 0.6 + rand() * 0.2,
+          shadow: 0,
+        });
+      }
+    }
+    return out;
   }
 
   /** 인스턴스 하나를 제자리 기준으로 옮기거나 늘인다 (모든 부품 메시에 같은 행렬) */
@@ -651,14 +695,16 @@ export class BoardRenderer {
     const dirtSide = this.own(paintMaterial({ color: '#9a7752', map: this.art?.ground('ground_dirt') ?? null }));
     this.scene.add(new THREE.Mesh(landGeo, [dirtTop, dirtSide]));
 
-    // 육각 타일 판 (종류별로 하나의 InstancedMesh). 옆면은 밝은 색이라 위에서 보면 타일 테두리처럼 보인다.
+    this.buildRoadStrips();
+
+    // 육각 타일 판 (종류별로 하나의 InstancedMesh). 옆면은 지형마다 흙·풀 둑 색이라 흙길보다 한 뼘 높은 둑처럼 보인다.
     const slabGeo = this.own(new THREE.CylinderGeometry(HEX_RADIUS, HEX_RADIUS + 0.035, TILE_THICKNESS, 6));
-    const sideMat = this.own(paintMaterial({ color: '#efe2c2', wash: 0.6 }));
     const kinds: TileKind[] = [...RESOURCES, 'plaza'];
     for (const kind of kinds) {
       const tiles = this.options.tiles.filter((t) => t.kind === kind);
       if (tiles.length === 0) continue;
       const top = this.groundMaterial(TILE_GROUND[kind], GROUND_FALLBACK[kind]);
+      const sideMat = this.own(paintMaterial({ color: TILE_SIDE[kind], wash: 0.8 }));
       const mesh = new THREE.InstancedMesh(slabGeo, [sideMat, top, sideMat], tiles.length);
       tiles.forEach((t, i) => {
         const c = tileCenter(t, m);
@@ -669,7 +715,7 @@ export class BoardRenderer {
     }
 
     // 타일 안쪽 가장자리를 살짝 어둡게 칠해 눌러 찍은 보드게임 타일처럼 보이게 한다 (한 번의 그리기 호출).
-    const edgeGeo = this.own(this.hexEdgeShade(HEX_RADIUS - 0.005, HEX_RADIUS - 0.2, 0.32));
+    const edgeGeo = this.own(this.hexEdgeShade(HEX_RADIUS - 0.005, HEX_RADIUS - 0.16, 0.2));
     const edgeMat = this.own(new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, toneMapped: false }));
     const edges = new THREE.InstancedMesh(edgeGeo, edgeMat, this.options.tiles.length);
     this.options.tiles.forEach((t, i) => {
@@ -680,6 +726,56 @@ export class BoardRenderer {
     edges.renderOrder = 1;
     this.scene.add(edges);
 
+  }
+
+  /**
+   * 타일 사이 흙길: 변마다 수레바퀴 자국이 길을 따라 난 흙길 띠를 깐다. 텍스처 가로가 길 방향이라 자국이 변을 따라 이어지고,
+   * 띠는 교차점까지 조금 더 뻗어 세 갈래가 겹치며 갈림길이 된다. 띠마다 높이를 아주 조금씩 달리해 겹친 곳이 깜박이지 않는다.
+   */
+  private buildRoadStrips(): void {
+    const tex = this.art?.ground('ground_road') ?? null;
+    if (tex) {
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.needsUpdate = true;
+    }
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const idx: number[] = [];
+    const hw = ROAD_STRIP_WIDTH / 2;
+    const ext = 0.08;
+    this.geo.edges.forEach((e, k) => {
+      const a = this.vertexWorld(e.a)!;
+      const b = this.vertexWorld(e.b)!;
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      const tx = (b.x - a.x) / len;
+      const tz = (b.z - a.z) / len;
+      const nx = -tz;
+      const nz = tx;
+      const ax = a.x - tx * ext;
+      const az = a.z - tz * ext;
+      const bx = b.x + tx * ext;
+      const bz = b.z + tz * ext;
+      const y = PLATFORM_TOP + 0.003 + (k % 24) * 0.0004;
+      const u0 = (hashString(e.id) % 1000) / 1000;
+      const u1 = u0 + (len + ext * 2) / ROAD_TEX_LENGTH;
+      const base = pos.length / 3;
+      pos.push(ax + nx * hw, y, az + nz * hw, bx + nx * hw, y, bz + nz * hw, bx - nx * hw, y, bz - nz * hw, ax - nx * hw, y, az - nz * hw);
+      uv.push(u0, 1, u1, 1, u1, 0, u0, 0);
+      idx.push(base, base + 2, base + 1, base, base + 3, base + 2);
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    // 위에서 보이도록 앞면을 위로
+    if (g.attributes.normal.getY(0) < 0) {
+      g.setIndex(idx.map((_, i) => idx[i - (i % 3) + (2 - (i % 3))]));
+      g.computeVertexNormals();
+    }
+    this.own(g);
+    const mat = this.own(paintMaterial({ map: tex, color: tex ? '#ffffff' : '#c4a273', wash: 0.7 }));
+    this.scene.add(new THREE.Mesh(g, mat));
   }
 
   /** 바깥 꼭짓점은 검정 반투명, 안쪽은 투명인 육각 띠 (꼭짓점 RGBA 색) */
@@ -805,6 +901,7 @@ export class BoardRenderer {
       ['village', 'house', 24],
       ['city', 'city', 20],
       ['road', 'road', 64],
+      ['joint', 'roadjoint', 48],
     ];
     for (const [kind, key, capacity] of pools) {
       const template = art.prop(key, 0);
@@ -1007,16 +1104,53 @@ export class BoardRenderer {
     const color = new THREE.Color();
     const villages = this.state.buildings.filter((b) => b.kind === 'village');
     const cities = this.state.buildings.filter((b) => b.kind === 'city');
+    // 같은 사람의 길이 꼭짓점에서 이어지면(길끼리, 또는 내 마을·도시에 닿으면) 그쪽 끝을 꼭짓점까지 늘려 끊김 없이 잇는다.
+    // 남의 마을·도시가 선 꼭짓점에서는 규칙대로 길이 끊기므로 늘리지 않는다.
+    const roadsAt = new Map<string, Map<string, number>>();
+    for (const r of this.state.roads) {
+      const e = this.geo.edgeMap[r.edgeId];
+      if (!e) continue;
+      for (const v of [e.a, e.b]) {
+        const m = roadsAt.get(v) ?? new Map<string, number>();
+        m.set(r.owner, (m.get(r.owner) ?? 0) + 1);
+        roadsAt.set(v, m);
+      }
+    }
+    const buildingAtV = new Map(this.state.buildings.map((b) => [b.vertexId, b]));
+    const joins = (v: string, owner: string) => {
+      const b = buildingAtV.get(v);
+      if (b) return b.owner === owner;
+      return (roadsAt.get(v)?.get(owner) ?? 0) >= 2;
+    };
+    const gap = (1 - ROAD_FRACTION) / 2;
     for (const part of this.pieceParts) {
       let i = 0;
       if (part.kind === 'road') {
         for (const r of this.state.roads) {
           const ew = this.edgeWorld(r.edgeId);
-          if (!ew || i >= part.mesh.instanceMatrix.count) continue;
+          const e = this.geo.edgeMap[r.edgeId];
+          if (!ew || !e || i >= part.mesh.instanceMatrix.count) continue;
           const g = this.growing.get(`r:${r.edgeId}`) ?? 1;
-          part.mesh.setMatrixAt(i, compose(ew.mid.x, PLATFORM_TOP + 0.004, ew.mid.z, ew.angle, ew.length * ROAD_FRACTION * g, Math.max(0.01, g), 1));
+          const t0 = joins(e.a, r.owner) ? 0 : gap;
+          const t1 = joins(e.b, r.owner) ? 1 : 1 - gap;
+          const mid = ew.a.clone().lerp(ew.b, (t0 + t1) / 2);
+          part.mesh.setMatrixAt(i, compose(mid.x, PLATFORM_TOP + 0.004, mid.z, ew.angle, ew.length * (t1 - t0) * g, Math.max(0.01, g), 1));
           if (part.tint) part.mesh.setColorAt(i, color.set(this.playerColor(r.colorIndex)));
           i++;
+        }
+      } else if (part.kind === 'joint') {
+        // 길 둘 이상이 만나는 빈 꼭짓점에 판자 받침 (마을·도시가 선 자리는 집이 덮는다)
+        for (const [v, owners] of roadsAt) {
+          if (buildingAtV.has(v)) continue;
+          for (const [owner, n] of owners) {
+            if (n < 2 || i >= part.mesh.instanceMatrix.count) continue;
+            const p = this.vertexWorld(v);
+            const road = this.state.roads.find((r) => r.owner === owner);
+            if (!p || !road) continue;
+            part.mesh.setMatrixAt(i, compose(p.x, PLATFORM_TOP + 0.004, p.z, 0, 1, 1, 1));
+            if (part.tint) part.mesh.setColorAt(i, color.set(this.playerColor(road.colorIndex)));
+            i++;
+          }
         }
       } else {
         const list = part.kind === 'city' ? cities : villages;
@@ -1930,7 +2064,7 @@ export class BoardRenderer {
     // 집·도시는 높이가 있어 몸통을 누르면 바닥보다 조금 뒤쪽이 맞는다. 꼭짓점은 그 높이에서 잰다.
     ray.intersectPlane(new THREE.Plane(yAxis, -(TILE_TOP + 0.14)), mid);
     const worldPerPixel = (this.camera.right - this.camera.left) / this.camera.zoom / Math.max(1, rect.width);
-    // 손가락 크기(약 24px)로 잡되, 멀리 축소해도 이웃 꼭짓점(1.25 떨어짐)까지 넘보지 않게 상한을 둔다.
+    // 손가락 크기(약 24px)로 잡되, 멀리 축소해도 이웃 꼭짓점(1.32 떨어짐)까지 넘보지 않게 상한을 둔다.
     const reach = Math.min(0.42, Math.max(0.16, 24 * worldPerPixel));
     const flat = (p: THREE.Vector3, q: THREE.Vector3) => Math.hypot(p.x - q.x, p.z - q.z);
     const nearestVertex = (ids: readonly string[]) => {

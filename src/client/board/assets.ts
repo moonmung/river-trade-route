@@ -22,6 +22,7 @@ export type GroundTextureKey =
   | 'ground_clay'
   | 'ground_cobble'
   | 'ground_sand'
+  | 'ground_road'
   | 'contact_shadow';
 
 export interface ManifestEntry {
@@ -221,6 +222,7 @@ export async function loadArtLibrary(
     'ground_clay',
     'ground_cobble',
     'ground_sand',
+    'ground_road',
     'contact_shadow',
   ];
   const uniqueProps = [...new Map(propList.map((p) => [propAssetName(p.key, p.variant), p])).values()];

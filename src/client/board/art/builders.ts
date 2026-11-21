@@ -50,7 +50,8 @@ export type PropKey =
   | 'chain'
   | 'padlock'
   | 'pier'
-  | 'brickrows';
+  | 'brickrows'
+  | 'roadjoint';
 
 type Vec3 = [number, number, number];
 /** 밝기 배율. 숫자 하나는 밝기만 바꾸고, 세 값은 색조까지 바꾼다 (이끼 낀 돌처럼). */
@@ -1669,6 +1670,23 @@ export function buildRoad(): PropPart[] {
   return k.build(0.06, 0.7);
 }
 
+/**
+ * 길 이음목: 같은 사람의 길이 꼭짓점에서 만나면 그 자리에 육각 판자 받침을 깔아 길이 끊기지 않고 이어져 보이게 한다.
+ * 판자는 길과 같은 지붕 재질이라 플레이어 색이 곱해지고, 둘레에 짙은 나무 테를 둘렀다. 판자 윗면은 길 판자보다 아주 조금 높다.
+ */
+export function buildRoadJoint(): PropPart[] {
+  const k = new Kit();
+  const sector = (c: THREE.Vector3) => Math.floor((Math.atan2(c.z, c.x) + Math.PI) / (Math.PI / 3));
+  k.add('roof', cyl(0.1, 0.1, 0.035, 6), {
+    position: [0, 0.056, 0],
+    rotation: [0, Math.PI / 6, 0],
+    flat: true,
+    faceShade: (c, n) => (sector(c) % 2 ? 0.9 : 1.0) * skyShade(n, 0.72, 1.06),
+  });
+  k.add('wood', cyl(0.112, 0.112, 0.03, 6), { position: [0, 0.036, 0], rotation: [0, Math.PI / 6, 0], color: '#6b4a2a' });
+  return k.build(0.06, 0.7);
+}
+
 /** 도시: 돌로 쌓은 아래층 위에 회벽 위층, 색 지붕, 옆에 둥근 탑. 지붕과 탑 지붕에 플레이어 색이 곱해진다. */
 export function buildCity(): PropPart[] {
   const rand = mulberry32(53);
@@ -1765,6 +1783,7 @@ export const PROP_VARIANTS: Record<PropKey, number> = {
   padlock: 1,
   pier: 1,
   brickrows: 1,
+  roadjoint: 1,
 };
 
 export function buildProp(key: PropKey, variant = 0): PropPart[] {
@@ -1842,6 +1861,8 @@ export function buildProp(key: PropKey, variant = 0): PropPart[] {
       return buildPier();
     case 'brickrows':
       return buildBrickRows();
+    case 'roadjoint':
+      return buildRoadJoint();
   }
 }
 

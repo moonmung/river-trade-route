@@ -32,6 +32,16 @@ export function FlatBoard({ tiles, state, onTap }: { tiles: readonly TileDef[]; 
   const hintE = new Set(state.hints?.edges ?? []);
   const hintV = new Set(state.hints?.vertices ?? []);
   const traceE = new Set(state.trace ?? []);
+  // 같은 사람의 길이 꼭짓점에서 이어지면(길끼리, 또는 내 마을·도시) 그쪽 끝을 꼭짓점까지 잇는다.
+  const roadCount = new Map<string, number>();
+  for (const r of state.roads) {
+    const e = geo.edgeMap[r.edgeId];
+    if (e) for (const v of [e.a, e.b]) roadCount.set(`${v}:${r.owner}`, (roadCount.get(`${v}:${r.owner}`) ?? 0) + 1);
+  }
+  const joins = (v: string, owner: string) => {
+    const b = state.buildings.find((x) => x.vertexId === v);
+    return b ? b.owner === owner : (roadCount.get(`${v}:${owner}`) ?? 0) >= 2;
+  };
   const sel = state.selected;
   const isSel = (kind: BoardSelection['kind'], id: string) => sel?.kind === kind && sel.id === id;
   const robber = state.robber !== undefined ? state.robber : (tiles.find((t) => t.kind === 'plaza')?.id ?? null);
@@ -109,7 +119,16 @@ export function FlatBoard({ tiles, state, onTap }: { tiles: readonly TileDef[]; 
           return (
             <g key={e.id} onClick={() => onTap?.({ kind: 'edge', id: e.id })} role="button" aria-label={`${edgeLabel(e.id)}${road ? ' 길' : ''}`}>
               {traceE.has(e.id) && <line x1={x1} y1={y1} x2={x2} y2={y2} className="flat-trace" />}
-              {road && <line x1={x1} y1={y1} x2={x2} y2={y2} className="flat-road" style={{ stroke: playerColor(road.colorIndex).hex }} />}
+              {road && (
+                <line
+                  x1={joins(e.a, road.owner) ? a.x : x1}
+                  y1={joins(e.a, road.owner) ? a.y : y1}
+                  x2={joins(e.b, road.owner) ? b.x : x2}
+                  y2={joins(e.b, road.owner) ? b.y : y2}
+                  className="flat-road"
+                  style={{ stroke: playerColor(road.colorIndex).hex }}
+                />
+              )}
               {!road && hintE.has(e.id) && !hlE.has(e.id) && <line x1={x1} y1={y1} x2={x2} y2={y2} className="flat-hint-line" />}
               {(hlE.has(e.id) || isSel('edge', e.id)) && (
                 <line x1={x1} y1={y1} x2={x2} y2={y2} className={`flat-edge-hl ${isSel('edge', e.id) ? 'flat-edge-sel' : ''}`} />
