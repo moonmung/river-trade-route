@@ -3,11 +3,13 @@ import { DEV_COST, DEV_LABEL, PIECE_COST, PIECE_LIMIT, PIECE_POINTS, RESOURCES, 
 import type { RoomView } from '../../shared/protocol';
 import { pieceCount } from '../../shared/rules';
 import type { Bundle, PieceKind } from '../../shared/types';
-import { throwDice, useDiceUi } from '../dice';
+import { throwDice } from '../dice';
 import { ArtImg, DEV_BACK_ART, PIECE_ART } from '../ui/art';
 import { playerColor } from '../theme';
 import { Emblem, ResourceIcon } from '../ui/icons';
 import { MiniHand } from './hand';
+import { heldTotal, useHeldCards } from './cardFly';
+import { TurnTimer, useTurnClock } from './turn';
 import { buildBlocker, buyDevBlocker, isMyTurn, shortfall, turnBlocker, type PlayerInfo } from './derive';
 import { canBankNow, tradeButtonBlocker } from './trade';
 import { ActionButton, sendAction } from './ui';
@@ -31,80 +33,6 @@ export function DieFace({ value, size = 26 }: { value: number; size?: number }) 
         <circle key={i} cx={x} cy={y} r="2.1" fill={value === 1 ? '#a8402c' : '#3a2a1f'} />
       ))}
     </svg>
-  );
-}
-
-export function TopBar({ view, players, onMenu }: { view: RoomView; players: Players; onMenu: () => void }) {
-  const g = view.game!;
-  const dice = useDiceUi();
-  const current = g.currentPlayerId ? players.get(g.currentPlayerId) : null;
-  const placing = g.placementPlayerId ? players.get(g.placementPlayerId) : null;
-  const mine = isMyTurn(view);
-  const who = (p: PlayerInfo | null | undefined) => (
-    <>
-      <Emblem colorIndex={p?.colorIndex ?? 0} size={14} /> {p?.nickname}
-    </>
-  );
-  let status: React.ReactNode;
-  if (g.phase === 'placement') {
-    status = g.placementPlayerId === view.you ? <b className="turn-me">내가 시작 마을과 길을 놓을 차례</b> : <span>{who(placing)}이(가) 시작 마을과 길을 고르는 중</span>;
-  } else if (g.phase === 'finished') {
-    status = <b>게임 종료</b>;
-  } else if (g.step === 'discard') {
-    const mineDiscard = g.discards[view.you];
-    status = mineDiscard ? <b className="turn-me">7! 자원 {mineDiscard}장을 버리세요</b> : <span>7! 자원이 많은 사람들이 절반을 버리는 중</span>;
-  } else if (mine) {
-    const text: Record<string, string> = {
-      roll: '내 차례 · 주사위를 굴리세요',
-      robber: '기사단 동상을 옮길 칸을 고르세요',
-      steal: '자원을 빼앗을 사람을 고르세요',
-      main: '내 차례 · 교환하고 지으세요',
-      road_building: `공짜 길 ${g.freeRoads}개를 놓으세요`,
-    };
-    status = <b className="turn-me">{text[g.step] ?? '내 차례'}</b>;
-  } else {
-    const text: Record<string, string> = {
-      roll: '주사위를 굴리는 중',
-      robber: '기사단 동상을 옮기는 중',
-      steal: '빼앗을 사람을 고르는 중',
-      main: '교환·건설 중',
-      road_building: '공짜 길을 놓는 중',
-    };
-    status = (
-      <span>
-        {who(current)}의 차례 · {text[g.step] ?? ''}
-        {current && !current.connected && <em className="warn-text"> (연결 끊김 — 다시 접속할 때까지 기다립니다)</em>}
-      </span>
-    );
-  }
-
-  // 3D 주사위가 구르는 동안에는 결과를 미리 보여 주지 않는다 (주사위가 멈추면 그 값이 뜬다).
-  const rolling = dice.throwing || (dice.landedSeq !== null && g.events.some((e) => e.kind === 'roll' && e.seq > dice.landedSeq!));
-
-  return (
-    <div className="topbar">
-      <div className="topbar-row">
-        <div className="round-chip">{g.phase === 'placement' ? '시작 배치' : `${g.turn}턴`}</div>
-        <div className="dice-now" aria-label="마지막 주사위">
-          {rolling ? (
-            <span className="muted small">굴리는 중…</span>
-          ) : g.dice ? (
-            <>
-              <DieFace value={g.dice[0]} />
-              <DieFace value={g.dice[1]} />
-              <b className={g.dice[0] + g.dice[1] === 7 ? 'dice-seven' : ''}>= {g.dice[0] + g.dice[1]}</b>
-            </>
-          ) : (
-            <span className="muted small">아직 굴리지 않음</span>
-          )}
-        </div>
-        <div className="goal small muted">{g.winPoints}점 먼저 내면 승리</div>
-        <button className="icon-btn menu-btn" onClick={onMenu} aria-label="메뉴 열기">
-          ☰
-        </button>
-      </div>
-      <div className="turn-line">{status}</div>
-    </div>
   );
 }
 
@@ -135,19 +63,27 @@ export function PlayersPanel({
   view,
   players,
   emotes = {},
+  compact = false,
 }: {
   view: RoomView;
   players: Players;
   emotes?: Record<string, { emote: string; key: number }>;
+  /** 좁은 화면: 차례 상태 쪽지 아래에 두 칸씩 나란히 놓는 작은 꼴 (보드를 가리지 않게) */
+  compact?: boolean;
 }) {
   const g = view.game!;
+  const held = useHeldCards();
+  const clock = useTurnClock(g);
   return (
-    <ul className="players" aria-label="플레이어">
+    <ul className={`players ${compact ? 'players-compact' : ''}`} aria-label="플레이어">
       {g.order.map((id) => {
         const p = players.get(id);
         const info = g.players.find((x) => x.id === id)!;
         if (!p) return null;
         const isCurrent = g.currentPlayerId === id || g.placementPlayerId === id;
+        // 날아오는 중인 카드는 닿을 때 센다
+        const resCount = Math.max(0, info.resourceTotal - heldTotal(held, id));
+        const ticking = clock && clock.holders.includes(id);
         const color = playerColor(p.colorIndex);
         const points = id === view.you ? g.myPoints : info.score;
         const offers = g.trades.filter((t) => t.from === id).length;
@@ -179,12 +115,12 @@ export function PlayersPanel({
                   <AwardIcon kind="largest_army" />
                 </span>
               )}
+              {ticking && clock && <TurnTimer clock={clock} size={22} mine={id === view.you} />}
               <span title={id === view.you ? '내 승점 (숨긴 승점 카드 포함)' : '공개된 승점 (숨긴 승점 카드는 보이지 않음)'} className="stat-score">
                 ★{points}
               </span>
             </div>
             <div className="player-stats">
-              <MiniHand count={info.resourceTotal} kind="res" title={`자원 카드 ${info.resourceTotal}장 (종류는 본인만 봅니다)`} />
               <MiniHand count={info.devCardCount} kind="dev" title={`발전 카드 ${info.devCardCount}장`} />
               <span title={`쓴 기사 ${info.knightsPlayed}장`} className="stat-pieces">
                 ⚔{info.knightsPlayed}
@@ -198,6 +134,10 @@ export function PlayersPanel({
                   ⇄{offers}
                 </span>
               )}
+              {/* 자원 카드 뭉치는 오른쪽 아래: 생산한 카드가 여기로 날아든다 */}
+              <span className="player-res">
+                <MiniHand count={resCount} kind="res" fly={`hand-${id}`} title={`자원 카드 ${resCount}장 (종류는 본인만 봅니다)`} />
+              </span>
             </div>
             {!p.connected && <span className="off-dot" title="연결 끊김" aria-label="연결 끊김" />}
           </li>

@@ -1,13 +1,21 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { RESOURCE_LABEL } from '../../shared/constants';
+import type { AckResult } from '../../shared/protocol';
 import type { GameAction, Resource } from '../../shared/types';
 import { client } from '../net/client';
 import { ResourceIcon } from '../ui/icons';
 import { showToast } from '../ui/toast';
 
+/** 행동을 서버 대신 받는 곳 (실험실 모의 게임). 정하면 행동이 서버로 가지 않고 이리로 간다. */
+let actionSink: ((action: GameAction) => Promise<AckResult>) | null = null;
+
+export function setActionSink(sink: ((action: GameAction) => Promise<AckResult>) | null): void {
+  actionSink = sink;
+}
+
 /** 행동을 서버에 보내고, 거절되면 이유를 보여 준다. */
 export async function sendAction(action: GameAction): Promise<boolean> {
-  const res = await client.act(action);
+  const res = actionSink ? await actionSink(action) : await client.act(action);
   if (!res.ok) showToast(res.error, 'error', 4200);
   return res.ok;
 }

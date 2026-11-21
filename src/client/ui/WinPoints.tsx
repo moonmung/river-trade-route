@@ -22,18 +22,48 @@ export function saveWinPoints(n: number): void {
 }
 
 export function WinPointsStepper({ value, onChange, disabled }: { value: number; onChange: (n: number) => void; disabled?: boolean }) {
-  const set = (n: number) => onChange(Math.min(WIN_POINTS_MAX, Math.max(WIN_POINTS_MIN, n)));
+  return <NumberStepper value={value} min={WIN_POINTS_MIN} max={WIN_POINTS_MAX} unit="점" label="승리 점수" onChange={onChange} disabled={disabled} />;
+}
+
+/** 방 규칙 숫자 하나를 −/+ 로 고른다 (승리 점수, 자원 보유 한도) */
+export function NumberStepper({
+  value,
+  min,
+  max,
+  unit,
+  label,
+  onChange,
+  disabled,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  unit: string;
+  label: string;
+  onChange: (n: number) => void;
+  disabled?: boolean;
+}) {
+  const set = (n: number) => onChange(Math.min(max, Math.max(min, n)));
   return (
-    <div className="win-points" role="group" aria-label="승리 점수">
-      <button type="button" className="wp-btn" onClick={() => set(value - 1)} disabled={disabled || value <= WIN_POINTS_MIN} aria-label="1점 낮추기">
+    <div className="win-points" role="group" aria-label={label}>
+      <button type="button" className="wp-btn" onClick={() => set(value - 1)} disabled={disabled || value <= min} aria-label={`${label} 1${unit} 낮추기`}>
         −
       </button>
       <output className="wp-value" aria-live="polite">
-        <b>{value}</b>점
+        <b>{value}</b>
+        {unit}
       </output>
-      <button type="button" className="wp-btn" onClick={() => set(value + 1)} disabled={disabled || value >= WIN_POINTS_MAX} aria-label="1점 올리기">
+      <button type="button" className="wp-btn" onClick={() => set(value + 1)} disabled={disabled || value >= max} aria-label={`${label} 1${unit} 올리기`}>
         +
       </button>
     </div>
   );
+}
+
+/** 차례 시간을 읽기 좋게: 0 → "제한 없음", 90 → "1분 30초" */
+export function turnSecondsLabel(s: number): string {
+  if (s <= 0) return '제한 없음';
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m && r ? `${m}분 ${r}초` : m ? `${m}분` : `${r}초`;
 }

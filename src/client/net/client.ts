@@ -5,6 +5,7 @@ import type {
   ClientToServerEvents,
   HandshakeAuth,
   RoomPeek,
+  RoomSettingsPatch,
   RoomView,
   SeatHandover,
   ServerToClientEvents,
@@ -192,7 +193,12 @@ export class GameClient {
   }
 
   setWinPoints(winPoints: number): Promise<AckResult> {
-    return this.emit('room:settings', { winPoints });
+    return this.setSettings({ winPoints });
+  }
+
+  /** 방장: 대기실에서 승리 점수·자원 보유 한도·차례 시간을 바꾼다 */
+  setSettings(patch: RoomSettingsPatch): Promise<AckResult> {
+    return this.emit('room:settings', patch);
   }
 
   start(): Promise<AckResult> {

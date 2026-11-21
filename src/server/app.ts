@@ -128,6 +128,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     close: () =>
       new Promise<void>((resolve) => {
         store?.close();
+        rooms.stopAllClocks();
         io.close(() => resolve());
         httpServer.closeAllConnections?.();
       }),

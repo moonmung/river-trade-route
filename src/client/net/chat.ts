@@ -1,7 +1,7 @@
 // 방 채팅 저장소. 서버가 보낸 최근 대화와 이모티콘을 방 코드와 함께 들고 있다가 React 에 알린다.
 import { useSyncExternalStore } from 'react';
 import { CHAT_HISTORY } from '../../shared/constants';
-import type { ChatMessage } from '../../shared/protocol';
+import type { AckResult, ChatEmote, ChatMessage } from '../../shared/protocol';
 import { client } from './client';
 
 /** 이모티콘이 이름 옆에 떠 있는 시간 (CSS 의 emote-pop 과 같다) */
@@ -25,6 +25,36 @@ function set(next: ChatState): void {
   listeners.forEach((fn) => fn());
 }
 
+/**
+ * 채팅을 서버 대신 받는 곳 (실험실 모의 게임). 정하면 보내기·이모티콘이 서버로 가지 않고 이리로 간다.
+ */
+export interface ChatSink {
+  send: (text: string) => Promise<AckResult>;
+  emote: (emote: string) => Promise<AckResult>;
+}
+let sink: ChatSink | null = null;
+
+export function setChatSink(next: ChatSink | null): void {
+  sink = next;
+}
+
+export function sendChatText(text: string): Promise<AckResult> {
+  return sink ? sink.send(text) : client.sendChat(text);
+}
+
+export function sendChatEmote(emote: string): Promise<AckResult> {
+  return sink ? sink.emote(emote) : client.sendEmote(emote);
+}
+
+/** 서버가 보낸 것처럼 대화 한 줄·이모티콘을 넣는다 (실험실 모의 게임) */
+export function injectChat(code: string, message: ChatMessage): void {
+  onMessage({ code, message });
+}
+
+export function injectEmote(code: string, emote: ChatEmote): void {
+  onEmote({ code, emote });
+}
+
 client.onServer('chat:history', ({ code, messages }) => {
   // 새로고침해서 처음 받은 지난 대화는 읽은 것으로 친다. 같은 방에 다시 붙은 경우(잠깐 끊김)는 읽은 자리를 그대로 둔다.
   const last = messages.length ? messages[messages.length - 1].id : 0;
@@ -32,16 +62,19 @@ client.onServer('chat:history', ({ code, messages }) => {
   set({ code, messages: messages.slice(-CHAT_HISTORY), emotes: same ? state.emotes : {}, seen: same ? state.seen : last });
 });
 
-client.onServer('chat:message', ({ code, message }) => {
+client.onServer('chat:message', (p) => onMessage(p));
+client.onServer('chat:emote', (p) => onEmote(p));
+
+function onMessage({ code, message }: { code: string; message: ChatMessage }): void {
   if (code !== state.code) {
     set({ code, messages: [message], emotes: {}, seen: 0 });
     return;
   }
   if (state.messages.some((m) => m.id === message.id)) return;
   set({ ...state, messages: [...state.messages, message].slice(-CHAT_HISTORY) });
-});
+}
 
-client.onServer('chat:emote', ({ code, emote }) => {
+function onEmote({ code, emote }: { code: string; emote: ChatEmote }): void {
   if (code !== state.code) return;
   const key = ++emoteKey;
   set({ ...state, emotes: { ...state.emotes, [emote.from]: { emote: emote.emote, key } } });
@@ -50,7 +83,7 @@ client.onServer('chat:emote', ({ code, emote }) => {
     const { [emote.from]: _gone, ...rest } = state.emotes;
     set({ ...state, emotes: rest });
   }, EMOTE_MS);
-});
+}
 
 export function markChatRead(): void {
   const last = state.messages.length ? state.messages[state.messages.length - 1].id : 0;

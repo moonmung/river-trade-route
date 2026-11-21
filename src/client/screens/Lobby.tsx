@@ -10,7 +10,8 @@ import { AsyncButton, Brand, copyText } from '../ui/common';
 import { Emblem } from '../ui/icons';
 import { RulesSummary } from '../ui/RulesSummary';
 import { showToast } from '../ui/toast';
-import { WinPointsStepper, saveWinPoints } from '../ui/WinPoints';
+import { NumberStepper, WinPointsStepper, saveWinPoints, turnSecondsLabel } from '../ui/WinPoints';
+import { HAND_LIMIT_MAX, HAND_LIMIT_MIN, TURN_SECONDS_OPTIONS } from '../../shared/constants';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -129,22 +130,77 @@ export function Lobby({ view }: { view: RoomView }) {
         </section>
 
         <section className="lobby-points">
-          <h2>승리 점수</h2>
-          {isHost ? (
-            <WinPointsStepper
-              value={view.winPoints}
-              onChange={async (p) => {
-                saveWinPoints(p);
-                const res = await client.setWinPoints(p);
-                if (!res.ok) showToast(res.error, 'error');
-              }}
-            />
-          ) : (
-            <div className="wp-fixed">
-              <b>{view.winPoints}</b>점
+          <h2>게임 규칙</h2>
+          <div className="rule-rows">
+            <div className="rule-row">
+              <span className="rule-name">승리 점수</span>
+              {isHost ? (
+                <WinPointsStepper
+                  value={view.winPoints}
+                  onChange={async (p) => {
+                    saveWinPoints(p);
+                    const res = await client.setSettings({ winPoints: p });
+                    if (!res.ok) showToast(res.error, 'error');
+                  }}
+                />
+              ) : (
+                <div className="wp-fixed">
+                  <b>{view.winPoints}</b>점
+                </div>
+              )}
             </div>
-          )}
-          <p className="muted small">{isHost ? '10~20점 사이로 정합니다. 바꾸면 다른 사람은 다시 준비해야 합니다.' : '방장이 정한 점수입니다. 이 점수에 먼저 닿으면 이깁니다.'}</p>
+            <div className="rule-row">
+              <span className="rule-name" title="7이 나오면 이보다 많이 든 사람이 절반을 버립니다">
+                자원 보유 한도
+              </span>
+              {isHost ? (
+                <NumberStepper
+                  value={view.handLimit}
+                  min={HAND_LIMIT_MIN}
+                  max={HAND_LIMIT_MAX}
+                  unit="장"
+                  label="자원 보유 한도"
+                  onChange={async (n) => {
+                    const res = await client.setSettings({ handLimit: n });
+                    if (!res.ok) showToast(res.error, 'error');
+                  }}
+                />
+              ) : (
+                <div className="wp-fixed">
+                  <b>{view.handLimit}</b>장
+                </div>
+              )}
+            </div>
+            <div className="rule-row">
+              <span className="rule-name">차례 시간</span>
+              {isHost ? (
+                <select
+                  className="rule-select"
+                  value={view.turnSeconds}
+                  aria-label="한 차례 제한 시간"
+                  onChange={async (e) => {
+                    const res = await client.setSettings({ turnSeconds: Number(e.target.value) });
+                    if (!res.ok) showToast(res.error, 'error');
+                  }}
+                >
+                  {TURN_SECONDS_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {turnSecondsLabel(s)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="wp-fixed">
+                  <b>{turnSecondsLabel(view.turnSeconds)}</b>
+                </div>
+              )}
+            </div>
+          </div>
+          <p className="muted small">
+            {isHost ? '바꾸면 다른 사람은 다시 준비해야 합니다. ' : '방장이 정한 규칙입니다. '}
+            7이 나오면 자원이 {view.handLimit}장보다 많은 사람이 절반을 버립니다.{' '}
+            {view.turnSeconds > 0 ? `한 차례 ${turnSecondsLabel(view.turnSeconds)} 안에 끝내지 못하면 자동으로 진행합니다.` : '차례 시간 제한이 없습니다.'}
+          </p>
         </section>
 
         <section>

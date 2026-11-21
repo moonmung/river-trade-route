@@ -46,8 +46,22 @@ export interface GameView {
   /** 진행 턴 번호 (시작 배치 중에는 0) */
   turn: number;
   order: string[];
+  /** 순서 정하기 주사위 기록 (사람마다 굴린 순서대로) */
+  startRolls: Record<string, [number, number][]>;
+  /** 순서 정하기에서 아직 굴려야 하는 사람 */
+  startPending: string[];
   placementOrder: string[];
   placementPlayerId: string | null;
+  /** 시작 배치에서 마을만 지어 두고 길을 기다리는 꼭짓점 */
+  setupVillage: string | null;
+  /** 자원 보유 한도 (7이 나오면 이보다 많이 든 사람이 절반을 버린다) */
+  handLimit: number;
+  /** 한 차례 제한 시간 (초, 0 이면 제한 없음) */
+  turnSeconds: number;
+  /** 지금 시간이 흐르는 사람들 */
+  clockHolders: string[];
+  /** 화면 정보를 만든 순간 남은 시간 (ms). 제한이 없거나 멈춰 있으면 null. 받은 쪽은 받은 시각에 더해 마감 시각을 잡는다. */
+  timeLeftMs: number | null;
   currentPlayerId: string | null;
   step: TurnStep;
   dice: [number, number] | null;
@@ -98,6 +112,17 @@ export interface RoomView {
   maxPlayers: number;
   /** 방장이 정한 승리 점수 (다음 게임에 쓴다) */
   winPoints: number;
+  /** 방장이 정한 자원 보유 한도 */
+  handLimit: number;
+  /** 방장이 정한 한 차례 제한 시간 (초, 0 이면 제한 없음) */
+  turnSeconds: number;
+}
+
+/** 방장이 대기실에서 바꾸는 규칙 (보낸 것만 바뀐다) */
+export interface RoomSettingsPatch {
+  winPoints?: number;
+  handLimit?: number;
+  turnSeconds?: number;
 }
 
 export interface RoomPeek {
@@ -179,8 +204,8 @@ export interface ServerToClientEvents {
 
 export interface ClientToServerEvents {
   'room:create': (p: { nickname: string; winPoints?: number }, ack: Ack<SessionInfo>) => void;
-  /** 방장: 대기실에서 승리 점수를 바꾼다 */
-  'room:settings': (p: { winPoints: number }, ack: Ack) => void;
+  /** 방장: 대기실에서 승리 점수·자원 보유 한도·차례 시간을 바꾼다 */
+  'room:settings': (p: RoomSettingsPatch, ack: Ack) => void;
   'room:join': (p: { code: string; nickname: string }, ack: Ack<SessionInfo>) => void;
   'room:peek': (p: { code: string }, ack: Ack<RoomPeek>) => void;
   /** 방장: 연결이 끊긴 자리를 넘길 코드를 만든다 */

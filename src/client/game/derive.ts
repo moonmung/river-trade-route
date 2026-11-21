@@ -139,16 +139,15 @@ export interface BoardHighlights {
 
 /**
  * 보드에서 빛낼 자리.
- * 시작 배치: 마을 자리 → (고른 뒤) 그 마을에 붙일 길. 동상 옮기기: 동상이 없는 칸. 길 건설 카드: 공짜 길 자리.
+ * 시작 배치: 마을 자리 → (마을을 지은 뒤) 그 마을에 붙일 길. 동상 옮기기: 동상이 없는 칸. 길 건설 카드: 공짜 길 자리.
  * 건설 모드: 지을 수 있는 자리.
  */
-export function boardHighlights(view: RoomView, mode: PieceKind | null, pendingVertex: string | null): BoardHighlights {
+export function boardHighlights(view: RoomView, mode: PieceKind | null): BoardHighlights {
   const none = { vertices: [], edges: [], tiles: [] };
   const g = view.game;
   if (!g) return none;
   if (g.phase === 'placement' && g.placementPlayerId === view.you) {
-    // 마을 자리를 고른 뒤에도 그 꼭짓점을 함께 빛내 어디에 붙이는 길인지 보이게 한다.
-    if (pendingVertex) return { vertices: [pendingVertex], edges: setupRoadEdges(g.roads, pendingVertex), tiles: [] };
+    if (g.setupVillage) return { vertices: [], edges: setupRoadEdges(g.roads, g.setupVillage), tiles: [] };
     return { vertices: placeableVertices(g.buildings), edges: [], tiles: [] };
   }
   if (g.phase !== 'playing' || g.currentPlayerId !== view.you) return none;
@@ -247,9 +246,19 @@ export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: 
   const whose = (id: string) => (id === me ? '내' : `${name(id)}의`);
   switch (e.kind) {
     case 'game_start':
-      return `게임 시작. 자리 순서: ${e.order.map(name).join(' → ')}`;
-    case 'placement':
-      return `${subj(e.player)} ${place('vertex', e.vertexId)}에 시작 마을과 길을 놓았습니다.${e.gained ? ` 받은 자원: ${bundleText(e.gained)}.` : ''}`;
+      return `자리 순서가 정해졌습니다: ${e.order.map(name).join(' → ')}`;
+    case 'order_roll':
+      return `${subj(e.player)} 순서 주사위 ${e.dice[0]}+${e.dice[1]} = ${e.dice[0] + e.dice[1]}${e.round > 1 ? ` (${e.round}번째)` : ''}.`;
+    case 'order_tie':
+      return `${e.players.map(name).join(', ')}의 주사위가 ${e.total}(으)로 같아 다시 굴립니다.`;
+    case 'timeout':
+      return `${name(e.player)}의 시간이 다 되어 자동으로 진행했습니다.`;
+    case 'placement': {
+      const got = e.gained ? ` 받은 자원: ${bundleText(e.gained)}.` : '';
+      if (e.step === 'village') return `${subj(e.player)} ${place('vertex', e.vertexId)}에 시작 마을을 지었습니다.${got}`;
+      if (e.step === 'road') return `${subj(e.player)} ${place('vertex', e.vertexId)}의 시작 마을에 길을 놓았습니다.`;
+      return `${subj(e.player)} ${place('vertex', e.vertexId)}에 시작 마을과 길을 놓았습니다.${got}`;
+    }
     case 'roll': {
       const total = e.dice[0] + e.dice[1];
       if (total === 7) return `${subj(e.player)} 주사위 ${e.dice[0]}+${e.dice[1]} = 7. 기사단 동상이 움직입니다.`;
@@ -306,13 +315,15 @@ export interface SpotAction {
   label: string;
   blocker: string | null;
   action: GameAction;
+  /** 시작 배치처럼 고른 자리를 ✓ 로 확정하는 버튼 */
+  confirm?: boolean;
 }
 
 /**
  * 보드에서 고른 자리에서 할 수 있는 일 (없으면 null): 동상 옮기기, 시작 마을과 길, 길·마을 짓기, 도시로 올리기.
  * 건설 모드나 길 건설 카드로 빛나는 자리를 누르면 이것으로 바로 짓는다.
  */
-export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edge'; id: string }, pendingVertex: string | null): SpotAction | null {
+export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edge'; id: string }): SpotAction | null {
   const g = view.game;
   if (!g) return null;
   const me = view.you;
@@ -325,16 +336,21 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
       action: { type: 'move_robber', tileId: sel.id },
     };
   }
+  const placing = g.phase === 'placement' && g.placementPlayerId === me;
   if (sel.kind === 'vertex') {
+    // 시작 배치: 고른 자리에서 ✓ 를 누르면 마을을 짓는다 (길은 그다음에 따로 고른다).
+    if (placing && !g.setupVillage && placeableVertices(g.buildings).includes(sel.id)) {
+      return { label: '여기에 마을 짓기', blocker: null, action: { type: 'place_village', vertexId: sel.id }, confirm: true };
+    }
     const b = g.buildings.find((x) => x.vertexId === sel.id);
     if (myMain && b && b.owner === me && b.kind === 'village') return { label: '도시로 올리기', blocker: buildBlocker(view, 'city'), action: { type: 'build_city', vertexId: sel.id } };
     if (myMain && !b && buildSpots(view, 'village').includes(sel.id)) return { label: '마을 짓기', blocker: buildBlocker(view, 'village'), action: { type: 'build_village', vertexId: sel.id } };
     return null;
   }
   if (g.roads.some((r) => r.edgeId === sel.id)) return null;
-  if (g.phase === 'placement' && g.placementPlayerId === me) {
-    if (!pendingVertex || !setupRoadEdges(g.roads, pendingVertex).includes(sel.id)) return null;
-    return { label: '시작 마을과 길 놓기', blocker: null, action: { type: 'place', vertexId: pendingVertex, edgeId: sel.id } };
+  if (placing) {
+    if (!g.setupVillage || !setupRoadEdges(g.roads, g.setupVillage).includes(sel.id)) return null;
+    return { label: '여기에 길 놓기', blocker: null, action: { type: 'place_road', edgeId: sel.id }, confirm: true };
   }
   if (!buildSpots(view, 'road').includes(sel.id)) return null;
   if (g.phase === 'playing' && g.step === 'road_building' && g.currentPlayerId === me) {

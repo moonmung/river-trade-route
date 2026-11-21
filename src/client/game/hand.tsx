@@ -89,6 +89,7 @@ export function Hand({ resources, ratios, devCards, devPlayable, onResource, onD
     <div
       ref={handRef}
       className="hand"
+      data-fly="hand"
       style={{ ['--ov' as string]: `${ov}px` } as CSSProperties}
       aria-label={`내 손: 자원 ${total}장, 발전 카드 ${devCards.length}장`}
     >
@@ -101,6 +102,7 @@ export function Hand({ resources, ratios, devCards, devPlayable, onResource, onD
             key={r}
             type="button"
             className={`hcard hcard-res hcard-${r} ${flash[r] ? `hcard-${flash[r]}` : ''}`}
+            data-fly={`res-${r}`}
             style={{ zIndex: i + 1 }}
             data-depth={Math.min(2, count - 1)}
             onClick={() => onResource?.(r)}
@@ -147,10 +149,10 @@ export function Hand({ resources, ratios, devCards, devPlayable, onResource, onD
 }
 
 /** 다른 사람의 손: 뒷면 카드를 작게 펼쳐 장수만 보여 준다. */
-export function MiniHand({ count, kind, title }: { count: number; kind: 'res' | 'dev'; title: string }) {
+export function MiniHand({ count, kind, title, fly }: { count: number; kind: 'res' | 'dev'; title: string; fly?: string }) {
   const shown = Math.min(count, 5);
   return (
-    <span className={`mini-hand mini-${kind} ${count === 0 ? 'mini-empty' : ''}`} title={title} aria-label={title}>
+    <span className={`mini-hand mini-${kind} ${count === 0 ? 'mini-empty' : ''}`} title={title} aria-label={title} data-fly={fly}>
       <span className="mini-fan" aria-hidden>
         {Array.from({ length: Math.max(1, shown) }, (_, i) => (
           <i key={i} style={{ ['--r' as string]: `${((i - (shown - 1) / 2) * 11).toFixed(1)}deg` } as CSSProperties} />

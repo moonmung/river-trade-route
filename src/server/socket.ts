@@ -37,9 +37,11 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
   function broadcast(room: Room): void {
     room.touchedAt = Date.now();
     for (const p of room.players) {
-      if (p.socketId) io.to(p.socketId).emit('state', buildRoomView(room, p.id));
+      if (p.socketId) io.to(p.socketId).emit('state', buildRoomView(room, p.id, rooms.deadline(room)));
     }
   }
+  // 차례 시간이 다 되어 서버가 대신 진행하면 모두에게 새 화면을 보낸다.
+  rooms.onAutoPlay = (room) => broadcast(room);
 
   function unbind(socket: IOSocket): void {
     if (socket.data.roomCode) socket.leave(socket.data.roomCode);
@@ -67,6 +69,8 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
     socket.join(room.code);
     // 새로고침·재접속해도 대화가 보이도록 방에 붙을 때마다 최근 채팅을 보낸다.
     socket.emit('chat:history', { code: room.code, messages: chat.history(room) });
+    // 아무도 없어 멈춰 있던 차례 시계는 누군가 돌아오면 다시 잰다.
+    rooms.syncClock(room);
     if (notify) broadcast(room);
   }
 
@@ -80,6 +84,7 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
     if (room && player && player.socketId === socket.id) {
       player.socketId = null;
       player.connected = false;
+      rooms.syncClock(room);
       broadcast(room);
     }
   }
@@ -204,7 +209,7 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
       const reply = safeAck(ack);
       const cur = current(socket);
       if (!cur) return reply(fail('방에 연결되어 있지 않습니다.'));
-      const err = rooms.setWinPoints(cur.room, cur.player.id, (payload as { winPoints?: unknown } | undefined)?.winPoints);
+      const err = rooms.setSettings(cur.room, cur.player.id, payload);
       if (err) return reply(fail(err.error));
       broadcast(cur.room);
       reply({ ok: true });

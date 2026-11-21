@@ -43,6 +43,12 @@ function isTradeId(v: unknown): v is number {
 export function parseAction(raw: unknown): GameAction | null {
   if (!isObj(raw)) return null;
   switch (raw.type) {
+    case 'order_roll':
+      return { type: 'order_roll' };
+    case 'place_village':
+      return isVertexId(raw.vertexId) ? { type: 'place_village', vertexId: raw.vertexId } : null;
+    case 'place_road':
+      return isEdgeId(raw.edgeId) ? { type: 'place_road', edgeId: raw.edgeId } : null;
     case 'place':
       return isVertexId(raw.vertexId) && isEdgeId(raw.edgeId) ? { type: 'place', vertexId: raw.vertexId, edgeId: raw.edgeId } : null;
     case 'build_road':

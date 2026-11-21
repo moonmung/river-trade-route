@@ -1,8 +1,23 @@
 // 방과 자리 관리. 진행 상태는 메모리에 두고, 바뀔 때마다 onChange 로 알려 persist.ts 가 디스크에 저장한다.
 import { randomBytes, randomInt } from 'node:crypto';
-import { MAX_PLAYERS, MIN_PLAYERS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, WIN_POINTS, WIN_POINTS_MAX, WIN_POINTS_MIN, normalizeWinPoints } from '../shared/constants';
-import { SEAT_CODE_LENGTH, type AckResult, type RoomPeek, type SeatHandover } from '../shared/protocol';
-import { applyAction, createGame, type GameState } from '../shared/rules';
+import {
+  DISCARD_LIMIT,
+  HAND_LIMIT_MAX,
+  HAND_LIMIT_MIN,
+  MAX_PLAYERS,
+  MIN_PLAYERS,
+  ROOM_CODE_ALPHABET,
+  ROOM_CODE_LENGTH,
+  TURN_SECONDS,
+  WIN_POINTS,
+  WIN_POINTS_MAX,
+  WIN_POINTS_MIN,
+  normalizeHandLimit,
+  normalizeTurnSeconds,
+  normalizeWinPoints,
+} from '../shared/constants';
+import { SEAT_CODE_LENGTH, type AckResult, type RoomPeek, type RoomSettingsPatch, type SeatHandover } from '../shared/protocol';
+import { applyAction, autoPlay, clockKey, createGame, type GameState } from '../shared/rules';
 import type { GameAction } from '../shared/types';
 
 export interface RoomPlayer {
@@ -27,6 +42,10 @@ export interface Room {
   gameNumber: number;
   /** 방장이 정한 승리 점수 (10~20, 다음 게임부터 쓴다) */
   winPoints: number;
+  /** 방장이 정한 자원 보유 한도 (7이 나오면 이보다 많이 든 사람이 절반을 버린다, 다음 게임부터 쓴다) */
+  handLimit: number;
+  /** 방장이 정한 한 차례 제한 시간 (초, 0 이면 제한 없음) */
+  turnSeconds: number;
   createdAt: number;
   /** 마지막으로 상태가 바뀐 시각 (오래 비어 있는 방 정리용) */
   touchedAt: number;
@@ -52,7 +71,19 @@ function secureRandom(): number {
  * Room 에 필드를 더하면 여기에 기본값을 넣어 두어야 예전 저장 파일에서 되살린 방도 그 필드를 갖는다.
  */
 export function blankRoom(code: string, now = Date.now()): Room {
-  return { code, hostId: '', players: [], phase: 'lobby', game: null, gameNumber: 1, winPoints: WIN_POINTS, createdAt: now, touchedAt: now };
+  return {
+    code,
+    hostId: '',
+    players: [],
+    phase: 'lobby',
+    game: null,
+    gameNumber: 1,
+    winPoints: WIN_POINTS,
+    handLimit: DISCARD_LIMIT,
+    turnSeconds: TURN_SECONDS,
+    createdAt: now,
+    touchedAt: now,
+  };
 }
 
 export class RoomManager {
@@ -62,6 +93,10 @@ export class RoomManager {
   /** 방 코드 → 아직 쓰지 않은 자리 넘기기 코드. 몇 분만 쓰는 값이라 저장하지 않는다. */
   private readonly handovers = new Map<string, SeatHandover[]>();
   private readonly handoverFails = new Map<string, number>();
+  /** 방 코드 → 차례 시계 (지금 재는 차례의 열쇠와 마감 시각). 서버가 켜져 있는 동안만 쓰는 값이라 저장하지 않는다. */
+  private readonly clocks = new Map<string, { key: string; deadline: number; timer: ReturnType<typeof setTimeout> }>();
+  /** 시간이 다 되어 서버가 대신 진행했을 때 부른다 (socket.ts 가 모두에게 새 화면을 보낸다). */
+  onAutoPlay: ((room: Room) => void) | null = null;
 
   constructor(private readonly maxRooms = MAX_ROOMS) {}
 
@@ -70,6 +105,7 @@ export class RoomManager {
   }
 
   private deleteRoom(code: string): void {
+    this.stopClock(code);
     this.rooms.delete(code);
     this.handovers.delete(code);
     this.handoverFails.delete(code);
@@ -159,14 +195,34 @@ export class RoomManager {
 
   /** 방장이 대기실에서 승리 점수를 바꾼다. */
   setWinPoints(room: Room, playerId: string, winPoints: unknown): RoomError | null {
-    if (room.hostId !== playerId) return { error: '방장만 승리 점수를 바꿀 수 있습니다.' };
-    if (room.phase !== 'lobby') return { error: '대기실에서만 승리 점수를 바꿀 수 있습니다.' };
-    const n = normalizeWinPoints(winPoints);
-    if (n === null) return { error: `승리 점수는 ${WIN_POINTS_MIN}~${WIN_POINTS_MAX}점 사이로 정하세요.` };
-    if (room.winPoints === n) return null;
-    room.winPoints = n;
-    // 점수가 바뀌면 다른 사람은 다시 확인하고 준비하도록 준비를 푼다.
-    for (const p of room.players) if (p.id !== room.hostId) p.ready = false;
+    return this.setSettings(room, playerId, { winPoints });
+  }
+
+  /** 방장이 대기실에서 규칙(승리 점수·자원 보유 한도·차례 시간)을 바꾼다. 보낸 값만 바꾸고, 하나라도 틀리면 아무것도 바꾸지 않는다. */
+  setSettings(room: Room, playerId: string, patch: unknown): RoomError | null {
+    if (room.hostId !== playerId) return { error: '방장만 규칙을 바꿀 수 있습니다.' };
+    if (room.phase !== 'lobby') return { error: '대기실에서만 규칙을 바꿀 수 있습니다.' };
+    const p = (typeof patch === 'object' && patch !== null ? patch : {}) as Record<string, unknown>;
+    const next: Required<RoomSettingsPatch> = { winPoints: room.winPoints, handLimit: room.handLimit, turnSeconds: room.turnSeconds };
+    if (p.winPoints !== undefined) {
+      const n = normalizeWinPoints(p.winPoints);
+      if (n === null) return { error: `승리 점수는 ${WIN_POINTS_MIN}~${WIN_POINTS_MAX}점 사이로 정하세요.` };
+      next.winPoints = n;
+    }
+    if (p.handLimit !== undefined) {
+      const n = normalizeHandLimit(p.handLimit);
+      if (n === null) return { error: `자원 보유 한도는 ${HAND_LIMIT_MIN}~${HAND_LIMIT_MAX}장 사이로 정하세요.` };
+      next.handLimit = n;
+    }
+    if (p.turnSeconds !== undefined) {
+      const n = normalizeTurnSeconds(p.turnSeconds);
+      if (n === null) return { error: '차례 시간은 고를 수 있는 값 중에서 정하세요.' };
+      next.turnSeconds = n;
+    }
+    if (next.winPoints === room.winPoints && next.handLimit === room.handLimit && next.turnSeconds === room.turnSeconds) return null;
+    Object.assign(room, next);
+    // 규칙이 바뀌면 다른 사람은 다시 확인하고 준비하도록 준비를 푼다.
+    for (const pl of room.players) if (pl.id !== room.hostId) pl.ready = false;
     this.changed();
     return null;
   }
@@ -180,13 +236,15 @@ export class RoomManager {
     if (notReady.length > 0) {
       return { error: `모두 접속해서 준비해야 시작할 수 있습니다: ${notReady.map((p) => p.nickname).join(', ')}` };
     }
+    // 자리 순서는 모두 주사위를 굴려 정한다 (가장 낮은 사람이 마지막).
     room.game = createGame(
       room.players.map((p) => p.id),
       secureRandom,
-      room.winPoints,
+      { winPoints: room.winPoints, handLimit: room.handLimit, rollForOrder: true },
     );
     room.phase = 'game';
     for (const p of room.players) p.recent.clear();
+    this.syncClock(room);
     this.changed();
     return null;
   }
@@ -226,6 +284,7 @@ export class RoomManager {
     room.phase = 'lobby';
     room.game = null;
     room.gameNumber += 1;
+    this.stopClock(room.code);
     for (const p of room.players) {
       p.ready = false;
       p.recent.clear();
@@ -255,8 +314,60 @@ export class RoomManager {
       if (oldest !== undefined) player.recent.delete(oldest);
     }
     const changed = room.game.version !== before;
-    if (changed) this.changed();
+    if (changed) {
+      this.syncClock(room);
+      this.changed();
+    }
     return { result, changed };
+  }
+
+  // ───────────────────────── 차례 시계 ─────────────────────────
+
+  /** 지금 재는 차례의 마감 시각 (제한이 없거나 멈춰 있으면 null) */
+  deadline(room: Room): number | null {
+    return this.clocks.get(room.code)?.deadline ?? null;
+  }
+
+  private stopClock(code: string): void {
+    const c = this.clocks.get(code);
+    if (c) clearTimeout(c.timer);
+    this.clocks.delete(code);
+  }
+
+  /**
+   * 상태나 연결이 바뀔 때마다 부른다. 재는 차례(clockKey)가 바뀌었으면 시간을 처음부터 다시 잰다.
+   * 아무도 접속해 있지 않으면 멈춘다 (서버를 다시 켜 되살린 방이 혼자 진행되지 않게). 누군가 돌아오면 그 차례를 처음부터 다시 잰다.
+   */
+  syncClock(room: Room, now = Date.now()): void {
+    const g = room.game;
+    const key = g && room.phase === 'game' ? clockKey(g) : null;
+    if (!key || room.turnSeconds <= 0 || !room.players.some((p) => p.connected)) {
+      this.stopClock(room.code);
+      return;
+    }
+    const cur = this.clocks.get(room.code);
+    if (cur && cur.key === key) return;
+    this.stopClock(room.code);
+    const deadline = now + room.turnSeconds * 1000;
+    const timer = setTimeout(() => this.expire(room.code, key), deadline - now);
+    (timer as { unref?: () => void }).unref?.();
+    this.clocks.set(room.code, { key, deadline, timer });
+  }
+
+  /** 시간이 다 됐다: 같은 차례가 그대로면 서버가 대신 진행하고 모두에게 알린다. */
+  private expire(code: string, key: string): void {
+    const room = this.rooms.get(code);
+    const clock = this.clocks.get(code);
+    if (!room?.game || !clock || clock.key !== key) return;
+    this.clocks.delete(code);
+    if (clockKey(room.game) === key && autoPlay(room.game, secureRandom)) this.changed();
+    this.syncClock(room);
+    this.onAutoPlay?.(room);
+  }
+
+  /** 서버를 끌 때 시계를 모두 멈춘다. */
+  stopAllClocks(): void {
+    for (const code of [...this.clocks.keys()]) this.stopClock(code);
   }
 
   /**
