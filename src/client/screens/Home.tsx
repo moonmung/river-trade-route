@@ -1,15 +1,38 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NICKNAME_MAX } from '../../shared/constants';
 import { normalizeNickname, normalizeRoomCode } from '../../shared/validate';
-import { client } from '../net/client';
+import { client, type ClientSnapshot } from '../net/client';
 import { useClient } from '../net/hooks';
-import { loadNickname } from '../net/session';
+import { listDeviceSessions, loadNickname, type StoredSession } from '../net/session';
 import { navigate } from '../router';
 import { AsyncButton, Brand, Field } from '../ui/common';
 import { RulesSummary } from '../ui/RulesSummary';
 
+/**
+ * 이 브라우저에 참가 토큰이 남아 있고 서버에 아직 열려 있는 방.
+ * 탭을 닫았거나 방장 PC·서버를 다시 켠 뒤 처음 화면을 열어도 바로 돌아갈 수 있게 한다.
+ */
+function useResumable(snap: ClientSnapshot): { session: StoredSession; phase: 'lobby' | 'game' }[] {
+  const [found, setFound] = useState<{ session: StoredSession; phase: 'lobby' | 'game' }[]>([]);
+  const current = snap.session?.roomCode;
+  useEffect(() => {
+    if (snap.conn !== 'connected') return;
+    let alive = true;
+    const saved = listDeviceSessions().filter((s) => s.roomCode !== current);
+    void Promise.all(saved.map(async (session) => ({ session, res: await client.peek(session.roomCode) }))).then((all) => {
+      if (!alive) return;
+      setFound(all.flatMap(({ session, res }) => (res.ok ? [{ session, phase: res.phase }] : [])));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [snap.conn, snap.connectCount, current]);
+  return found;
+}
+
 export function Home() {
   const snap = useClient();
+  const resumable = useResumable(snap);
   const [nickname, setNickname] = useState(loadNickname);
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +75,23 @@ export function Home() {
             </button>
           </div>
         )}
+        {resumable.map(({ session, phase }) => (
+          <div className="notice" key={session.roomCode}>
+            <span>
+              방 <b>{session.roomCode}</b>에 <b>{session.nickname}</b>(으)로 참가해 있습니다.{' '}
+              {phase === 'game' ? '게임이 아직 진행 중입니다.' : '대기실이 열려 있습니다.'}
+            </span>
+            <button
+              className="btn btn-primary btn-small"
+              onClick={() => {
+                client.resume(session);
+                navigate(`/room/${session.roomCode}`);
+              }}
+            >
+              {phase === 'game' ? '진행 중인 게임으로 돌아가기' : '대기실로 돌아가기'}
+            </button>
+          </div>
+        ))}
 
         <Field label="닉네임" hint={`1~${NICKNAME_MAX}자, 같은 방 안에서 겹치지 않게`}>
           <input

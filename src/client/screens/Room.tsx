@@ -3,6 +3,7 @@ import { client } from '../net/client';
 import { useClient } from '../net/hooks';
 import { navigate } from '../router';
 import { Brand, ConnectionBanner } from '../ui/common';
+import { SeatHandoverButton } from '../ui/handover';
 import { Lobby } from './Lobby';
 
 const Game = lazy(() => import('./Game'));
@@ -90,6 +91,7 @@ export function RoomScreen({ code }: { code: string }) {
       <Suspense fallback={<div className="center-note">게임 화면을 불러오는 중…</div>}>
         <Game view={view} />
       </Suspense>
+      <SeatHandoverButton view={view} />
     </>
   );
 }
