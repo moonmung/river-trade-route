@@ -7,7 +7,7 @@ import {
   FACE_NORMALS,
   FACE_VALUE,
   faceCorrection,
-  freeWindow,
+  planBlends,
   sampleRecording,
   simulate,
   topFace,
@@ -96,13 +96,52 @@ describe('주사위 굴림 계산', () => {
     expect(longest).toBeLessThan(5.2);
   });
 
-  it('던진 직후 공중에 뜬 구간이 있어 늦게 온 값도 섞을 수 있다', () => {
+  it('값을 알고 던지면 자리 위에서 던져도 던진 직후에 눈 방향을 다 맞추고, 멈춘 뒤 뒤집지 않는다', () => {
     const rand = rng(11);
-    let found = 0;
+    let needed = 0;
+    for (let k = 0; k < 60; k++) {
+      // 반은 던지기 자리 바닥에서(버튼·시간 끝), 반은 들어 올린 높이에서 던진다.
+      const starts = randomThrow(rand);
+      if (k % 2) for (const s of starts) s.pos.y = DIE_HALF;
+      const rec = simulate(starts, walls);
+      const values = [1 + Math.floor(rand() * 6), 1 + Math.floor(rand() * 6)];
+      const fixes = values.map((v, d) => faceCorrection(rec.top[d], v));
+      const plan = planBlends(rec, fixes, 0.02, walls);
+      for (let d = 0; d < 2; d++) {
+        const win = plan[d];
+        if (Math.abs(fixes[d].w) > 0.9999) {
+          expect(win).toBeNull();
+          continue;
+        }
+        needed++;
+        expect(win).not.toBe('none');
+        // 바닥에 닿아 구르기 전, 던진 직후에 끝난다.
+        expect((win as [number, number])[1]).toBeLessThan(0.6);
+        // 섞기가 끝난 뒤 멈춘 자세에서 서버 값이 위를 본다.
+        const p = new Vector3();
+        const q = new Quaternion();
+        sampleRecording(rec, d, rec.duration, p, q);
+        expect(FACE_VALUE[topFace(q.multiply(fixes[d]))]).toBe(values[d]);
+      }
+    }
+    expect(needed).toBeGreaterThan(60);
+  });
+
+  it('값이 조금 늦게 와도(던지고 0.15초 뒤) 아직 구르는 동안 맞출 구간을 찾는다', () => {
+    const rand = rng(23);
+    let needed = 0;
+    let late = 0;
     for (let k = 0; k < 40; k++) {
       const rec = simulate(randomThrow(rand), walls);
-      for (let d = 0; d < 2; d++) if (freeWindow(rec, d, 0.05)) found++;
+      const fixes = [0, 1].map((d) => faceCorrection(rec.top[d], ((rec.top[d] + 2) % 6) + 1));
+      const plan = planBlends(rec, fixes, 0.15, walls);
+      for (let d = 0; d < 2; d++) {
+        if (Math.abs(fixes[d].w) > 0.9999) continue;
+        needed++;
+        if (plan[d] === 'none') late++;
+      }
     }
-    expect(found).toBeGreaterThan(70);
+    expect(needed).toBeGreaterThan(40);
+    expect(late).toBeLessThanOrEqual(1);
   });
 });

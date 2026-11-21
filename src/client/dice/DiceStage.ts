@@ -12,8 +12,8 @@ import {
   FACE_NORMALS,
   FACE_VALUE,
   faceCorrection,
-  freeWindow,
   levelled,
+  planBlends,
   sampleRecording,
   simulate,
   type BodyStart,
@@ -45,7 +45,12 @@ const FOV = 30;
 const HOLD_HEIGHT = 1.2;
 /** 두 주사위 사이 (중심 간 거리의 절반) */
 const PAIR_GAP = 0.9;
-/** 늦게 온 값을 멈춘 뒤에 맞출 때: 한 번 더 톡 튀어 오르며 뒤집힌다 */
+/**
+ * 내가 던질 때 서버가 정한 값을 이만큼까지 기다렸다가 날린다. 값을 알고 날려야 던진 직후 빙글빙글 도는 동안
+ * 눈 방향을 몰래 맞출 수 있다 (같은 네트워크면 보통 수십 ms 라 손을 놓자마자 날아가는 것처럼 보인다).
+ */
+const THROW_WAIT_MS = 300;
+/** 아주 늦게 온 값을 멈춘 뒤에 맞출 때: 한 번 더 톡 튀어 오르며 뒤집힌다 (거의 쓰지 않는 마지막 수단) */
 const HOP_TIME = 0.42;
 const HOP_HEIGHT = 0.95;
 /** 멈춘 뒤 합계를 보여 주는 시간 */
@@ -279,6 +284,8 @@ export class DiceStage {
   private fadeTimer = 0;
   private settleTimer = 0;
   private settleResolve: ((interrupted: boolean) => void) | null = null;
+  /** 손을 놓았지만 서버 값을 기다리느라 아직 날리지 않은 내 굴림 */
+  private queued: { dir: THREE.Vector3; speed: number; lift: number; rand: () => number; timer: number } | null = null;
   private readonly onResize = () => this.resize();
 
   constructor(private events: StageEvents) {
@@ -315,6 +322,7 @@ export class DiceStage {
   }
 
   dispose(): void {
+    this.dropQueued();
     window.removeEventListener('resize', this.onResize);
     cancelAnimationFrame(this.frame);
     this.renderer.dispose();
@@ -385,7 +393,7 @@ export class DiceStage {
 
   /**
    * 내가 던진다. 들고 있었다면 손을 놓는 빠르기와 방향으로, 아니면(버튼·시간 끝) 보드 가운데 쪽으로 던진다.
-   * 값은 나중에 reveal 로 받는다.
+   * 던질 방향과 세기는 지금 정해 두고, 서버 값이 reveal 로 오면(늦어도 THROW_WAIT_MS 뒤에는) 날린다.
    */
   throwMine(): void {
     const holding = this.mode === 'hold';
@@ -413,20 +421,42 @@ export class DiceStage {
       dir = this.towardBoard(rand);
       speed = 8.5 + strength * 5 + rand() * 1.5;
     }
-    this.launch(dir, speed, lift, rand, true);
+    this.dropQueued();
+    // 손에서 놓은 자리에 잠깐 멈춰 있다가 값이 오면 날아간다. 'fly' 로 두어야 던지기 자리가 닫혀도 사라지지 않는다.
+    this.flight = null;
+    this.setMode('fly');
+    const timer = window.setTimeout(() => this.launchQueued(), THROW_WAIT_MS);
+    this.queued = { dir, speed, lift, rand, timer };
+  }
+
+  /** 기다리던 내 굴림을 날린다. 값이 이미 왔으면 그 값으로 멈추게 붙인다. */
+  private launchQueued(values?: [number, number]): void {
+    const q = this.queued;
+    if (!q) return;
+    this.dropQueued();
+    this.launch(q.dir, q.speed, q.lift, q.rand, true);
+    if (values) this.attachValues(values, false);
+  }
+
+  private dropQueued(): void {
+    if (this.queued) window.clearTimeout(this.queued.timer);
+    this.queued = null;
   }
 
   /** 아직 값이 없는 내 굴림을 거둔다 (서버가 거절한 때) */
   cancel(): void {
-    if (this.flight?.mine && !this.flight.values) {
+    if (this.queued) {
+      this.dropQueued();
+      this.fadeOut();
+    } else if (this.flight?.mine && !this.flight.values) {
       this.flight = null;
       this.fadeOut();
     }
   }
 
-  /** 지금 날고 있는 내 굴림이 있는지 */
+  /** 던졌지만 아직 서버 값을 받지 못한 내 굴림이 있는지 */
   get waiting(): boolean {
-    return !!this.flight?.mine && !this.flight.values;
+    return !!this.queued || (!!this.flight?.mine && !this.flight.values);
   }
 
   /**
@@ -434,7 +464,9 @@ export class DiceStage {
    * 주사위가 다 멈추면(합계를 띄울 때) resolve 한다.
    */
   reveal(values: [number, number], from: 'near' | 'far' | null): Promise<StageResult> {
-    if (!this.flight || !this.flight.mine || this.flight.values) {
+    if (this.queued && from === null) {
+      this.launchQueued(values);
+    } else if (!this.flight || !this.flight.mine || this.flight.values) {
       this.finishShow();
       const rand = seeded(values[0] * 7 + values[1] * 131 + ((performance.now() * 10) >>> 0));
       this.updateWalls();
@@ -486,21 +518,21 @@ export class DiceStage {
     if (!f) return;
     f.values = values;
     const now = (performance.now() - f.start) / 1000;
+    const fixes = values.map((v, i) => faceCorrection(f.rec.top[i], v));
+    // 남의 굴림은 주사위가 처음 나타날 때부터 붙여 둔다. 내 굴림은 지금 이후로 섞어도 티 나지 않는 구간을 찾는다
+    // (값을 받고 날렸으면 던진 직후 빙글빙글 도는 동안이다).
+    const plan = fromStart ? fixes.map(() => null) : planBlends(f.rec, fixes, now + 0.02, this.walls);
     for (let i = 0; i < 2; i++) {
-      const fix = faceCorrection(f.rec.top[i], values[i]);
-      f.fix[i] = fix;
-      if (fromStart || Math.abs(fix.w) > 0.9999) {
-        f.blend[i] = null;
+      f.fix[i] = fixes[i];
+      const win = plan[i];
+      if (win !== 'none') {
+        f.blend[i] = win;
         continue;
       }
-      // 아직 공중에 있으면 그 사이에 눈 방향을 섞고, 이미 늦었으면 멈춘 뒤 한 번 더 튀며 맞춘다.
-      const win = freeWindow(f.rec, i, now + 0.02);
-      if (win) f.blend[i] = win;
-      else {
-        f.blend[i] = [Infinity, Infinity];
-        f.hop[i] = true;
-        f.hopAt = Math.max(f.rec.duration, now + 0.05);
-      }
+      // 그런 구간이 끝내 없으면(값이 아주 늦게 온 때) 멈춘 뒤 한 번 더 튀며 맞춘다.
+      f.blend[i] = [Infinity, Infinity];
+      f.hop[i] = true;
+      f.hopAt = Math.max(f.rec.duration, now + 0.05);
     }
   }
 
@@ -534,6 +566,7 @@ export class DiceStage {
 
   /** 지난 굴림 연출을 바로 끝낸다 (다음 굴림이나 던지기 자리가 올 때). 기다리던 쪽에는 멈춘 것으로 알린다. */
   private finishShow(): void {
+    this.dropQueued();
     window.clearTimeout(this.settleTimer);
     window.clearTimeout(this.restTimer);
     window.clearTimeout(this.fadeTimer);
@@ -797,6 +830,12 @@ export class DiceStage {
         const spin = new THREE.Quaternion().setFromAxisAngle(w.clone().normalize(), w.length() * dt * lift);
         d.quat.premultiply(spin).normalize();
       });
+    } else if (this.queued && !this.flight) {
+      // 손을 놓고 서버 값을 기다리는 잠깐: 멈춰 보이지 않게 흔들던 회전만 이어 간다.
+      for (const d of this.dice) {
+        if (d.shake.lengthSq() < 1e-4) continue;
+        d.quat.premultiply(new THREE.Quaternion().setFromAxisAngle(d.shake.clone().normalize(), d.shake.length() * dt)).normalize();
+      }
     } else if (this.flight && (this.mode === 'fly' || this.mode === 'rest' || this.mode === 'fade')) {
       const f = this.flight;
       const t = (now - f.start) / 1000;

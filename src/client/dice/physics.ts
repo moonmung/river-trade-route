@@ -3,7 +3,8 @@
 //
 // 윗면 맞추기: 정육면체는 90° 단위로 돌려도 모양이 같다. 그래서 계산이 끝난 뒤 윗면 눈이 서버 값과 다르면
 // 주사위 몸체는 그대로 두고 "눈을 그린 방향"만 정육면체 대칭 회전 r 로 바꿔 붙이면 된다 (화면 자세 = 계산 자세 × r).
-// 값이 던진 뒤에 도착하면 r 을 공중에 떠 있는(아무것도 닿지 않는) 짧은 구간에서 서서히 섞는다.
+// r 은 던진 직후 빙글빙글 도는 짧은 구간에서 서서히 섞는다 (planBlends). 그 구간은 섞는 동안의 실제 자세가
+// 바닥·벽·다른 주사위를 파고들지 않는지 하나하나 재서 고른다.
 import { Matrix4, Quaternion, Vector3 } from 'three';
 
 /** 주사위 한 변 (세계 단위) */
@@ -62,8 +63,6 @@ export interface Recording {
   dice: number;
   /** 프레임 × 주사위 × (x, y, z, qx, qy, qz, qw) */
   poses: Float32Array;
-  /** 프레임 × 주사위: 1 이면 그 순간 아무 데도 닿지 않을 만큼 떠 있다 (눈 방향을 바꿔도 티가 나지 않는다) */
-  free: Uint8Array;
   impacts: Impact[];
   /** 계산대로 멈췄을 때 위를 보는 면 (FACE_NORMALS 순번) */
   top: number[];
@@ -249,9 +248,6 @@ export function faceCorrection(simTop: number, value: number): Quaternion {
   return (best ?? new Quaternion()).clone();
 }
 
-/** 주사위가 벽·바닥·서로에게서 얼마나 떨어져 있어야 눈 방향을 바꿔도 되는지 */
-const FREE_MARGIN = 0.06;
-
 export function simulate(starts: readonly BodyStart[], walls: readonly Wall[]): Recording {
   const bodies: Body[] = starts.map((s) => ({
     pos: s.pos.clone(),
@@ -265,16 +261,9 @@ export function simulate(starts: readonly BodyStart[], walls: readonly Wall[]): 
   }));
   const dice = bodies.length;
   const frames: number[] = [];
-  const free: number[] = [];
   const impacts: Impact[] = [];
   const record = () => {
-    for (let i = 0; i < dice; i++) {
-      const b = bodies[i];
-      frames.push(b.pos.x, b.pos.y, b.pos.z, b.quat.x, b.quat.y, b.quat.z, b.quat.w);
-      let ok = walls.every((w) => w.n.dot(b.pos) - w.d >= DIE_HALF_DIAG + FREE_MARGIN);
-      for (let j = 0; ok && j < dice; j++) if (j !== i && bodies[j].pos.distanceTo(b.pos) < 2 * DIE_HALF_DIAG + FREE_MARGIN) ok = false;
-      free.push(ok ? 1 : 0);
-    }
+    for (const b of bodies) frames.push(b.pos.x, b.pos.y, b.pos.z, b.quat.x, b.quat.y, b.quat.z, b.quat.w);
   };
 
   record();
@@ -443,7 +432,6 @@ export function simulate(starts: readonly BodyStart[], walls: readonly Wall[]): 
       const p = starts2[i].pos.clone().lerp(finals[i].pos, e);
       const q = starts2[i].quat.clone().slerp(finals[i].quat, e);
       frames.push(p.x, p.y, p.z, q.x, q.y, q.z, q.w);
-      free.push(0);
     }
   }
   const count = frames.length / (7 * dice);
@@ -452,11 +440,109 @@ export function simulate(starts: readonly BodyStart[], walls: readonly Wall[]): 
     count,
     dice,
     poses: new Float32Array(frames),
-    free: new Uint8Array(free),
     impacts,
     top: finals.map((f) => topFace(f.quat)),
     duration: (count - 1) * dt,
   };
+}
+
+/** 이 자세의 주사위가 벽·바닥을 파고든 깊이 (닿지 않으면 0) */
+function wallDepth(pos: Vector3, quat: Quaternion, walls: readonly Wall[]): number {
+  let worst = 0;
+  for (const c of CORNERS) {
+    const p = tmpA.copy(c).applyQuaternion(quat).add(pos);
+    for (const w of walls) worst = Math.max(worst, DIE_ROUND - (w.n.dot(p) - w.d));
+  }
+  return worst;
+}
+
+/** 두 주사위가 겹친 깊이 (꼭짓점 구가 상대 안쪽 상자에 들어간 만큼, 겹치지 않으면 0) */
+function pairDepth(pa: Vector3, qa: Quaternion, pb: Vector3, qb: Quaternion): number {
+  if (pa.distanceTo(pb) > 2 * DIE_HALF_DIAG) return 0;
+  let worst = 0;
+  for (const [p1, q1, p2, q2] of [
+    [pa, qa, pb, qb],
+    [pb, qb, pa, qa],
+  ] as const) {
+    tmpQ.copy(q2).invert();
+    for (const c of CORNERS) {
+      const local = tmpA.copy(c).applyQuaternion(q1).add(p1).sub(p2).applyQuaternion(tmpQ);
+      const dx = Math.max(0, Math.abs(local.x) - CORE);
+      const dy = Math.max(0, Math.abs(local.y) - CORE);
+      const dz = Math.max(0, Math.abs(local.z) - CORE);
+      const dist = Math.hypot(dx, dy, dz);
+      // 꼭짓점 구 중심이 상대 안쪽 상자 안까지 들어오면 한 변만큼 겹친 것으로 친다.
+      worst = Math.max(worst, dist === 0 ? DIE_SIZE : 2 * DIE_ROUND - dist);
+    }
+  }
+  return worst;
+}
+
+const smoothstep = (x: number) => {
+  const s = Math.max(0, Math.min(1, x));
+  return s * s * (3 - 2 * s);
+};
+
+/** 눈 방향을 섞는 동안 벽·바닥이나 다른 주사위를 이만큼까지는 파고들어도 눈에 띄지 않는다 (바닥은 보이지 않는 판이다) */
+const BLEND_TOLERANCE = 0.05;
+/** 눈 방향을 섞는 시간 후보 (긴 쪽부터: 천천히 돌수록 덜 티 난다) */
+const BLEND_LENGTHS = [0.16, 0.1];
+
+/** 눈 방향 섞기 계획: 주사위마다 [시작, 끝] 초, 처음부터 붙이면 null, 맞출 구간이 없으면 'none' */
+export type BlendPlan = ([number, number] | null | 'none')[];
+
+/**
+ * 계산 기록 위에 눈 방향 회전 fix 를 from 초 뒤에 섞어 넣을 구간을 고른다. 섞는 동안의 실제 화면 자세
+ * (계산 자세 × 일부만 돈 fix)가 벽·바닥·다른 주사위를 BLEND_TOLERANCE 넘게 파고들지 않는 가장 이른 구간이다.
+ * 회전이 필요 없는 주사위는 null(처음부터 붙임), 그런 구간이 없는 주사위는 'none'.
+ */
+export function planBlends(rec: Recording, fixes: readonly Quaternion[], from: number, walls: readonly Wall[]): BlendPlan {
+  const plan: BlendPlan = fixes.map(() => null);
+  const pos = Array.from({ length: rec.dice }, () => new Vector3());
+  const quat = Array.from({ length: rec.dice }, () => new Quaternion());
+  const part = new Quaternion();
+  const ID = new Quaternion();
+  /**
+   * frame 에서 die 가 화면에 보이는 자세. 이미 정한 계획은 반영하고, 아직 정하지 않은 주사위는 다 돌린 자세로 본다
+   * (정육면체라 다 돌린 자세와 계산 자세가 차지하는 자리는 같다).
+   */
+  const shown = (die: number, frame: number, out: Quaternion, at: Vector3, trial?: [number, number]) => {
+    const o = (frame * rec.dice + die) * 7;
+    at.set(rec.poses[o], rec.poses[o + 1], rec.poses[o + 2]);
+    out.set(rec.poses[o + 3], rec.poses[o + 4], rec.poses[o + 5], rec.poses[o + 6]);
+    const win = trial ?? plan[die];
+    if (win === 'none' || win === undefined) return;
+    const t = frame * rec.dt;
+    const e = win === null ? 1 : smoothstep((t - win[0]) / Math.max(1e-3, win[1] - win[0]));
+    if (e > 0) out.multiply(part.copy(ID).slerp(fixes[die], e));
+  };
+  const first = Math.max(0, Math.ceil(from / rec.dt));
+  for (let die = 0; die < rec.dice; die++) {
+    if (Math.abs(fixes[die].w) > 0.9999) continue;
+    plan[die] = 'none';
+    search: for (const length of BLEND_LENGTHS) {
+      const frames = Math.round(length / rec.dt);
+      for (let start = first; start + frames < rec.count; start++) {
+        const win: [number, number] = [start * rec.dt, (start + frames) * rec.dt];
+        let ok = true;
+        for (let k = 1; ok && k < frames; k++) {
+          const f = start + k;
+          shown(die, f, quat[die], pos[die], win);
+          if (wallDepth(pos[die], quat[die], walls) > BLEND_TOLERANCE) ok = false;
+          for (let other = 0; ok && other < rec.dice; other++) {
+            if (other === die) continue;
+            shown(other, f, quat[other], pos[other]);
+            if (pairDepth(pos[die], quat[die], pos[other], quat[other]) > BLEND_TOLERANCE) ok = false;
+          }
+        }
+        if (ok) {
+          plan[die] = win;
+          break search;
+        }
+      }
+    }
+  }
+  return plan;
 }
 
 /** 기록에서 t 초의 자세 (프레임 사이는 보간) */
@@ -472,24 +558,4 @@ export function sampleRecording(rec: Recording, die: number, t: number, pos: Vec
   quat.set(p[a + 3], p[a + 4], p[a + 5], p[a + 6]);
   tmpQ.set(p[b + 3], p[b + 4], p[b + 5], p[b + 6]);
   quat.slerp(tmpQ, s);
-}
-
-/**
- * t 초 뒤에 눈 방향을 섞을 수 있는 공중 구간 [시작, 끝]. 그 주사위가 아무 데도 닿지 않는 프레임이 이어지는 구간 중
- * 남은 길이가 minLength 이상인 첫 구간을 고르고, 길이는 maxLength 까지만 쓴다. 없으면 null.
- */
-export function freeWindow(rec: Recording, die: number, t: number, minLength = 0.06, maxLength = 0.2): [number, number] | null {
-  let i = Math.max(0, Math.ceil(t / rec.dt));
-  while (i < rec.count) {
-    while (i < rec.count && !rec.free[i * rec.dice + die]) i++;
-    let j = i;
-    while (j < rec.count && rec.free[j * rec.dice + die]) j++;
-    if (j > i) {
-      const start = i * rec.dt;
-      const end = (j - 1) * rec.dt;
-      if (end - start >= minLength) return [start, Math.min(end, start + maxLength)];
-    }
-    i = j + 1;
-  }
-  return null;
 }
