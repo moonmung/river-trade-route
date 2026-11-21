@@ -235,6 +235,22 @@ export class GameClient {
     return res;
   }
 
+  /** 방 채팅 보내기 (서버가 길이·간격을 다시 확인한다) */
+  sendChat(text: string): Promise<AckResult> {
+    return this.emit('chat:send', { text });
+  }
+
+  sendEmote(emote: string): Promise<AckResult> {
+    return this.emit('chat:emote', { emote });
+  }
+
+  /** 화면 정보(state)와 따로 오는 서버 메시지 (채팅) */
+  onServer<E extends 'chat:history' | 'chat:message' | 'chat:emote'>(event: E, fn: ServerToClientEvents[E]): () => void {
+    const socket = this.socket as unknown as { on: (e: string, f: unknown) => void; off: (e: string, f: unknown) => void };
+    socket.on(event, fn);
+    return () => socket.off(event, fn);
+  }
+
   private waitConnected(ms: number): Promise<boolean> {
     if (this.socket.connected) return Promise.resolve(true);
     return new Promise((resolve) => {

@@ -6,7 +6,7 @@ import type { RoomView } from '../../shared/protocol';
 import type { Resource } from '../../shared/types';
 import type { BoardRenderer } from '../board/BoardRenderer';
 import { josa } from '../ui/josa';
-import { rollDice } from '../dice';
+import { rollDice, settleDice } from '../dice';
 import { showAward } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
 import { bundleText, tileName, type PlayerInfo } from './derive';
@@ -42,6 +42,8 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
       lastSeq.current = maxSeq;
       lastGame.current = view.gameNumber;
       lastTurn.current = g.currentPlayerId ?? g.placementPlayerId;
+      // 이미 지난 굴림은 멈춘 것으로 쳐서 위쪽 줄에 바로 보이게 하고, 이후 굴림만 주사위가 멈출 때까지 감춘다.
+      settleDice(g.events.reduce((n, e) => (e.kind === 'roll' ? e.seq : n), 0), true);
       return;
     }
     const fresh = g.events.filter((e) => e.seq > lastSeq.current!);
@@ -69,7 +71,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           }
           // 3D 주사위가 서버가 정한 값으로 멈춘 뒤에 결과 알림과 보드 생산 연출을 낸다.
           const who = e.player === me ? '나' : name(e.player);
-          void rollDice(e.dice, { who, colorIndex: color(e.player), mine: e.player === me, animate }).then(() => {
+          void rollDice(e.dice, { who, colorIndex: color(e.player), mine: e.player === me, animate, seq: e.seq }).then(() => {
             if (total === 7) {
               if (discard) {
                 showToast(`7! 자원 ${discard}장을 버려야 합니다.`, 'warn', 4200);
@@ -112,21 +114,12 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           // 해상 교역로(3:1·2:1)로 바꿨으면 그 사람의 교역로 부두에 배가 들어와 짐을 주고받는다 (부두는 렌더러가 비율로 고른다).
           if (animate && e.harbor) rendererRef.current?.playHarborTrade(e.player, e.give, e.get);
           break;
+        // 교환 제안·응답·성사·거절·취소는 알림 대신 왼쪽 위 교환 증서에 적고 도장을 찍는다 (trade.tsx 의 TradeDeeds).
         case 'trade_proposed':
-          if (e.to.includes(me)) {
-            showToast(`${josa(name(e.from), '이/가')} 교환을 제안했습니다.`, 'warn', 4000);
-            buzz(120);
-          }
-          break;
-        case 'trade_response':
-          if (e.from === me && e.response === 'accepted') showToast(`${josa(name(e.player), '이/가')} 수락했습니다 · 눌러서 교환을 확정하세요`, 'good');
+          if (e.to.includes(me)) buzz(120);
           break;
         case 'trade_accepted':
-          if (e.from === me) showToast(`${josa(name(e.to), '과/와')} 교환했습니다 · ${bundleText(e.get)} 받음`, 'good');
-          else if (e.to === me) showToast(`교환이 성사되었습니다 · ${bundleText(e.give)} 받음`, 'good');
-          break;
-        case 'trade_closed':
-          if (e.from === me && e.reason === 'rejected') showToast('모두 거절해 교환 제안이 닫혔습니다.', 'warn');
+          if (e.from === me || e.to === me) buzz(60);
           break;
         case 'game_end':
           buzz(200);

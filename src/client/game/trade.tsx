@@ -1,13 +1,13 @@
-// 교환 창과 열린 교환 제안.
+// 교환 창과 교환 증서.
 // 교환 창은 손에 든 카드 바로 위에 붙어 열리고 "낼 것"과 "받을 것" 두 줄에서 카드를 눌러 고른다.
-// 은행·교역로 탭은 내 비율(4:1, 교역로 3:1·2:1)만큼 한 묶음씩 고르고 플레이어 탭은 한 장씩 골라 모두에게 제안한다.
-// 열린 제안은 모두에게 보이며 받은 사람은 수락·거절하고 제안한 사람이 수락한 사람 중 한 명을 골라 확정한다.
-import type { CSSProperties, ReactNode } from 'react';
+// 은행·교역로 탭은 내 비율(4:1, 교역로 3:1·2:1)만큼 한 묶음씩 고르고 플레이어 탭은 한 장씩 골라 모두에게(또는 한 사람에게) 제안한다.
+// 열린 제안은 화면 왼쪽 위에 중세 거래 증서처럼 쌓이고 모두에게 보인다 (차례인 사람이 동시에 3개까지).
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { harborVertices } from '../../shared/board';
-import { BANK_RATIO, MAX_TRADE_AMOUNT, RESOURCES, RESOURCE_LABEL, bundleTotal, emptyBundle } from '../../shared/constants';
+import { BANK_RATIO, MAX_OPEN_TRADES, MAX_TRADE_AMOUNT, RESOURCES, RESOURCE_LABEL, bundleTotal, emptyBundle } from '../../shared/constants';
 import type { RoomView, TradeView } from '../../shared/protocol';
 import { bankTradeProblem, bankUnits, validateTradeBundles } from '../../shared/rules';
-import type { Bundle, Resource } from '../../shared/types';
+import type { Bundle, Resource, TradeCloseReason } from '../../shared/types';
 import { playerColor } from '../theme';
 import { AnyResourceIcon, Emblem, ResourceIcon } from '../ui/icons';
 import { josa } from '../ui/josa';
@@ -24,6 +24,8 @@ export interface TradeDraft {
   mode: TradeMode;
   give: Bundle;
   get: Bundle;
+  /** 플레이어 거래에서 한 사람에게만 제안할 때 그 사람 (없으면 모두에게) */
+  to?: string;
 }
 
 /** 은행 교환이 되는 자원이 하나라도 있으면 은행 탭으로, 아니면 플레이어 탭으로 연다. */
@@ -135,11 +137,13 @@ function CardRow({ label, hint, side, slots }: { label: string; hint?: ReactNode
  */
 export function TradePanel({
   view,
+  players,
   draft,
   onDraft,
   onClose,
 }: {
   view: RoomView;
+  players: Players;
   draft: TradeDraft;
   onDraft: (d: TradeDraft) => void;
   onClose: () => void;
@@ -148,7 +152,8 @@ export function TradePanel({
   const mine = g.myResources;
   const ratio = g.myTradeRatios;
   const bank = draft.mode === 'bank';
-  const myOffer = g.trade && g.trade.from === view.you ? g.trade : null;
+  const myOffers = g.trades.filter((t) => t.from === view.you).length;
+  const others = g.order.filter((id) => id !== view.you);
   const myHarbors = g.harbors.filter((h) => harborVertices(h).some((v) => g.buildings.some((b) => b.vertexId === v && b.owner === view.you)));
 
   const giveSlots: SlotSpec[] = RESOURCES.map((r) => {
@@ -184,8 +189,12 @@ export function TradePanel({
   }));
 
   const turn = turnBlocker(view);
+  const name = (id: string) => players.get(id)?.nickname ?? '?';
   const bankProblem = bankTradeProblem(draft.give, draft.get, ratio, mine);
-  const playerProblem = tradeBlocker(view) ?? validateTradeBundles(draft.give, draft.get);
+  const playerProblem =
+    tradeBlocker(view) ??
+    (myOffers >= MAX_OPEN_TRADES ? `제안은 동시에 ${MAX_OPEN_TRADES}개까지 열 수 있습니다. 증서 하나를 취소하세요.` : null) ??
+    validateTradeBundles(draft.give, draft.get);
   const units = bankUnits(draft.give, ratio) ?? 0;
 
   const submit = bank ? (
@@ -203,14 +212,11 @@ export function TradePanel({
   ) : (
     <ActionButton
       className="btn btn-primary btn-wide trade-go"
-      label={myOffer ? '제안 바꿔 다시 보내기' : '모두에게 제안'}
+      label={`${draft.to ? `${name(draft.to)}에게` : '모두에게'} 제안 (${myOffers}/${MAX_OPEN_TRADES})`}
       blocker={playerProblem}
       onClick={async () => {
-        if (myOffer && !(await sendAction({ type: 'trade_cancel', tradeId: myOffer.id }))) return;
-        if (await sendAction({ type: 'trade_propose', give: draft.give, get: draft.get })) {
-          showToast('모두에게 교환을 제안했습니다. 수락한 사람 중에서 고르세요.', 'good');
-          onClose();
-        }
+        const to = draft.to && others.includes(draft.to) ? draft.to : undefined;
+        if (await sendAction({ type: 'trade_propose', ...(to ? { to } : {}), give: draft.give, get: draft.get })) onClose();
       }}
     />
   );
@@ -273,7 +279,28 @@ export function TradePanel({
             )}
           </>
         ) : (
-          <>모두에게 한 번에 제안합니다. 각자 수락·거절하고 수락한 사람 중 한 명을 골라 확정하면 그때 카드가 옮겨집니다.</>
+          <>
+            <span className="trade-to" role="group" aria-label="제안할 상대">
+              {[undefined, ...others].map((id) => (
+                <button
+                  key={id ?? 'all'}
+                  type="button"
+                  className={`chip ${draft.to === id ? 'chip-on' : ''}`}
+                  aria-pressed={draft.to === id}
+                  onClick={() => onDraft({ ...draft, to: id })}
+                >
+                  {id ? (
+                    <>
+                      <Emblem colorIndex={players.get(id)?.colorIndex ?? 0} size={12} /> {name(id)}
+                    </>
+                  ) : (
+                    '모두'
+                  )}
+                </button>
+              ))}
+            </span>
+            수락한 사람 중 한 명을 골라 확정하면 그때 카드가 옮겨집니다. 증서는 {MAX_OPEN_TRADES}장까지 함께 열 수 있습니다.
+          </>
         )}
       </p>
       {submit}
@@ -287,19 +314,120 @@ function BundleChips({ bundle }: { bundle: Bundle }) {
   return (
     <span className="bundle-chips">
       {items.map((r) => (
-        <ResourceAmount key={r} resource={r} amount={bundle[r]} size={18} />
+        <ResourceAmount key={r} resource={r} amount={bundle[r]} size={16} />
       ))}
     </span>
+  );
+}
+
+/** 증서가 닫힌 까닭: 성사(체결), 또는 엔진이 닫은 이유 */
+export type DeedOutcome = 'accepted' | TradeCloseReason;
+
+export interface ClosedDeed {
+  trade: TradeView;
+  outcome: DeedOutcome;
+  /** 성사된 상대 */
+  partner?: string;
+  /** 닫힌 기록 번호 (React key) */
+  seq: number;
+}
+
+/** 도장이 찍힌 증서가 화면에 남아 있는 시간 (CSS 의 deed-out 과 같다) */
+export const STAMP_MS = 2800;
+
+/**
+ * 막 닫힌 교환 제안. 열린 제안 목록에서 빠진 제안을 기록(trade_closed·trade_accepted)과 맞춰 도장을 찍어 잠깐 남긴다.
+ * 처음 받은 화면(새로고침)에서는 지난 기록을 다시 보여 주지 않는다.
+ */
+export function useClosedDeeds(view: RoomView): ClosedDeed[] {
+  const g = view.game;
+  const known = useRef<Map<number, TradeView>>(new Map());
+  const lastSeq = useRef<number | null>(null);
+  const lastGame = useRef(view.gameNumber);
+  const [closed, setClosed] = useState<ClosedDeed[]>([]);
+  const timers = useRef<number[]>([]);
+  useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), []);
+  useEffect(() => {
+    if (!g) return;
+    const maxSeq = g.events.length ? g.events[g.events.length - 1].seq : 0;
+    if (lastSeq.current !== null && lastGame.current === view.gameNumber) {
+      const fresh = g.events.filter((e) => e.seq > lastSeq.current!);
+      const add: ClosedDeed[] = [];
+      for (const e of fresh) {
+        if (e.kind !== 'trade_closed' && e.kind !== 'trade_accepted') continue;
+        let t = known.current.get(e.tradeId);
+        if (!t) {
+          // 열리자마자 닫힌 제안(같은 화면 정보 안에서): 제안 기록에서 내용을 찾는다.
+          const p = g.events.find((x) => x.kind === 'trade_proposed' && x.tradeId === e.tradeId);
+          if (p?.kind !== 'trade_proposed') continue;
+          t = { id: p.tradeId, from: p.from, to: [...p.to], give: p.give, get: p.get, responses: Object.fromEntries(p.to.map((id) => [id, 'pending' as const])) };
+        }
+        const responses = { ...t.responses };
+        for (const r of fresh) if (r.kind === 'trade_response' && r.tradeId === e.tradeId && r.seq < e.seq) responses[r.player] = r.response;
+        add.push({ trade: { ...t, responses }, outcome: e.kind === 'trade_accepted' ? 'accepted' : e.reason, partner: e.kind === 'trade_accepted' ? e.to : undefined, seq: e.seq });
+      }
+      if (add.length) {
+        setClosed((cur) => [...cur, ...add]);
+        const done = new Set(add.map((d) => d.seq));
+        timers.current.push(window.setTimeout(() => setClosed((cur) => cur.filter((d) => !done.has(d.seq))), STAMP_MS));
+      }
+    } else setClosed([]);
+    lastSeq.current = maxSeq;
+    lastGame.current = view.gameNumber;
+    known.current = new Map(g.trades.map((t) => [t.id, t]));
+  }, [g?.version, view.gameNumber]);
+  return closed;
+}
+
+/** 도장 글씨 */
+const STAMP_TEXT: Record<DeedOutcome, string> = {
+  accepted: '체결',
+  rejected: '거절됨',
+  cancelled: '취소됨',
+  turn_end: '기한 만료',
+  unaffordable: '무효',
+};
+
+/** 장부 한 칸: 자원마다 "목재 ······ 2" */
+function LedgerColumn({ title, bundle }: { title: string; bundle: Bundle }) {
+  const items = RESOURCES.filter((r) => bundle[r] > 0);
+  return (
+    <div className="deed-col">
+      <h4>{title}</h4>
+      <ul>
+        {items.map((r) => (
+          <li key={r} className={`res-${r}`}>
+            <ResourceIcon kind={r} size={16} />
+            <span className="deed-item">{RESOURCE_LABEL[r]}</span>
+            <i className="deed-leader" aria-hidden />
+            <b>{bundle[r]}</b>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
 const RESP_LABEL = { pending: '생각 중', accepted: '수락', rejected: '거절' } as const;
 
 /**
- * 열린 교환 제안. 모두에게 보인다.
- * 받은 사람: 수락·거절 (수락 뒤에도 거절로 바꿀 수 있다). 제안한 사람: 수락한 사람을 눌러 확정하거나 제안을 취소한다.
+ * 교환 증서 한 장: 중세 상인의 거래 내역서처럼 번호·제안자·내놓는 것·받는 것을 장부에 적고, 아래 서명란에 상대별 응답을 적는다.
+ * 받은 사람은 수락·거절(수락 뒤에도 거절로 바꿀 수 있다), 제안한 사람은 수락한 사람 옆 확정 버튼이나 취소를 누른다.
+ * closed 가 있으면 도장(거절됨·취소됨·체결)이 찍힌 채 잠깐 남았다가 사라진다.
  */
-export function TradeOffer({ view, players, trade }: { view: RoomView; players: Players; trade: TradeView }) {
+export function TradeDeed({
+  view,
+  players,
+  trade,
+  closed,
+  compact = false,
+}: {
+  view: RoomView;
+  players: Players;
+  trade: TradeView;
+  closed?: ClosedDeed;
+  compact?: boolean;
+}) {
   const g = view.game!;
   const t = trade;
   const me = view.you;
@@ -307,118 +435,145 @@ export function TradeOffer({ view, players, trade }: { view: RoomView; players: 
   const mineOffer = t.from === me;
   const targeted = t.to.includes(me);
   const myResp = targeted ? t.responses[me] : null;
+  const needsMe = !closed && targeted && myResp === 'pending';
+  const [folded, setFolded] = useState(compact && !closed && !needsMe && !mineOffer);
   const name = (id: string) => (id === me ? '나' : (players.get(id)?.nickname ?? '?'));
   const lacking = targeted ? RESOURCES.filter((r) => g.myResources[r] < t.get[r]) : [];
   const accepted = t.to.filter((id) => t.responses[id] === 'accepted');
   const fromName = from?.nickname ?? '?';
+  const outcome = closed?.outcome;
 
-  // 화면 주인 기준으로 주고받는 쪽을 바꿔 적는다.
-  const [leftLabel, leftBundle, rightLabel, rightBundle] = mineOffer
-    ? ['내가 줌', t.give, '내가 받음', t.get]
-    : targeted
-      ? ['내가 받음', t.give, '내가 줌', t.get]
-      : [`${fromName} 줌`, t.give, `${fromName} 받음`, t.get];
+  // 화면 주인 기준으로 주고받는 쪽을 적는다.
+  const [leftTitle, rightTitle] = mineOffer ? ['내가 줄 것', '내가 받을 것'] : targeted ? ['내가 받을 것', '내가 줄 것'] : [`${fromName} 줄 것`, `${fromName} 받을 것`];
 
   return (
-    <div
-      className={`trade-banner trade-offer ${targeted && myResp === 'pending' ? 'trade-incoming' : ''} ${mineOffer ? 'trade-outgoing' : ''}`}
-      role={targeted && myResp === 'pending' ? 'alertdialog' : 'region'}
-      aria-label="교환 제안"
+    <article
+      className={`deed ${needsMe ? 'deed-incoming' : ''} ${mineOffer ? 'deed-mine' : ''} ${closed ? `deed-closed deed-${outcome}` : ''} ${folded ? 'deed-folded' : ''}`}
+      role={needsMe ? 'alertdialog' : 'region'}
+      aria-label={`${fromName}의 교환 증서 제${t.id}호${closed ? ` (${STAMP_TEXT[closed.outcome]})` : ''}`}
       style={{ ['--pc' as string]: playerColor(from?.colorIndex ?? 0).hex } as CSSProperties}
     >
-      <div className="trade-title">
-        <Emblem colorIndex={from?.colorIndex ?? 0} size={16} />
-        {mineOffer ? '내 교환 제안' : `${fromName}의 교환 제안`}
-        <span className="muted small">· {t.to.length > 1 ? '모두에게' : `${name(t.to[0])}에게`}</span>
-      </div>
-      <div className="offer-lines">
-        <div className="offer-side">
-          <span className="offer-label">{leftLabel}</span>
-          <BundleChips bundle={leftBundle} />
-        </div>
-        <span className="offer-swap" aria-hidden>
-          ⇄
-        </span>
-        <div className="offer-side">
-          <span className="offer-label">{rightLabel}</span>
-          <BundleChips bundle={rightBundle} />
-        </div>
-      </div>
-
-      <ul className="offer-resps" aria-label="응답">
-        {t.to.map((id) => {
-          const p = players.get(id);
-          const resp = t.responses[id];
-          const canPick = mineOffer && resp === 'accepted';
-          const body = (
-            <>
-              <Emblem colorIndex={p?.colorIndex ?? 0} size={13} />
-              {name(id)}
-              <i className={`resp-mark resp-${resp}`}>{resp === 'accepted' ? '✓' : resp === 'rejected' ? '✕' : '…'}</i>
-              <span className="resp-text">{canPick ? '이 사람과 교환' : RESP_LABEL[resp]}</span>
-            </>
-          );
-          return (
-            <li key={id} className={`offer-resp offer-resp-${resp}`}>
-              {canPick ? (
-                <ActionButton
-                  className="btn btn-small btn-primary offer-pick"
-                  label={body}
-                  blocker={null}
-                  onClick={() => sendAction({ type: 'trade_confirm', tradeId: t.id, with: id })}
-                />
-              ) : (
-                <span className="offer-chip">{body}</span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-
-      {mineOffer && (
-        <div className="row-buttons">
-          <span className="small muted offer-hint">
-            {accepted.length ? '수락한 사람을 눌러 교환을 확정하세요.' : '응답을 기다리는 중입니다.'}
+      <header className="deed-head">
+        <button type="button" className="deed-title" onClick={() => setFolded((f) => !f)} aria-expanded={!folded}>
+          <span className="deed-no">교역 증서 제{t.id}호</span>
+          <span className="deed-from">
+            <Emblem colorIndex={from?.colorIndex ?? 0} size={14} />
+            {mineOffer ? '내 제안' : fromName}
+            <span className="muted"> · {t.to.length > 1 ? '모두에게' : `${name(t.to[0])}에게`}</span>
           </span>
-          <ActionButton className="btn btn-small" label="제안 취소" blocker={null} onClick={() => sendAction({ type: 'trade_cancel', tradeId: t.id })} />
+        </button>
+        <span className="deed-seal" aria-hidden>
+          <Emblem colorIndex={from?.colorIndex ?? 0} size={18} />
+        </span>
+      </header>
+
+      {folded ? (
+        <div className="deed-slip">
+          <BundleChips bundle={t.give} /> <span aria-hidden>⇄</span> <BundleChips bundle={t.get} />
         </div>
-      )}
-      {targeted && (
+      ) : (
         <>
-          {myResp !== 'accepted' && lacking.length > 0 && (
-            <div className="warn-text small">{lacking.map((r) => RESOURCE_LABEL[r]).join(', ')}이(가) 모자라 수락할 수 없습니다.</div>
-          )}
-          <div className="row-buttons">
-            {myResp === 'accepted' ? (
-              <>
-                <span className="small offer-hint">수락했습니다 · {josa(fromName, '이/가')} 고르는 중</span>
-                <ActionButton className="btn btn-small" label="수락 취소" blocker={null} onClick={() => sendAction({ type: 'trade_reject', tradeId: t.id })} />
-              </>
-            ) : (
-              <>
-                <ActionButton
-                  className="btn btn-primary"
-                  label={myResp === 'rejected' ? '다시 수락' : '수락'}
-                  blocker={lacking.length ? '요청받은 자원이 모자랍니다.' : null}
-                  onClick={() => sendAction({ type: 'trade_accept', tradeId: t.id })}
-                />
-                {myResp === 'pending' && (
-                  <ActionButton className="btn" label="거절" blocker={null} onClick={() => sendAction({ type: 'trade_reject', tradeId: t.id })} />
-                )}
-              </>
-            )}
+          <div className="deed-ledger">
+            <LedgerColumn title={leftTitle} bundle={t.give} />
+            <span className="deed-swap" aria-hidden>
+              ⇄
+            </span>
+            <LedgerColumn title={rightTitle} bundle={t.get} />
           </div>
+
+          <ol className="deed-signs" aria-label="응답">
+            {t.to.map((id) => {
+              const p = players.get(id);
+              const resp = t.responses[id];
+              const canPick = !closed && mineOffer && resp === 'accepted';
+              const won = closed?.outcome === 'accepted' && closed.partner === id;
+              return (
+                <li key={id} className={`deed-sign sign-${resp} ${won ? 'sign-won' : ''}`}>
+                  <Emblem colorIndex={p?.colorIndex ?? 0} size={13} />
+                  <span className="sign-name">{name(id)}</span>
+                  <i className="sign-line" aria-hidden />
+                  {canPick ? (
+                    <ActionButton
+                      className="btn btn-small btn-primary deed-pick"
+                      label="이 사람과 확정"
+                      blocker={null}
+                      onClick={() => sendAction({ type: 'trade_confirm', tradeId: t.id, with: id })}
+                    />
+                  ) : (
+                    <span className="sign-mark">
+                      {won ? '✓ 체결' : resp === 'accepted' ? '✓ 수락' : resp === 'rejected' ? '✕ 거절' : `… ${RESP_LABEL.pending}`}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+
+          {!closed && mineOffer && (
+            <div className="deed-actions">
+              <span className="small muted">{accepted.length ? '확정할 상대를 고르세요' : '응답을 기다리는 중'}</span>
+              <ActionButton className="btn btn-small" label="제안 취소" blocker={null} onClick={() => sendAction({ type: 'trade_cancel', tradeId: t.id })} />
+            </div>
+          )}
+          {!closed && targeted && (
+            <>
+              {myResp !== 'accepted' && lacking.length > 0 && <div className="warn-text small">{lacking.map((r) => RESOURCE_LABEL[r]).join(', ')}이(가) 모자라 수락할 수 없습니다.</div>}
+              <div className="deed-actions">
+                {myResp === 'accepted' ? (
+                  <>
+                    <span className="small">{josa(fromName, '이/가')} 고르는 중</span>
+                    <ActionButton className="btn btn-small" label="수락 취소" blocker={null} onClick={() => sendAction({ type: 'trade_reject', tradeId: t.id })} />
+                  </>
+                ) : (
+                  <>
+                    <ActionButton
+                      className="btn btn-small btn-primary"
+                      label={myResp === 'rejected' ? '다시 수락' : '수락'}
+                      blocker={lacking.length ? '요청받은 자원이 모자랍니다.' : null}
+                      onClick={() => sendAction({ type: 'trade_accept', tradeId: t.id })}
+                    />
+                    {myResp === 'pending' && <ActionButton className="btn btn-small" label="거절" blocker={null} onClick={() => sendAction({ type: 'trade_reject', tradeId: t.id })} />}
+                  </>
+                )}
+              </div>
+            </>
+          )}
         </>
       )}
-    </div>
+
+      {closed && (
+        <div className={`deed-stamp stamp-${closed.outcome}`} aria-hidden>
+          {closed.outcome === 'rejected' && (
+            <svg className="stamp-x" viewBox="0 0 100 100" preserveAspectRatio="none">
+              <path d="M8 10 L92 90 M92 8 L10 92" />
+            </svg>
+          )}
+          <span className="stamp-word">
+            {STAMP_TEXT[closed.outcome]}
+            {closed.outcome === 'accepted' && closed.partner && <small>{name(closed.partner)}</small>}
+          </span>
+        </div>
+      )}
+    </article>
   );
 }
 
-/** 열린 제안이 있으면 보여 준다 (배너 자리) */
-export function TradeBanner({ view, players }: { view: RoomView; players: Players }) {
-  const t = view.game?.trade;
-  if (!t) return null;
-  return <TradeOffer key={t.id} view={view} players={players} trade={t} />;
+/** 열린 교환 증서들과 막 닫힌 증서(도장이 찍힌 채 잠깐 남는다). 화면 왼쪽 위에 쌓는다. */
+export function TradeDeeds({ view, players, compact = false }: { view: RoomView; players: Players; compact?: boolean }) {
+  const g = view.game;
+  const closed = useClosedDeeds(view);
+  if (!g || (!g.trades.length && !closed.length)) return null;
+  const items = [
+    ...g.trades.map((t) => ({ key: `open-${t.id}`, id: t.id, trade: t, closed: undefined as ClosedDeed | undefined })),
+    ...closed.map((c) => ({ key: `closed-${c.seq}`, id: c.trade.id, trade: c.trade, closed: c })),
+  ].sort((a, b) => a.id - b.id);
+  return (
+    <div className="deeds" aria-label="교환 증서">
+      {items.map((it) => (
+        <TradeDeed key={it.key} view={view} players={players} trade={it.trade} closed={it.closed} compact={compact} />
+      ))}
+    </div>
+  );
 }
 
 /** 교환 버튼을 누를 수 없는 이유 (내 차례 main 단계이고 낼 카드가 있으면 된다) */

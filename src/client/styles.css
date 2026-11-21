@@ -1,10 +1,10 @@
 /* 데블스랜드 — 중세 필사본 수채화 풍.
    물 위에 놓인 양피지 카드, 세피아 먹선, 대청(파랑)·주홍·녹청·황토 물감으로 칠한다.
-   외부 폰트와 이미지 파일은 쓰지 않는다. 종이 결, 물감 얼룩, 찢긴 종이 가장자리는 아래 SVG(data URI)로 그린다. */
+   외부 이미지 파일은 쓰지 않는다. 종이 결과 물감 얼룩은 아래 SVG(data URI)로 그린다. */
 :root {
   --ink: #3a2a1f; /* 먹선. 3D 보드 후처리의 INK_COLOR 와 같다 */
   --ink-soft: #6b5440;
-  --parchment: #f2e6cc; /* 종이. PAPER_COLOR 와 같고, 아래 --edge-h·--edge-v 의 종이 색도 이 값이다 */
+  --parchment: #f2e6cc; /* 종이. PAPER_COLOR 와 같다 */
   --parchment-2: #e9d8b4;
   --parchment-hi: #faf3e2; /* 입력칸·작은 쪽지 */
   --parchment-edge: #b99b6b;
@@ -24,12 +24,10 @@
   /* 글꼴: 본문과 제목 모두 함렛(Hahmlet, 로컬 설치). 글꼴 파일을 못 받으면 비슷한 명조 계열로 떨어진다. */
   --font: 'Hahmlet Variable', 'Nanum Myeongjo', 'Noto Serif KR', 'AppleMyungjo', 'Batang', serif;
   --font-title: 'Hahmlet Variable', 'Palatino Linotype', Palatino, 'Book Antiqua', 'Nanum Myeongjo', 'Noto Serif KR', 'Noto Serif CJK KR', 'AppleMyungjo', 'Batang', serif;
-  /* 종이 결(고운 섬유), 종이 위 물감 얼룩, 물 위 물감 얼룩, 찢긴 종이 가장자리(가로·세로) */
+  /* 종이 결(고운 섬유), 종이 위 물감 얼룩, 물 위 물감 얼룩 */
   --tex-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g' filterUnits='userSpaceOnUse' x='0' y='0' width='180' height='180'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.2 0 0 0 0 0.09 0.42 0 0 0 -0.15'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)'/%3E%3C/svg%3E");
   --tex-wash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Cfilter id='wash' filterUnits='userSpaceOnUse' x='0' y='0' width='420' height='420'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.007' numOctaves='4' stitchTiles='stitch' seed='28'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.29 0 0 0 0 0.1 0.75 0 0 0 -0.3'/%3E%3C/filter%3E%3Crect width='420' height='420' filter='url(%23wash)'/%3E%3C/svg%3E");
   --tex-water: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='520'%3E%3Cfilter id='water' filterUnits='userSpaceOnUse' x='0' y='0' width='520' height='520'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.005' numOctaves='4' stitchTiles='stitch' seed='35'/%3E%3CfeColorMatrix values='0 0 0 0 0.1 0 0 0 0 0.24 0 0 0 0 0.32 0.7 0 0 0 -0.27'/%3E%3C/filter%3E%3Crect width='520' height='520' filter='url(%23water)'/%3E%3C/svg%3E");
-  --edge-h: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='10'%3E%3Cg%3E%3Cpath d='M0 0H240V4C229 6 221 2.5 211 4.5S191 7.5 180 5S160 2 149 5S129 7.5 118 4.5S99 2.5 89 5.5S69 7 59 4.5S39 2 29 4.8S10 6.8 0 4Z' fill='%23f2e6cc'/%3E%3Cpath d='M240 4C229 6 221 2.5 211 4.5S191 7.5 180 5S160 2 149 5S129 7.5 118 4.5S99 2.5 89 5.5S69 7 59 4.5S39 2 29 4.8S10 6.8 0 4' fill='none' stroke='%233a2a1f' stroke-opacity='.45' stroke-width='1.1'/%3E%3C/g%3E%3C/svg%3E");
-  --edge-v: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='240'%3E%3Cg transform='matrix(0 1 -1 0 10 0)'%3E%3Cpath d='M0 0H240V4C229 6 221 2.5 211 4.5S191 7.5 180 5S160 2 149 5S129 7.5 118 4.5S99 2.5 89 5.5S69 7 59 4.5S39 2 29 4.8S10 6.8 0 4Z' fill='%23f2e6cc'/%3E%3Cpath d='M240 4C229 6 221 2.5 211 4.5S191 7.5 180 5S160 2 149 5S129 7.5 118 4.5S99 2.5 89 5.5S69 7 59 4.5S39 2 29 4.8S10 6.8 0 4' fill='none' stroke='%233a2a1f' stroke-opacity='.45' stroke-width='1.1'/%3E%3C/g%3E%3C/svg%3E");
   --paper: var(--tex-grain), var(--tex-wash);
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -58,6 +56,8 @@ body {
     var(--tex-water);
   background-attachment: fixed;
   -webkit-text-size-adjust: 100%;
+  /* 휴대폰 브라우저가 누를 때마다 칠하는 기본 강조색을 끈다 (빈 곳을 눌러도 화면 전체가 번쩍이던 것) */
+  -webkit-tap-highlight-color: transparent;
   line-height: 1.5;
 }
 
@@ -680,6 +680,7 @@ h2 {
 }
 
 .seat-name {
+  position: relative;
   font-weight: 700;
   flex: 1;
   display: flex;
@@ -1271,4 +1272,155 @@ h2 {
   border-radius: var(--wobble-sm);
   padding: 6px 8px;
   overflow-wrap: anywhere;
+}
+
+/* ───────── 채팅 (대기실·게임 공용) ───────── */
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.chat-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 8px;
+  min-height: 90px;
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  background-color: var(--parchment-hi);
+  background-image: var(--tex-grain);
+  border: 1px solid rgba(58, 42, 31, 0.32);
+  border-radius: 6px;
+}
+
+.chat-msg {
+  overflow-wrap: anywhere;
+}
+
+.chat-msg > svg {
+  vertical-align: -1px;
+}
+
+.chat-who {
+  margin: 0 4px 0 3px;
+}
+
+.chat-mine .chat-who {
+  color: var(--river-dark);
+}
+
+.chat-time {
+  float: right;
+  margin-left: 6px;
+  font-size: 0.66rem;
+  color: var(--ink-soft);
+}
+
+.chat-empty {
+  color: var(--ink-soft);
+  font-style: italic;
+  font-size: 0.78rem;
+}
+
+.chat-form {
+  display: flex;
+  gap: 6px;
+}
+
+.chat-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  font-size: 0.86rem;
+  background: #fffaf0;
+  border: 1px solid rgba(58, 42, 31, 0.45);
+  border-radius: 6px;
+}
+
+.chat-form input:focus {
+  outline: 2px solid var(--river);
+  outline-offset: 0;
+}
+
+.emote-bar {
+  display: flex;
+  gap: 4px;
+}
+
+.emote-btn {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 1.15rem;
+  line-height: 1.2;
+  background-color: var(--parchment-hi);
+  border: 1px solid rgba(58, 42, 31, 0.35);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.emote-btn:hover {
+  background-color: #fff6df;
+  transform: translateY(-1px);
+}
+
+.emote-btn:active {
+  transform: scale(0.92);
+}
+
+/* 이름 바로 옆에 잠깐 떠오르는 이모티콘 (글줄 높이는 늘리지 않는다) */
+.emote-pop {
+  position: relative;
+  z-index: 6;
+  display: inline-block;
+  flex: none;
+  margin: -10px 0 -8px 2px;
+  font-size: 1.45rem;
+  line-height: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 2px rgba(30, 20, 10, 0.35));
+  animation: emote-pop 2.6s ease-out forwards;
+}
+
+@keyframes emote-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.3);
+  }
+  14% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.2);
+  }
+  24% {
+    transform: translateY(-4px) scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(-10px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-22px) scale(0.9);
+  }
+}
+
+.lobby-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lobby-chat h2 {
+  margin: 0;
+}
+
+.lobby-chat .chat-list {
+  max-height: 220px;
 }

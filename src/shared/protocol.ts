@@ -76,7 +76,8 @@ export interface GameView {
   myTradeRatios: Record<Resource, number>;
   /** 이 화면의 주인 승점 (숨긴 승점 카드 포함) */
   myPoints: number;
-  trade: TradeView | null;
+  /** 열린 교환 제안 (차례인 사람이 낸 것, 낸 순서대로 최대 MAX_OPEN_TRADES 개) */
+  trades: TradeView[];
   events: GameEvent[];
   result: GameResult | null;
   version: number;
@@ -139,6 +140,24 @@ export interface ServerInfo {
   lanAddresses: LanAddress[];
 }
 
+/** 같은 방 사람끼리 주고받는 짧은 글. 보낸 사람이 방을 나가도 이름이 남도록 이름·색을 함께 적는다. */
+export interface ChatMessage {
+  id: number;
+  from: string;
+  nickname: string;
+  colorIndex: number;
+  text: string;
+  /** 서버가 받은 시각 (ms) */
+  at: number;
+}
+
+/** 이름 옆에 잠깐 떠오르는 이모티콘 (보관하지 않는다) */
+export interface ChatEmote {
+  from: string;
+  emote: string;
+  at: number;
+}
+
 export type AckFail = { ok: false; error: string; code?: string };
 export type AckResult<T extends object = object> = ({ ok: true } & T) | AckFail;
 export type Ack<T extends object = object> = (result: AckResult<T>) => void;
@@ -148,6 +167,10 @@ export interface ServerToClientEvents {
   'session:invalid': (info: { reason: string }) => void;
   'session:replaced': () => void;
   kicked: () => void;
+  /** 방에 붙을 때(참가·재접속) 그 방의 최근 채팅 */
+  'chat:history': (p: { code: string; messages: ChatMessage[] }) => void;
+  'chat:message': (p: { code: string; message: ChatMessage }) => void;
+  'chat:emote': (p: { code: string; emote: ChatEmote }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -164,6 +187,8 @@ export interface ClientToServerEvents {
   'room:kick': (p: { playerId: string }, ack: Ack) => void;
   'room:rematch': (p: Record<string, never>, ack: Ack) => void;
   'game:action': (p: { requestId: string; action: GameAction }, ack: Ack) => void;
+  'chat:send': (p: { text: string }, ack: Ack) => void;
+  'chat:emote': (p: { emote: string }, ack: Ack) => void;
 }
 
 /** Socket.IO 연결 때 보내는 인증 정보 (재접속 시 같은 자리 복구용) */

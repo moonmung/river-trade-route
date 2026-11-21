@@ -1,16 +1,16 @@
 /* ───────── 게임 화면 ───────── */
-/* 위·아래·오른쪽 패널은 보드 위에 덮은 양피지 띠다. 보드 쪽 가장자리는 찢긴 종이 모양(--edge-h·--edge-v)으로 끝난다. */
+/* 위·아래·오른쪽 패널은 보드 위에 덮은 양피지 띠다. 보드 쪽 가장자리는 먹선 한 줄과 옅은 그림자로 깔끔하게 끝낸다. */
 .game {
   position: fixed;
   inset: 0;
   overflow: hidden;
-  --hud-bg: var(--parchment); /* 찢긴 가장자리 그림의 종이 색과 같아야 이음매가 안 보인다 */
+  --hud-bg: var(--parchment);
+  --hud-line: rgba(58, 42, 31, 0.42);
   --side-w: 340px;
 }
 
 /* 공통: 패널 안의 작은 종이 쪽지 */
 .player,
-.my-res-item,
 .tile-card,
 .pick,
 .stepper,
@@ -46,52 +46,17 @@
   padding: calc(6px + var(--safe-top)) 8px 6px;
   background-color: var(--hud-bg);
   background-image: var(--paper);
+  border-bottom: 1px solid var(--hud-line);
+  box-shadow: 0 2px 8px rgba(30, 24, 16, 0.22);
   z-index: 10;
   display: flex;
   flex-direction: column;
   gap: 5px;
 }
 
-/* 찢긴 종이 가장자리 */
-.hud-top::after,
-.hud-bottom::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 10px;
-  background: var(--edge-h) repeat-x;
-  filter: drop-shadow(0 2px 1.5px rgba(30, 24, 16, 0.32));
-  pointer-events: none;
-}
-
-.hud-top::after {
-  top: 100%;
-}
-
-/* 뒤집으면 그림자도 위로 간다 */
-.hud-bottom::before {
-  bottom: 100%;
-  transform: scaleY(-1);
-}
-
 .game-wide .hud-top,
 .game-wide .hud-bottom {
   right: var(--side-w);
-}
-
-/* 오른쪽 패널의 왼쪽 가장자리. 패널은 스크롤되어 밖으로 그릴 수 없으니 화면 쪽에 붙인다. */
-.game-wide::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: var(--side-w);
-  width: 10px;
-  z-index: 11;
-  background: var(--edge-v) repeat-y;
-  filter: drop-shadow(-2px 0 1.5px rgba(30, 24, 16, 0.32));
-  pointer-events: none;
 }
 
 .topbar {
@@ -149,64 +114,82 @@
   font-style: normal;
 }
 
+/*
+ * 플레이어 상태 창 (오른쪽 맨 아래). 한 사람에 두 줄: 깃발·이름·달성·승점, 그 아래 손 카드·기사·길.
+ * 왼쪽 띠를 그 사람 색으로 칠하고, 지금 차례인 사람은 같은 색 테두리를 두른다.
+ */
 .players {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
-  gap: 5px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.players::-webkit-scrollbar {
-  display: none;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .player {
-  flex: 1 0 auto;
   display: flex;
-  align-items: center;
-  gap: 5px;
-  background-color: rgba(250, 243, 226, 0.7);
-  border-width: 2px;
-  border-color: transparent;
-  padding: 3px 7px;
-  font-size: 0.8rem;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 8px 4px 9px;
+  background-color: rgba(250, 243, 226, 0.92);
+  border-left: 4px solid var(--pc) !important;
+  font-size: 0.84rem;
   position: relative;
   min-width: 0;
 }
 
 .player-current {
   background-color: var(--parchment-hi);
-  box-shadow: 0 2px 6px rgba(58, 42, 31, 0.22);
+  box-shadow: 0 0 0 2px var(--pc), 0 2px 6px rgba(58, 42, 31, 0.22);
 }
 
 .player-off {
   opacity: 0.55;
 }
 
+.player-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
 .player-name {
+  position: relative;
+  flex: 1;
+  min-width: 0;
   font-weight: 700;
   display: flex;
   align-items: center;
   gap: 3px;
-  white-space: nowrap;
-  max-width: 8.5em;
+}
+
+.player-nick {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .player-stats {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 9px;
+  padding-left: 23px;
   color: var(--ink-soft);
+  font-size: 0.78rem;
   white-space: nowrap;
 }
 
 .stat-score {
   color: #8a5a12;
   font-family: var(--font-title);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.stat-offers {
+  color: var(--river-dark);
   font-weight: 700;
 }
 
@@ -226,9 +209,10 @@
   top: 3px;
 }
 
+/* 위 띠 아래 보드 위: 좁은 화면은 안내 띠와 교환 증서, 넓은 화면은 교환 증서만 (왼쪽 위) */
 .hud-float {
   position: absolute;
-  top: calc(100% + 14px);
+  top: calc(100% + 10px);
   left: 8px;
   right: 8px;
   display: flex;
@@ -244,9 +228,15 @@
   width: 100%;
 }
 
+.game-wide .hud-float {
+  left: 10px;
+  right: auto;
+  width: 292px;
+  align-items: flex-start;
+}
+
 .placement-banner,
-.mode-banner,
-.trade-banner {
+.mode-banner {
   background-color: var(--hud-bg);
   background-image: var(--paper);
   border: 1px solid rgba(58, 42, 31, 0.5);
@@ -276,34 +266,17 @@
   color: var(--vermilion);
 }
 
-.trade-incoming {
-  border: 2px solid var(--river);
-  background-color: #e2ecec;
-  animation: toast-in 0.2s ease-out;
-}
-
-.trade-title {
-  font-family: var(--font-title);
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
-}
-
-.trade-banner .row-buttons {
-  margin-top: 4px;
-}
-
 /* 아래 HUD */
 .hud-bottom {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 7px 8px calc(8px + var(--safe-bottom));
+  padding: 8px 8px calc(8px + var(--safe-bottom));
   background-color: var(--hud-bg);
   background-image: var(--paper);
+  border-top: 1px solid var(--hud-line);
+  box-shadow: 0 -2px 8px rgba(30, 24, 16, 0.22);
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -314,8 +287,9 @@
   position: absolute;
   left: 8px;
   right: 8px;
-  bottom: calc(100% + 16px);
+  bottom: calc(100% + 12px);
   max-width: 460px;
+  z-index: 3;
   margin: 0 auto;
   background-image: var(--paper);
   border-color: rgba(58, 42, 31, 0.5);
@@ -351,62 +325,227 @@
   font-size: 0.82rem;
 }
 
+/*
+ * 아래 띠: 손에 든 카드, 그 옆에 [도로][마을][도시][발전 카드] 네모 버튼과 교환·턴 종료(굴리기 단계에는 주사위 굴리기).
+ * 좁은 화면은 손 아래에 버튼 두 줄, 넓은 화면은 한 줄로 놓고 자리가 모자라면 버튼 줄이 손 아래로 내려간다.
+ */
 .me-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.game-narrow .me-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.game-wide .me-row {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.me-actions {
   display: flex;
   gap: 8px;
   align-items: stretch;
 }
 
-.game-narrow .me-row {
+.game-narrow .me-actions {
   flex-direction: column;
+  gap: 6px;
 }
 
-/* 자원 다섯 칸: 휴대폰 폭(390px)에서도 한 줄에 들어가도록 칸 최소 폭을 두지 않는다 */
-.my-res {
+.build-bar {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 5px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
 }
 
-.game-wide .my-res {
-  display: flex;
+.game-wide .build-bar {
+  grid-template-columns: repeat(4, 78px);
 }
 
-.my-res-item {
-  flex: 1;
+.bb-slot {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 6px;
   min-width: 0;
 }
 
-.game-wide .my-res-item {
-  min-width: 64px;
-}
-
-.my-res-item div {
+.bb-btn {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  line-height: 1.1;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 5px 3px 4px;
+  min-height: 70px;
+  background-color: var(--parchment-hi);
+  background-image: var(--tex-grain);
+  border: 1.5px solid rgba(58, 42, 31, 0.6);
+  border-radius: 6px;
+  box-shadow: 0 2px 0 rgba(58, 42, 31, 0.28);
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink);
+  transition:
+    transform 0.12s ease-out,
+    background-color 0.12s;
 }
 
-.my-res-item b {
+.game-wide .bb-btn {
+  min-height: 80px;
+}
+
+.bb-btn:not(.is-blocked):hover {
+  background-color: #fff6e0;
+  transform: translateY(-1px);
+}
+
+.bb-btn:focus-visible {
+  outline: 2px solid var(--river);
+  outline-offset: 1px;
+}
+
+.bb-btn.is-active {
+  background-color: #f5dea2;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px var(--gold);
+}
+
+/* 못 하는 버튼: 그림과 이름만 흐리게 하고 재료는 모자란 것만 흐리게 둔다 */
+.bb-btn.is-blocked {
+  opacity: 1;
+  background-color: rgba(250, 243, 226, 0.7);
+  box-shadow: none;
+}
+
+.bb-btn.is-blocked .bb-ico,
+.bb-btn.is-blocked .bb-name {
+  opacity: 0.45;
+}
+
+.bb-ico {
+  display: flex;
+  height: 26px;
+  align-items: center;
+}
+
+.bb-name {
   font-family: var(--font-title);
-  font-size: 1.3rem;
+  font-weight: 700;
+  font-size: 0.8rem;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
-.my-res-item span {
-  font-size: 0.66rem;
-  color: var(--ink-soft);
-  white-space: nowrap;
+.bb-cost {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 4px;
+  min-height: 16px;
+}
+
+.bb-res {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.bb-res b {
+  font-family: var(--font-title);
+}
+
+.bb-lack {
+  opacity: 0.32;
+  filter: grayscale(0.85);
+}
+
+/* 못 하는 까닭이나 남은 개수: 버튼 위 먹색 말풍선 (마우스를 올리거나 눌렀을 때). 양 끝 버튼은 화면 밖으로 나가지 않게 끝을 맞춘다. */
+.bb-tip {
+  --tx: -50%;
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  z-index: 30;
+  width: max-content;
+  max-width: 200px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: var(--ink);
+  color: #f5e6c2;
+  font-size: 0.74rem;
+  line-height: 1.3;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(var(--tx), 4px);
+  transition:
+    opacity 0.14s,
+    transform 0.14s;
+}
+
+.bb-tip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+}
+
+.bb-slot:first-child .bb-tip {
+  --tx: 0;
+  left: 0;
+}
+
+.bb-slot:first-child .bb-tip::after {
+  left: 24px;
+}
+
+.bb-slot:last-child .bb-tip {
+  --tx: 0;
+  left: auto;
+  right: 0;
+}
+
+.bb-slot:last-child .bb-tip::after {
+  left: auto;
+  right: 19px;
+}
+
+.bb-tip-show,
+.bb-slot:has(.bb-btn:focus-visible) .bb-tip {
+  opacity: 1;
+  transform: translate(var(--tx), 0);
+}
+
+@media (hover: hover) {
+  .bb-slot:hover .bb-tip {
+    opacity: 1;
+    transform: translate(var(--tx), 0);
+  }
 }
 
 .actions {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
-  flex: 1;
+}
+
+.game-wide .actions {
+  grid-template-columns: repeat(2, 82px);
+}
+
+.game-wide .actions-roll {
+  grid-template-columns: 170px;
 }
 
 .act {
@@ -418,17 +557,12 @@
   padding: 5px 4px;
   font-size: 0.84rem;
   line-height: 1.2;
-  min-height: 52px;
-}
-
-/* 넓은 화면: 버튼 네 개가 줄바꿈 없이 들어갈 폭을 먼저 잡고, 남은 폭을 손에 든 카드가 쓴다 */
-.game-wide .actions {
-  flex: 0 0 auto;
-  width: min(470px, 58%);
-}
-
-.act {
+  min-height: 44px;
   white-space: nowrap;
+}
+
+.game-wide .act {
+  min-height: 80px;
 }
 
 .act-ico {
@@ -465,7 +599,7 @@
   }
 }
 
-/* 넓은 화면: 오른쪽 패널 */
+/* 넓은 화면: 오른쪽 패널. 위에서부터 안내 띠, 짧은 기록, 대화와 이모티콘, 맨 아래 플레이어 */
 .hud-side {
   position: absolute;
   top: 0;
@@ -474,17 +608,20 @@
   width: var(--side-w);
   background-color: var(--hud-bg);
   background-image: var(--paper);
+  border-left: 1px solid var(--hud-line);
+  box-shadow: -2px 0 8px rgba(30, 24, 16, 0.22);
   z-index: 11;
-  padding: calc(10px + var(--safe-top)) 12px 12px;
+  padding: calc(10px + var(--safe-top)) 12px calc(10px + var(--safe-bottom));
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .hud-side h3 {
-  font-size: 0.98rem;
-  margin: 0 0 6px;
+  font-size: 0.9rem;
+  margin: 0 0 4px;
   display: flex;
   align-items: center;
 }
@@ -494,24 +631,29 @@
   margin-left: auto;
 }
 
-.hud-side .players {
-  flex-direction: column;
-  overflow: visible;
-}
-
-.hud-side .player {
-  font-size: 0.88rem;
-  padding: 6px 8px;
-}
-
-.hud-side .player-name {
-  max-width: none;
-  flex: 1;
-}
-
 .side-log {
+  flex: none;
+}
+
+.side-chat {
+  flex: 1 1 auto;
+  min-height: 170px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.side-chat .chat {
   flex: 1;
-  min-height: 120px;
+}
+
+.side-chat .chat-list {
+  max-height: none;
+}
+
+.side-players {
+  flex: none;
+  margin-top: auto;
 }
 
 .log {
@@ -530,6 +672,24 @@
   padding: 4px 7px;
 }
 
+/* 오른쪽 패널의 짧은 기록: 점수와 이어진 것만 작은 글씨로 */
+.log-mini {
+  gap: 2px;
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.log-mini li {
+  padding: 2px 6px;
+}
+
+.log-mini .log-empty {
+  color: var(--ink-soft);
+  font-style: italic;
+  background: none;
+  border-style: dashed;
+}
+
 .log-round {
   font-family: var(--font-title);
   font-weight: 700;
@@ -537,16 +697,255 @@
   font-size: 0.74rem;
 }
 
-@media (max-height: 520px) {
+@media (max-height: 620px) {
   .game-wide {
     --side-w: 300px;
   }
-  .game-wide .act {
-    min-height: 42px;
+  .game-wide .act,
+  .game-wide .bb-btn {
+    min-height: 64px;
   }
   .game-wide .hud-side {
-    gap: 8px;
+    gap: 6px;
   }
+  .game-wide .side-chat {
+    min-height: 120px;
+  }
+}
+
+/* 좁은 화면: 오른쪽 아래 구석 (보드 위). 플레이어 상태 창과 채팅·이모티콘 단추 */
+.hud-corner {
+  position: absolute;
+  right: 8px;
+  bottom: calc(100% + 8px);
+  z-index: 1;
+  width: 176px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.hud-corner > * {
+  pointer-events: auto;
+}
+
+.hud-corner .players {
+  width: 100%;
+  gap: 3px;
+}
+
+.hud-corner .player {
+  gap: 0;
+  padding: 1px 6px 1px 7px;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  box-shadow: 0 1px 3px rgba(30, 20, 10, 0.25);
+}
+
+.hud-corner .player-current {
+  box-shadow:
+    0 0 0 2px var(--pc),
+    0 1px 3px rgba(30, 20, 10, 0.25);
+}
+
+.hud-corner .player-stats {
+  padding-left: 0;
+  gap: 7px;
+  font-size: 0.68rem;
+}
+
+.hud-corner .player-line svg {
+  width: 14px;
+  height: 14px;
+}
+
+.hud-corner .mini-fan {
+  transform: scale(0.8);
+  transform-origin: 50% 100%;
+}
+
+.hud-corner .tag {
+  padding: 0 3px;
+  font-size: 0.62rem;
+}
+
+/* 좁은 화면 채팅: 구석 단추를 누르면 위로 열린다 */
+.chat-dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.chat-dock-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.chat-toggle {
+  position: relative;
+  height: 36px;
+  min-width: 42px;
+  font-size: 1.05rem;
+  box-shadow: 0 1px 3px rgba(30, 20, 10, 0.3);
+}
+
+.chat-toggle.is-active {
+  background-color: #f5dea2;
+  border-color: var(--gold);
+}
+
+.chat-badge {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--vermilion);
+  color: #fff8ea;
+  font: normal 700 11px/18px var(--font);
+}
+
+.chat-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  width: min(330px, calc(100vw - 16px));
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background-color: var(--parchment);
+  background-image: var(--paper);
+  border: 1px solid rgba(58, 42, 31, 0.5);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  animation: toast-in 0.15s ease-out;
+}
+
+.chat-pop .chat-list {
+  flex: none;
+  height: 190px;
+}
+
+.chat-pop-emote {
+  width: 260px;
+}
+
+.chat-peek {
+  max-width: 210px;
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-size: 0.78rem;
+  background-color: var(--parchment-hi);
+  background-image: var(--tex-grain);
+  border: 1px solid rgba(58, 42, 31, 0.45);
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(30, 20, 10, 0.3);
+  cursor: pointer;
+  animation: toast-in 0.2s ease-out;
+}
+
+/* 보드를 눌렀을 때 그 자리에서 할 수 있는 일 (버튼만) */
+.spot-actions {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 12px);
+  z-index: 3;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  background-color: var(--parchment);
+  background-image: var(--paper);
+  border: 1px solid rgba(58, 42, 31, 0.5);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  animation: toast-in 0.15s ease-out;
+}
+
+.spot-actions .btn {
+  white-space: nowrap;
+}
+
+.spot-actions .icon-btn {
+  height: 34px;
+  min-width: 34px;
+}
+
+/* 발전 카드 쓰기 창의 자원 고르기 */
+.res-picker {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.res-pick {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 2px 3px;
+  font-size: 0.72rem;
+  background-color: var(--parchment-hi);
+  background-image: var(--tex-grain);
+  border: 1.5px solid rgba(58, 42, 31, 0.35);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.res-pick-on {
+  border-color: var(--river);
+  background-color: #e2ecec;
+  box-shadow: 0 0 0 1px var(--river);
+}
+
+.res-pick b {
+  position: absolute;
+  top: -7px;
+  right: -5px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--river);
+  color: #fff;
+  font-size: 0.7rem;
+}
+
+/* 교환 창: 제안할 상대 고르기 */
+.trade-to {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 9px;
+  font-size: 0.78rem;
+  background-color: var(--parchment-hi);
+  border: 1px solid rgba(58, 42, 31, 0.4);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.chip-on {
+  background-color: var(--river);
+  border-color: var(--river-dark);
+  color: #f6efe0;
 }
 
 /* 시트 (대화 상자) */
@@ -818,29 +1217,6 @@
   right: calc(var(--side-w) + 8px);
 }
 
-/* 건설 메뉴 (길·마을·도시) */
-.build-menu .pick-row {
-  flex-wrap: nowrap;
-}
-
-.build-pick {
-  min-width: 0;
-  gap: 3px;
-  padding: 8px 4px 6px;
-  font-family: var(--font-title);
-}
-
-.build-pick.is-blocked {
-  opacity: 0.5;
-}
-
-.build-cost {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 1px 5px;
-}
-
 .piece-icon {
   flex: none;
   vertical-align: middle;
@@ -921,8 +1297,9 @@
 }
 
 /* 굴리기 단계의 아래 버튼: 주사위 굴리기를 크게, 발전 카드(기사)를 옆에 */
+/* 굴리기 단계: 주사위 굴리기 버튼 하나가 교환·턴 종료 두 칸 자리를 다 쓴다 */
 .actions-roll {
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 1fr;
 }
 
 .act-roll {
@@ -1185,30 +1562,33 @@
 
 /* ───────── 손에 든 카드 (하스스톤처럼 아래에서 부채꼴로) ───────── */
 .hand {
-  --cw: 52px;
-  --ch: 74px;
-  --ov: -6px;
+  --cw: 56px;
+  --ch: 80px;
+  --ov: 6px;
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  min-height: var(--ch);
-  /* 카드 윗부분이 양피지 띠 위 보드 쪽으로 살짝 솟아 손에 쥔 모습이 된다 */
-  margin-top: -22px;
-  /* 기울어진 양 끝 카드의 모서리가 화면 밖으로 나가지 않을 만큼 아래를 비운다 */
-  padding: 0 10px 10px;
+  min-height: calc(var(--ch) + 6px);
+  /* 장수 도장이 카드 왼쪽 위로 조금 나오므로 그만큼 비운다 */
+  padding: 6px 8px 0 10px;
   flex: 1;
   min-width: 0;
 }
 
 .game-wide .hand {
-  --cw: 60px;
-  --ch: 86px;
-  margin-top: -30px;
+  --cw: 70px;
+  --ch: 100px;
+  flex: 1 1 240px;
+  justify-content: flex-start;
+}
+
+/* 자원 카드 묶음과 발전 카드 묶음 사이 */
+.hcard.hcard-group {
+  margin-left: calc(var(--ov) + 14px);
 }
 
 .hand-empty {
   align-self: center;
-  margin-top: 22px;
   color: var(--ink-soft);
   font-size: 0.82rem;
 }
@@ -1245,7 +1625,7 @@
 
 .hcard:hover,
 .hcard:focus-visible {
-  transform: translateY(-14px) rotate(0deg) scale(1.1);
+  transform: translateY(-8px) scale(1.06);
   z-index: 50 !important;
   outline: none;
 }
@@ -1354,7 +1734,7 @@
 }
 
 .game-wide .hcard-name {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* 장수: 붉은 밀랍 도장 (왼쪽 위라 오른쪽 카드가 겹쳐도 보인다) */
@@ -1440,6 +1820,20 @@
 .hcard-dev .hcard-name {
   color: #f0dfb4;
   font-size: 9px;
+}
+
+.game-wide .hcard-dev .hcard-name {
+  font-size: 10.5px;
+}
+
+/* 쓰기 창을 연 발전 카드 */
+.hcard-active {
+  transform: translateY(-8px);
+  z-index: 40 !important;
+}
+
+.hcard-active .hcard-face {
+  box-shadow: 0 0 0 2.5px var(--gold), 0 4px 10px rgba(20, 14, 8, 0.35);
 }
 
 /* 지금 쓸 수 있는 카드: 금박 테두리가 은은하게 숨 쉬고 살짝 올라와 있다 (빛 번짐 없이) */
@@ -1580,11 +1974,10 @@
   position: absolute;
   left: 8px;
   right: 8px;
-  /* 손에 든 카드가 양피지 띠 위로 솟아 있으니 그 위에 띄운다 */
-  bottom: calc(100% + 30px);
+  bottom: calc(100% + 12px);
   max-width: 440px;
   margin: 0 auto;
-  z-index: 2;
+  z-index: 3;
   background-color: var(--parchment-hi);
   background-image: var(--paper);
   border: 1px solid rgba(58, 42, 31, 0.5);
@@ -1601,7 +1994,7 @@
 .game-wide .trade-panel {
   left: 12px;
   right: auto;
-  bottom: calc(100% + 38px);
+  bottom: calc(100% + 12px);
   width: 440px;
   margin: 0;
 }
@@ -1819,183 +2212,426 @@
   box-shadow: 0 0 0 1.5px var(--parchment-hi);
 }
 
-/* ───────── 열린 교환 제안 ───────── */
-.trade-offer {
+/* ───────── 교환 증서 ─────────
+ * 열린 교환 제안을 중세 상인의 거래 내역서처럼 그린다. 누런 종이에 먹으로 그은 두 줄 테두리와 옅은 괘선,
+ * 위에는 증서 번호와 제안자, 가운데 장부(줄 것 ⇄ 받을 것, 점선 이음), 아래 서명란에 상대별 응답을 적는다.
+ * 오른쪽 위에는 제안자 색 밀랍 봉인. 닫히면 도장(거절됨·취소됨·체결)이 찍히고 잠시 뒤 옆으로 물러나며 사라진다.
+ */
+.deeds {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  border-left: 5px solid var(--pc, var(--river));
+  align-items: flex-start;
+  gap: 10px;
+  padding-top: 8px;
+  pointer-events: none;
 }
 
-.trade-outgoing {
-  background-color: #f6ead0;
+.game-wide .deeds {
+  max-height: calc(100vh - 240px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px 8px 8px 2px;
+  scrollbar-width: thin;
 }
 
-.offer-lines {
+.deed {
+  --deed-paper: #f3e5c4;
+  --deed-frame:
+    inset 0 0 0 3px var(--deed-paper),
+    inset 0 0 0 4px rgba(58, 42, 31, 0.5),
+    inset 0 0 18px rgba(120, 78, 30, 0.24);
+  position: relative;
+  pointer-events: auto;
+  width: min(284px, 100%);
+  padding: 9px 12px 9px;
+  color: var(--ink);
+  font-size: 0.82rem;
+  background-color: var(--deed-paper);
+  background-image:
+    repeating-linear-gradient(to bottom, transparent 0 21px, rgba(120, 86, 44, 0.09) 21px 22px),
+    var(--tex-grain),
+    var(--tex-wash);
+  background-size:
+    auto,
+    180px 180px,
+    420px 420px;
+  border: 1px solid rgba(58, 42, 31, 0.72);
+  border-radius: 3px;
+  box-shadow:
+    var(--deed-frame),
+    0 6px 14px rgba(24, 38, 46, 0.3);
+  transform-origin: 15% 0;
+  animation: deed-in 0.28s ease-out;
+}
+
+/* 내게 온 제안: 대청색 줄을 한 겹 더 두른다 */
+.deed-incoming {
+  box-shadow:
+    var(--deed-frame),
+    0 0 0 2.5px var(--river),
+    0 6px 14px rgba(24, 38, 46, 0.32);
+}
+
+.deed-head {
+  display: flex;
+  align-items: flex-start;
+  padding-right: 32px;
+}
+
+.deed-title {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  cursor: pointer;
+}
+
+.deed-title:focus-visible {
+  outline: 2px solid var(--river);
+  outline-offset: 2px;
+}
+
+.deed-no {
+  font-family: var(--font-title);
+  font-weight: 800;
+  font-size: 0.92rem;
+  letter-spacing: 0.06em;
+  color: #5a2a18;
+}
+
+.deed-from {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.offer-side {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 7px;
-  background: rgba(255, 250, 235, 0.6);
-  border: 1px dashed rgba(58, 42, 31, 0.3);
-  border-radius: var(--wobble-sm);
+/* 제안자 색 밀랍 봉인 */
+.deed-seal {
+  position: absolute;
+  top: -9px;
+  right: 9px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 52% 47% 50% 46% / 47% 53% 47% 53%;
+  background: radial-gradient(circle at 34% 30%, color-mix(in srgb, var(--pc) 55%, #fff) 0, var(--pc) 48%, color-mix(in srgb, var(--pc) 62%, #000) 100%);
+  box-shadow:
+    inset 0 0 0 3px rgba(0, 0, 0, 0.16),
+    inset 0 0 0 5px rgba(255, 255, 255, 0.12),
+    0 2px 3px rgba(0, 0, 0, 0.35);
 }
 
-.offer-label {
-  font-size: 0.74rem;
+.deed-seal svg {
+  opacity: 0.85;
+}
+
+.deed-ledger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  margin: 6px 0 5px;
+  padding: 5px 0 4px;
+  border-top: 1px solid rgba(58, 42, 31, 0.5);
+  border-bottom: 1px solid rgba(58, 42, 31, 0.5);
+}
+
+.deed-col h4 {
+  margin: 0 0 2px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
   color: var(--ink-soft);
   white-space: nowrap;
 }
 
-.offer-swap {
+.deed-col ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.deed-col li {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.8rem;
+}
+
+.deed-item {
+  white-space: nowrap;
+}
+
+/* 품목과 수량 사이 점선 */
+.deed-leader {
+  flex: 1;
+  min-width: 6px;
+  margin: 0 2px;
+  border-bottom: 1px dotted rgba(58, 42, 31, 0.6);
+  transform: translateY(3px);
+}
+
+.deed-col b {
+  font-family: var(--font-title);
+  font-size: 0.95rem;
+}
+
+.deed-swap {
+  align-self: center;
+  color: var(--ink-soft);
+  font-size: 1rem;
+}
+
+/* 서명란: 상대마다 이름, 서명 줄, 응답 */
+.deed-signs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.deed-sign {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  font-size: 0.78rem;
+}
+
+.sign-name {
+  font-family: var(--font-title);
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.sign-line {
+  flex: 1;
+  min-width: 8px;
+  border-bottom: 1px solid rgba(58, 42, 31, 0.32);
+  transform: translateY(4px);
+}
+
+.sign-mark {
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.sign-pending .sign-mark {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+.sign-accepted .sign-mark {
+  color: var(--good);
+}
+
+.sign-rejected .sign-name {
+  text-decoration: line-through;
+  text-decoration-color: rgba(168, 40, 30, 0.85);
+}
+
+.sign-rejected .sign-mark {
+  color: #a8281e;
+}
+
+.sign-won .sign-mark {
+  color: var(--river-dark);
+}
+
+.deed-pick {
+  min-height: 0;
+  padding: 2px 8px;
+}
+
+.deed-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.deed-actions > .small {
+  margin-right: auto;
+}
+
+/* 접은 증서 (좁은 화면에서 내 일이 아닌 것): 머리와 주고받는 것 한 줄만 */
+.deed-folded {
+  padding-bottom: 7px;
+}
+
+.deed-slip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 3px;
   color: var(--ink-soft);
 }
 
 .bundle-chips {
   display: inline-flex;
-  gap: 6px;
   flex-wrap: wrap;
+  gap: 2px 6px;
 }
 
 .bundle-chips .res-amount {
-  font-size: 0.9rem;
-}
-
-.offer-resps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.offer-chip,
-.offer-pick {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
   font-size: 0.8rem;
 }
 
-.offer-chip {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(255, 250, 235, 0.7);
-  border: 1px solid rgba(58, 42, 31, 0.25);
+/* 닫힌 증서: 글씨를 흐리게 하고 도장을 찍은 뒤 물러난다 */
+.deed-closed {
+  pointer-events: none;
+  animation: deed-out 2.8s ease-in forwards;
 }
 
-.offer-pick > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+.deed-closed .deed-head,
+.deed-closed .deed-ledger,
+.deed-closed .deed-signs,
+.deed-closed .deed-slip {
+  opacity: 0.55;
 }
 
-.offer-resp-rejected .offer-chip {
-  opacity: 0.6;
+.deed-cancelled .deed-ledger,
+.deed-turn_end .deed-ledger,
+.deed-unaffordable .deed-ledger {
+  text-decoration: line-through;
+  text-decoration-color: rgba(58, 42, 31, 0.6);
 }
 
-.resp-mark {
-  font-style: normal;
-  font-weight: 800;
+.deed-stamp {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
 }
 
-.resp-accepted {
-  color: var(--good);
+/* 모두 거절: 종이 위 큰 붉은 X */
+.stamp-x {
+  position: absolute;
+  inset: 8% 7%;
+  width: 86%;
+  height: 84%;
 }
 
-.offer-pick .resp-accepted {
-  color: #d9f0c8;
+.stamp-x path {
+  fill: none;
+  stroke: rgba(176, 34, 24, 0.72);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-dasharray: 240;
+  stroke-dashoffset: 240;
+  animation: stamp-draw 0.36s ease-out 0.05s forwards;
 }
 
-.resp-rejected {
-  color: var(--danger);
-}
-
-.resp-pending {
-  color: var(--ink-soft);
-}
-
-.resp-text {
-  font-size: 0.74rem;
-}
-
-.offer-chip .resp-text {
-  color: var(--ink-soft);
-}
-
-.trade-offer .row-buttons {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.offer-hint {
-  flex: 1;
-  min-width: 0;
-}
-
-/* 플레이어 목록: 열린 제안에 대한 응답 */
-.trade-resp {
-  font-size: 0.66rem;
-  padding: 0 5px;
-}
-
-.trade-resp-accepted {
-  background-color: #dcebcf;
-  border-color: var(--good);
-  color: var(--good);
-}
-
-.trade-resp-rejected {
-  opacity: 0.65;
-}
-
-.trade-resp-offer {
-  background-color: #f6e2ae;
-  border-color: var(--gold);
-}
-
-/* ───────── 건설 비용 카드 (넓은 화면 오른쪽 패널) ───────── */
-.build-costs ul {
-  list-style: none;
-  margin: 0;
-  padding: 6px 8px;
+.stamp-word {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  background-color: var(--parchment-hi);
-  background-image: var(--tex-grain);
-  border: 1px solid rgba(58, 42, 31, 0.32);
-  border-radius: var(--wobble-sm);
-}
-
-.build-costs li {
-  display: grid;
-  grid-template-columns: 92px 1fr auto;
   align-items: center;
-  gap: 6px;
-  font-size: 0.82rem;
-}
-
-.bc-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  line-height: 1.1;
+  padding: 3px 14px;
+  border: 4px double currentColor;
+  border-radius: 4px;
+  color: rgba(168, 34, 24, 0.9);
+  background: rgba(250, 236, 220, 0.4);
+  font-family: var(--font-title);
+  font-weight: 800;
+  font-size: 1.7rem;
+  letter-spacing: 0.16em;
   white-space: nowrap;
+  mix-blend-mode: multiply;
+  transform: rotate(-12deg);
+  animation: stamp-hit 0.34s cubic-bezier(0.2, 1.5, 0.45, 1) both;
 }
 
-.build-costs .build-cost {
-  display: inline-flex;
-  gap: 5px;
+.stamp-word small {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+.stamp-cancelled .stamp-word,
+.stamp-turn_end .stamp-word,
+.stamp-unaffordable .stamp-word {
+  color: rgba(88, 60, 38, 0.88);
+}
+
+.stamp-turn_end .stamp-word,
+.stamp-unaffordable .stamp-word {
+  font-size: 1.3rem;
+}
+
+/* 성사: 대청색 둥근 인장 */
+.stamp-accepted .stamp-word {
+  padding: 10px 14px;
+  border-radius: 50%;
+  color: rgba(35, 74, 105, 0.9);
+  font-size: 1.35rem;
+}
+
+@keyframes deed-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) rotate(-1.5deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes deed-out {
+  0%,
+  80% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-26px) rotate(-3deg);
+  }
+}
+
+@keyframes deed-out-plain {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes stamp-hit {
+  0% {
+    opacity: 0;
+    transform: rotate(-12deg) scale(2.2);
+  }
+  60% {
+    opacity: 1;
+    transform: rotate(-12deg) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: rotate(-12deg) scale(1);
+  }
+}
+
+@keyframes stamp-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 /* ───────── 달성 공지 ─────────
@@ -2166,7 +2802,15 @@
 @media (prefers-reduced-motion: reduce) {
   .award-ribbon,
   .award-seal,
-  .trade-panel {
+  .trade-panel,
+  .deed,
+  .stamp-word,
+  .stamp-x path,
+  .emote-pop {
     animation: none;
+  }
+
+  .deed-closed {
+    animation: deed-out-plain 2.8s step-end forwards;
   }
 }

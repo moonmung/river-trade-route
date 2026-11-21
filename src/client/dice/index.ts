@@ -18,9 +18,11 @@ export interface DiceUi {
   /** 내가 던져 서버 값을 기다리는 중 */
   throwing: boolean;
   show: DiceShow | null;
+  /** 주사위가 멈춘(또는 연출 없이 지나간) 마지막 굴림의 기록 번호. null 이면 아직 모른다 */
+  landedSeq: number | null;
 }
 
-let ui: DiceUi = { mode: 'off', throwing: false, show: null };
+let ui: DiceUi = { mode: 'off', throwing: false, show: null, landedSeq: null };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<DiceUi>) => {
   ui = { ...ui, ...patch };
@@ -101,11 +103,28 @@ export function throwDice(): Promise<boolean> {
 
 const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
+/** 이 기록 번호까지의 굴림은 주사위가 멈춘 것으로 친다 (처음 받은 화면처럼 연출 없이 지나간 굴림 포함). */
+export function settleDice(seq: number, reset = false): void {
+  if (reset ? ui.landedSeq !== seq : (ui.landedSeq ?? -1) < seq) set({ landedSeq: seq });
+}
+
 /**
  * 서버가 정한 주사위 값을 보여 준다. 내가 던진 주사위가 날고 있으면 그 주사위가 이 값으로 멈추고,
  * 아니면(남의 굴림) 화면 위쪽에서 주사위가 날아든다. 주사위가 다 멈추면 resolve 한다.
+ * 위쪽 줄의 마지막 주사위는 그때까지 새 값을 감춘다(landedSeq).
  */
 export async function rollDice(
+  dice: [number, number],
+  info: { who: string; colorIndex: number; mine: boolean; animate: boolean; seq: number },
+): Promise<void> {
+  try {
+    await revealRoll(dice, info);
+  } finally {
+    settleDice(info.seq);
+  }
+}
+
+async function revealRoll(
   dice: [number, number],
   info: { who: string; colorIndex: number; mine: boolean; animate: boolean },
 ): Promise<void> {

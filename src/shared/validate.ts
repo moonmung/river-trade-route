@@ -1,5 +1,5 @@
 // 네트워크로 들어온 값은 형식부터 확인한다. 통과하지 못하면 null.
-import { emptyBundle, MAX_TRADE_AMOUNT, NICKNAME_MAX, RESOURCES, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, TILE_MAP } from './constants';
+import { CHAT_MAX_LENGTH, emptyBundle, MAX_TRADE_AMOUNT, NICKNAME_MAX, RESOURCES, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, TILE_MAP } from './constants';
 import { EDGE_MAP, VERTEX_MAP } from './board';
 import type { Bundle, GameAction, Resource } from './types';
 
@@ -153,4 +153,24 @@ export function normalizeRoomCode(raw: unknown): string | null {
 
 export function isRequestId(v: unknown): v is string {
   return typeof v === 'string' && v.length >= 4 && v.length <= 64;
+}
+
+/**
+ * 채팅 한 줄: 제어 문자와 글자 방향을 뒤집는 문자를 빼고 연속 공백을 한 칸으로 줄인다.
+ * 이모지가 깨지지 않도록 결합 문자(ZWJ)·변형 선택자는 남긴다. 비었거나 CHAT_MAX_LENGTH 자를 넘으면 null
+ */
+export function normalizeChatText(raw: unknown): string | null {
+  if (typeof raw !== 'string' || raw.length > CHAT_MAX_LENGTH * 8) return null;
+  const cleaned = Array.from(raw.normalize('NFC'))
+    .filter((ch) => {
+      const cp = ch.codePointAt(0) ?? 0;
+      if (cp === 0x09 || cp === 0x0a || cp === 0x0d) return true; // 공백으로 바뀐다
+      return !(cp <= 0x1f || (cp >= 0x7f && cp <= 0x9f) || cp === 0x200b || cp === 0xfeff || (cp >= 0x202a && cp <= 0x202e) || (cp >= 0x2066 && cp <= 0x2069));
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const length = Array.from(cleaned).length;
+  if (length < 1 || length > CHAT_MAX_LENGTH) return null;
+  return cleaned;
 }

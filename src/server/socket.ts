@@ -9,6 +9,7 @@ import type {
 } from '../shared/protocol';
 import { SEAT_CODE_LENGTH, normalizeSeatCode } from '../shared/protocol';
 import { isRequestId, normalizeNickname, normalizeRoomCode, parseAction } from '../shared/validate';
+import { ChatHub } from './chat';
 import { isRoomError, type Room, type RoomManager, type RoomPlayer } from './rooms';
 import { buildRoomView } from './view';
 
@@ -29,6 +30,9 @@ function fail(error: string, code?: string): AckResult {
 }
 
 export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg: string) => void): void {
+  /** 방 채팅 (방마다 최근 메시지 보관, 도배 방지) */
+  const chat = new ChatHub();
+
   /** 각 참가자에게 그 사람용 화면 정보를 따로 보낸다. 방 전체에 같은 데이터를 뿌리지 않는다. */
   function broadcast(room: Room): void {
     room.touchedAt = Date.now();
@@ -61,6 +65,8 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
     socket.data.roomCode = room.code;
     socket.data.playerId = player.id;
     socket.join(room.code);
+    // 새로고침·재접속해도 대화가 보이도록 방에 붙을 때마다 최근 채팅을 보낸다.
+    socket.emit('chat:history', { code: room.code, messages: chat.history(room) });
     if (notify) broadcast(room);
   }
 
@@ -256,6 +262,27 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
       const { result, changed } = rooms.act(cur.room, cur.player.id, p.requestId, action);
       if (changed) broadcast(cur.room);
       reply(result);
+    });
+
+    // 채팅은 모두에게 공개되는 내용이라 방 전체(같은 방에 붙은 소켓)에 한 번에 보낸다.
+    socket.on('chat:send', (payload, ack) => {
+      const reply = safeAck(ack);
+      const cur = current(socket);
+      if (!cur) return reply(fail('방에 연결되어 있지 않습니다.'));
+      const res = chat.post(cur.room, cur.player, (payload as { text?: unknown } | undefined)?.text);
+      if (!res.ok) return reply(fail(res.error, res.code));
+      io.to(cur.room.code).emit('chat:message', { code: cur.room.code, message: res.message });
+      reply({ ok: true });
+    });
+
+    socket.on('chat:emote', (payload, ack) => {
+      const reply = safeAck(ack);
+      const cur = current(socket);
+      if (!cur) return reply(fail('방에 연결되어 있지 않습니다.'));
+      const res = chat.emote(cur.room, cur.player, (payload as { emote?: unknown } | undefined)?.emote);
+      if (!res.ok) return reply(fail(res.error, res.code));
+      io.to(cur.room.code).emit('chat:emote', { code: cur.room.code, emote: res.emote });
+      reply({ ok: true });
     });
 
     socket.on('disconnect', () => {
