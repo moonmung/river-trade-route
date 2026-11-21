@@ -102,21 +102,12 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             buzz(180);
           }
           break;
+        // 교환 제안·응답·성사·거절·취소는 알림 대신 왼쪽 위 교환 증서에 적고 도장을 찍는다 (trade.tsx 의 TradeDeeds).
         case 'trade_proposed':
-          if (e.to.includes(me)) {
-            showToast(`${josa(name(e.from), '이/가')} 교환을 제안했습니다.`, 'warn', 4000);
-            buzz(120);
-          }
-          break;
-        case 'trade_response':
-          if (e.from === me && e.response === 'accepted') showToast(`${josa(name(e.player), '이/가')} 수락했습니다 · 눌러서 교환을 확정하세요`, 'good');
+          if (e.to.includes(me)) buzz(120);
           break;
         case 'trade_accepted':
-          if (e.from === me) showToast(`${josa(name(e.to), '과/와')} 교환했습니다 · ${bundleText(e.get)} 받음`, 'good');
-          else if (e.to === me) showToast(`교환이 성사되었습니다 · ${bundleText(e.give)} 받음`, 'good');
-          break;
-        case 'trade_closed':
-          if (e.from === me && e.reason === 'rejected') showToast('모두 거절해 교환 제안이 닫혔습니다.', 'warn');
+          if (e.from === me || e.to === me) buzz(60);
           break;
         case 'game_end':
           buzz(200);

@@ -1,24 +1,6 @@
-import { useState, type ReactNode } from 'react';
-import { VERTEX_MAP, harborVertices } from '../../shared/board';
-import {
-  DEV_COST,
-  DEV_DECK,
-  DEV_HELP,
-  DEV_LABEL,
-  WIN_POINTS,
-  bundleTotal,
-  numberPips,
-  RESOURCES,
-  RESOURCE_LABEL,
-  TILE_KIND_LABEL,
-  TILE_MAP,
-  PIECE_COST,
-  PIECE_LABEL,
-  bundleLabel,
-  emptyBundle,
-} from '../../shared/constants';
+import { Fragment, useState } from 'react';
+import { DEV_HELP, DEV_LABEL, WIN_POINTS, bundleTotal, RESOURCES, RESOURCE_LABEL, emptyBundle } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
-import { placeableVertices, setupRoadEdges, longestRoadPath } from '../../shared/rules';
 import type { Bundle, DevKind, GameAction, Resource } from '../../shared/types';
 import { client } from '../net/client';
 import { navigate } from '../router';
@@ -28,93 +10,75 @@ import { josa } from '../ui/josa';
 import { RulesSummary } from '../ui/RulesSummary';
 import { showToast } from '../ui/toast';
 import type { BoardSelection } from '../board/BoardRenderer';
+import { DevIcon } from './hand';
 import { AwardIcon } from './panels';
-import { buildBlocker, buildSpots, bundleText, buyDevBlocker, formatEvent, playDevBlocker, roadStatus, tileName, type PlayerInfo } from './derive';
+import { bundleText, formatEvent, playDevBlocker, spotAction, type PlayerInfo } from './derive';
 import { ActionButton, Sheet, Stepper, sendAction } from './ui';
 
 type Players = Map<string, PlayerInfo>;
 
-/** 발전 카드: 사기, 손에 든 카드 보기, 쓰기 (풍년·독점은 자원을 고른다) */
-export function DevCardDialog({ view, onClose }: { view: RoomView; onClose: () => void }) {
-  const g = view.game!;
-  const [yop, setYop] = useState<[Resource, Resource]>(['wood', 'brick']);
-  const [mono, setMono] = useState<Resource>('wool');
-  const counts = (Object.keys(DEV_DECK) as DevKind[]).map((k) => ({
-    kind: k,
-    total: g.myDevCards.filter((c) => c.kind === k).length,
-    fresh: g.myDevCards.filter((c) => c.kind === k && c.boughtTurn >= g.turn).length,
-  }));
+/** 자원 다섯 가지를 아이콘 단추로 고른다. 고른 개수를 단추 위에 적는다. */
+function ResourcePicker({ picked, onPick, label }: { picked: Resource[]; onPick: (r: Resource) => void; label: string }) {
   return (
-    <Sheet title="발전 카드" onClose={onClose}>
-      <p className="muted small">
-        한 장에 {bundleLabel(DEV_COST)}. 남은 카드 {g.devDeckCount}장. 한 턴에 1장만 쓸 수 있고 산 턴에는 쓰지 못합니다. 기사는 주사위를 굴리기 전에도 쓸 수 있습니다.
-      </p>
-      <ActionButton
-        className="btn btn-primary btn-wide"
-        label={`발전 카드 사기 (${bundleLabel(DEV_COST)})`}
-        blocker={buyDevBlocker(view)}
-        onClick={() => sendAction({ type: 'buy_dev' })}
-      />
-      <div className="dev-list">
-        {counts
-          .filter((c) => c.total > 0)
-          .map(({ kind, total, fresh }) => (
-            <div key={kind} className={`dev-card dev-${kind}`}>
-              <div className="dev-card-head">
-                <b>{DEV_LABEL[kind]}</b>
-                <span className="tag">×{total}</span>
-                {fresh > 0 && <span className="tag">이번 턴에 산 {fresh}장</span>}
-              </div>
-              <p className="small">{DEV_HELP[kind]}</p>
-              {kind === 'year_of_plenty' && (
-                <div className="pick-row compact">
-                  {[0, 1].map((i) => (
-                    <select
-                      key={i}
-                      value={yop[i]}
-                      onChange={(e) => setYop((cur) => (i === 0 ? [e.target.value as Resource, cur[1]] : [cur[0], e.target.value as Resource]))}
-                    >
-                      {RESOURCES.map((r) => (
-                        <option key={r} value={r}>
-                          {RESOURCE_LABEL[r]}
-                        </option>
-                      ))}
-                    </select>
-                  ))}
-                </div>
-              )}
-              {kind === 'monopoly' && (
-                <div className="pick-row compact">
-                  <select value={mono} onChange={(e) => setMono(e.target.value as Resource)}>
-                    {RESOURCES.map((r) => (
-                      <option key={r} value={r}>
-                        {RESOURCE_LABEL[r]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              {kind !== 'victory' && (
-                <ActionButton
-                  className="btn btn-small"
-                  label={`${DEV_LABEL[kind]} 쓰기`}
-                  blocker={playDevBlocker(view, kind)}
-                  onClick={async () => {
-                    const action: GameAction =
-                      kind === 'year_of_plenty'
-                        ? { type: 'play_dev', kind, resources: yop }
-                        : kind === 'monopoly'
-                          ? { type: 'play_dev', kind, resource: mono }
-                          : { type: 'play_dev', kind: kind as 'knight' | 'road_building' };
-                    if (await sendAction(action)) onClose();
-                  }}
-                />
-              )}
-            </div>
-          ))}
-        {g.myDevCards.length === 0 && <p className="muted small">아직 가진 발전 카드가 없습니다.</p>}
+    <div className="res-picker" role="group" aria-label={label}>
+      {RESOURCES.map((r) => {
+        const n = picked.filter((x) => x === r).length;
+        return (
+          <button key={r} type="button" className={`res-pick ${n ? 'res-pick-on' : ''}`} aria-pressed={n > 0} onClick={() => onPick(r)} title={RESOURCE_LABEL[r]}>
+            <ResourceIcon kind={r} size={22} />
+            <span>{RESOURCE_LABEL[r]}</span>
+            {n > 1 && <b>×{n}</b>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * 손에 든 발전 카드를 누르면 카드 위에 붙어 열리는 쪽지: 카드가 하는 일 한 줄과 쓰기 버튼.
+ * 풍년은 받을 자원 2개, 독점은 가져올 자원 1개를 먼저 고른다.
+ */
+export function DevPlayCard({ view, kind, onClose }: { view: RoomView; kind: DevKind; onClose: () => void }) {
+  const g = view.game!;
+  const [picked, setPicked] = useState<Resource[]>([]);
+  const total = g.myDevCards.filter((c) => c.kind === kind).length;
+  const fresh = g.myDevCards.filter((c) => c.kind === kind && c.boughtTurn >= g.turn).length;
+  const need = kind === 'year_of_plenty' ? 2 : kind === 'monopoly' ? 1 : 0;
+  const pick = (r: Resource) => setPicked((cur) => (need === 1 ? [r] : cur.length >= need ? [r] : [...cur, r]));
+  const blocker =
+    playDevBlocker(view, kind) ??
+    (picked.length < need ? (kind === 'monopoly' ? '가져올 자원을 고르세요.' : `받을 자원 ${need - picked.length}개를 더 고르세요.`) : null);
+  return (
+    <div className="tile-card dev-play" role="dialog" aria-label={`${DEV_LABEL[kind]} 카드`}>
+      <div className="tile-card-head">
+        <DevIcon kind={kind} size={22} />
+        <b>{DEV_LABEL[kind]}</b>
+        {total > 1 && <span className="tag">×{total}</span>}
+        {fresh > 0 && <span className="tag">새 카드 {fresh}</span>}
+        <button className="icon-btn" onClick={onClose} aria-label="닫기">
+          ✕
+        </button>
       </div>
-    </Sheet>
+      <p className="small">{DEV_HELP[kind]}</p>
+      {need > 0 && <ResourcePicker picked={picked} onPick={pick} label={kind === 'monopoly' ? '가져올 자원' : '받을 자원 2개'} />}
+      {kind !== 'victory' && (
+        <ActionButton
+          className="btn btn-primary btn-wide"
+          label={`${DEV_LABEL[kind]} 쓰기`}
+          blocker={blocker}
+          onClick={async () => {
+            const action: GameAction =
+              kind === 'year_of_plenty'
+                ? { type: 'play_dev', kind, resources: [picked[0], picked[1]] }
+                : kind === 'monopoly'
+                  ? { type: 'play_dev', kind, resource: picked[0] }
+                  : { type: 'play_dev', kind: kind as 'knight' | 'road_building' };
+            if (await sendAction(action)) onClose();
+          }}
+        />
+      )}
+    </div>
   );
 }
 
@@ -186,202 +150,38 @@ export function StealDialog({ view, players }: { view: RoomView; players: Player
   );
 }
 
-/** 보드에서 고른 자리 이름 (칸 코드 없이) */
-function spotTitle(sel: BoardSelection, buildingKind: string | null, hasRoad: boolean): string {
-  if (sel.kind === 'vertex') return buildingKind ?? '마을 자리';
-  if (sel.kind === 'edge') return hasRoad ? '길' : '길 자리';
-  return `${TILE_KIND_LABEL[TILE_MAP[sel.id].kind]} 칸`;
-}
-
-/** 꼭짓점이 닿은 칸을 자원 아이콘과 숫자 패로 */
-function TouchedTiles({ vertexId, numbers }: { vertexId: string; numbers: Record<string, number> }) {
-  const tiles = VERTEX_MAP[vertexId]?.tiles ?? [];
-  return (
-    <span className="touched">
-      {tiles.map((id) => (
-        <span key={id} className="cost-inline" title={tileName(numbers, id)}>
-          <ResourceIcon kind={TILE_MAP[id].kind} size={16} />
-          {numbers[id] ? <b className={numbers[id] === 6 || numbers[id] === 8 ? 'num-hot-text' : ''}>{numbers[id]}</b> : null}
-        </span>
-      ))}
-    </span>
-  );
-}
-
 /**
- * 보드를 눌렀을 때 나오는 카드. 타일·꼭짓점·변의 정보와, 그 자리에서 할 수 있는 일(시작 배치, 길·마을 짓기, 도시로 올리기)을 보여 준다.
+ * 보드를 눌렀을 때 그 자리에서 할 수 있는 일(동상 옮기기, 시작 배치, 길·마을 짓기, 도시로 올리기)만 버튼으로 띄운다.
+ * 할 수 있는 일이 없는 자리는 아무것도 띄우지 않는다 (칸 설명은 보드 그림과 숫자 패로 충분하다).
  */
 export function SpotCard({
   view,
-  players,
   sel,
   pendingVertex,
   onClose,
   onDone,
 }: {
   view: RoomView;
-  players: Players;
   sel: BoardSelection;
   pendingVertex: string | null;
   onClose: () => void;
   onDone: () => void;
 }) {
-  const g = view.game!;
-  const me = view.you;
-  const myPlacement = g.phase === 'placement' && g.placementPlayerId === me;
-  const myTurn = g.phase === 'playing' && g.currentPlayerId === me && g.step === 'main';
-  const ownerName = (id: string) => (id === me ? '내' : `${players.get(id)?.nickname ?? '?'}의`);
-
-  let icon: ReactNode = null;
-  let info: ReactNode = null;
-  let action: ReactNode = null;
-
-  if (sel.kind === 'tile') {
-    const tile = TILE_MAP[sel.id];
-    const num = g.numbers[sel.id];
-    icon = <ResourceIcon kind={tile.kind} size={22} />;
-    const around = g.buildings.filter((b) => VERTEX_MAP[b.vertexId]?.tiles.includes(sel.id));
-    const locked = g.robber === sel.id;
-    if (tile.kind === 'plaza') info = '마을 광장: 자원이 나지 않는 빈 땅입니다. 기사단 동상이 처음 서 있는 곳입니다.';
-    else
-      info = (
-        <>
-          주사위 합이 <b>{num}</b>(나올 경우 {numberPips(num)}/36)이면 이 칸 꼭짓점의 마을은 {RESOURCE_LABEL[tile.kind]} 1장, 도시는 2장을 받습니다.
-          {locked && <b className="warn-text"> 지금은 기사단 동상이 막고 있어 생산하지 않습니다.</b>}
-          {around.length > 0 && ' '}
-          {around.length > 0 && (
-            <span className="touched">
-              둘레:{' '}
-              {around.map((b) => (
-                <span key={b.vertexId} className="cost-inline">
-                  <Emblem colorIndex={players.get(b.owner)?.colorIndex ?? 0} size={13} /> {PIECE_LABEL[b.kind]}
-                </span>
-              ))}
-            </span>
-          )}
-        </>
-      );
-    if (g.step === 'robber' && g.currentPlayerId === me) {
-      action = (
-        <ActionButton
-          className="btn btn-start btn-wide"
-          label="여기로 기사단 동상 옮기기"
-          blocker={locked ? '동상은 다른 칸으로 옮겨야 합니다.' : null}
-          onClick={async () => {
-            if (await sendAction({ type: 'move_robber', tileId: sel.id })) onDone();
-          }}
-        />
-      );
-    }
-  } else if (sel.kind === 'vertex') {
-    const b = g.buildings.find((x) => x.vertexId === sel.id);
-    icon = b ? <Emblem colorIndex={players.get(b.owner)?.colorIndex ?? 0} size={18} /> : null;
-    const harbor = g.harbors.find((h) => harborVertices(h).includes(sel.id));
-    info = (
-      <>
-        {b ? `${ownerName(b.owner)} ${PIECE_LABEL[b.kind]}. ` : '빈 꼭짓점. '}닿은 칸: <TouchedTiles vertexId={sel.id} numbers={g.numbers} />
-        {harbor && (
-          <b className="harbor-note">
-            {' '}
-            · 해상 교역로 {harbor.resource ? `${RESOURCE_LABEL[harbor.resource]} 2:1` : '아무 자원 3:1'}
-          </b>
-        )}
-      </>
-    );
-    if (myPlacement) {
-      if (pendingVertex === sel.id) info = <>시작 마을 자리. 닿은 칸: <TouchedTiles vertexId={sel.id} numbers={g.numbers} /> · 이어서 빛나는 변을 눌러 길을 붙이세요.</>;
-      else if (!placeableVertices(g.buildings).includes(sel.id)) info = <>{info} · 이웃 꼭짓점에 마을이 있어 놓을 수 없습니다.</>;
-    } else if (myTurn && b && b.owner === me && b.kind === 'village') {
-      action = (
-        <ActionButton
-          className="btn btn-primary btn-wide"
-          label={`도시로 올리기 (${bundleLabel(PIECE_COST.city)})`}
-          blocker={buildBlocker(view, 'city')}
-          onClick={async () => {
-            if (await sendAction({ type: 'build_city', vertexId: sel.id })) onDone();
-          }}
-        />
-      );
-    } else if (myTurn && !b) {
-      const ok = buildSpots(view, 'village').includes(sel.id);
-      action = (
-        <ActionButton
-          className="btn btn-primary btn-wide"
-          label={`마을 짓기 (${bundleLabel(PIECE_COST.village)})`}
-          blocker={buildBlocker(view, 'village') ?? (ok ? null : '내 길이 닿아 있고 이웃 꼭짓점이 모두 비어 있어야 지을 수 있습니다.')}
-          onClick={async () => {
-            if (await sendAction({ type: 'build_village', vertexId: sel.id })) onDone();
-          }}
-        />
-      );
-    }
-  } else {
-    const road = g.roads.find((r) => r.edgeId === sel.id);
-    icon = road ? <Emblem colorIndex={players.get(road.owner)?.colorIndex ?? 0} size={18} /> : null;
-    if (road) {
-      const len = longestRoadPath(g.roads, g.buildings, road.owner).length;
-      info = (
-        <>
-          {ownerName(road.owner)} 길. 가장 긴 교역로 <b>{len}칸</b> (금빛으로 표시). {roadStatus(view, road.owner, len, (id) => players.get(id)?.nickname ?? '?')}
-        </>
-      );
-    } else info = '빈 변. 길은 내 마을·도시나 내 길에 이어서 놓습니다.';
-    if (myPlacement && pendingVertex) {
-      const ok = setupRoadEdges(g.roads, pendingVertex).includes(sel.id);
-      info = ok ? '고른 자리에 시작 마을을, 이 변에 길을 놓습니다.' : '시작 길은 방금 고른 마을 자리에 붙은 변에만 놓을 수 있습니다.';
-      action = (
-        <ActionButton
-          className="btn btn-primary btn-wide"
-          label="시작 마을과 길 놓기"
-          blocker={ok ? null : '빛나는 변을 고르세요.'}
-          onClick={async () => {
-            if (await sendAction({ type: 'place', vertexId: pendingVertex, edgeId: sel.id })) onDone();
-          }}
-        />
-      );
-    } else if (g.step === 'road_building' && g.currentPlayerId === me && !road) {
-      const ok = buildSpots(view, 'road').includes(sel.id);
-      action = (
-        <ActionButton
-          className="btn btn-primary btn-wide"
-          label={`공짜 길 놓기 (남은 ${g.freeRoads}개)`}
-          blocker={ok ? null : '내 마을·도시나 내 길에 이어지는 변에만 놓을 수 있습니다.'}
-          onClick={async () => {
-            if (await sendAction({ type: 'build_road', edgeId: sel.id })) onDone();
-          }}
-        />
-      );
-    } else if (myTurn && !road) {
-      const ok = buildSpots(view, 'road').includes(sel.id);
-      action = (
-        <ActionButton
-          className="btn btn-primary btn-wide"
-          label={`길 놓기 (${bundleLabel(PIECE_COST.road)})`}
-          blocker={buildBlocker(view, 'road') ?? (ok ? null : '내 마을·도시나 내 길에 이어지는 변에만 놓을 수 있습니다.')}
-          onClick={async () => {
-            if (await sendAction({ type: 'build_road', edgeId: sel.id })) onDone();
-          }}
-        />
-      );
-    }
-  }
-
-  const tileKind = sel.kind === 'tile' ? TILE_MAP[sel.id].kind : null;
-  const here = sel.kind === 'vertex' ? g.buildings.find((x) => x.vertexId === sel.id) : null;
-  const title = spotTitle(sel, here ? `${ownerName(here.owner)} ${PIECE_LABEL[here.kind]}` : null, sel.kind === 'edge' && g.roads.some((r) => r.edgeId === sel.id));
+  const act = spotAction(view, sel, pendingVertex);
+  if (!act) return null;
   return (
-    <div className="tile-card" role="dialog" aria-label={`${title} 정보`}>
-      <div className="tile-card-head">
-        {icon}
-        <b>{title}</b>
-        {tileKind && tileKind !== 'plaza' && <span className={`tag num-tag ${[6, 8].includes(g.numbers[sel.id]) ? 'num-hot' : ''}`}>{g.numbers[sel.id]}</span>}
-        {sel.kind === 'tile' && g.robber === sel.id && <span className="tag tag-lock">🔒 동상</span>}
-        <button className="icon-btn" onClick={onClose} aria-label="닫기">
-          ✕
-        </button>
-      </div>
-      <p className="small">{info}</p>
-      {action}
+    <div className="spot-actions" role="dialog" aria-label={act.label}>
+      <ActionButton
+        className="btn btn-primary"
+        label={act.label}
+        blocker={act.blocker}
+        onClick={async () => {
+          if (await sendAction(act.action)) onDone();
+        }}
+      />
+      <button className="icon-btn" onClick={onClose} aria-label="닫기">
+        ✕
+      </button>
     </div>
   );
 }
@@ -586,10 +386,12 @@ export function PlacementBanner({ view, players, pendingVertex }: { view: RoomVi
           const done = i < g.buildings.length;
           const now = i === g.buildings.length;
           return (
-            <span key={`${id}-${i}`} className={`po ${done ? 'po-done' : ''} ${now ? 'po-now' : ''}`}>
-              <Emblem colorIndex={p?.colorIndex ?? 0} size={12} /> {p?.nickname}
+            <Fragment key={`${id}-${i}`}>
+              <span className={`po ${done ? 'po-done' : ''} ${now ? 'po-now' : ''}`}>
+                <Emblem colorIndex={p?.colorIndex ?? 0} size={12} /> {p?.nickname}
+              </span>
               {i < g.placementOrder.length - 1 ? ' → ' : ''}
-            </span>
+            </Fragment>
           );
         })}
       </div>

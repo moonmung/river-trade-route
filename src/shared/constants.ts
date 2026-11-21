@@ -113,6 +113,14 @@ export const SPECIAL_HARBOR_RATIO = 2;
 
 /** 한 번의 플레이어 교환에서 한 종류당 제시할 수 있는 최대 수량 */
 export const MAX_TRADE_AMOUNT = 9;
+/** 차례인 사람이 동시에 열어 둘 수 있는 교환 제안 수 */
+export const MAX_OPEN_TRADES = 3;
+
+/** 채팅: 한 줄 최대 글자 수, 방마다 보관하는 최근 메시지 수 */
+export const CHAT_MAX_LENGTH = 120;
+export const CHAT_HISTORY = 50;
+/** 빠르게 띄우는 이모티콘 (이 목록 밖의 것은 서버가 받지 않는다) */
+export const CHAT_EMOTES = ['👍', '😂', '😮', '😡', '🎉', '🤝'] as const;
 
 export const NICKNAME_MAX = 12;
 export const ROOM_CODE_LENGTH = 4;

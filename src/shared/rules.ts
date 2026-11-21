@@ -15,6 +15,7 @@ import {
   LARGEST_ARMY_MIN,
   LONGEST_ROAD_MIN,
   MAX_PLAYERS,
+  MAX_OPEN_TRADES,
   MAX_TRADE_AMOUNT,
   MIN_PLAYERS,
   PIECE_COST,
@@ -98,7 +99,8 @@ export interface GameState {
   freeRoads: number;
   longestRoad: { holder: string | null; length: number };
   largestArmy: { holder: string | null; size: number };
-  trade: TradeOffer | null;
+  /** 열린 교환 제안 (차례인 사람이 낸 것, 최대 MAX_OPEN_TRADES 개, 낸 순서대로) */
+  trades: TradeOffer[];
   tradeSeq: number;
   events: GameEvent[];
   eventSeq: number;
@@ -173,7 +175,7 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     freeRoads: 0,
     longestRoad: { holder: null, length: 0 },
     largestArmy: { holder: null, size: 0 },
-    trade: null,
+    trades: [],
     tradeSeq: 0,
     events: [],
     eventSeq: 0,
@@ -733,7 +735,7 @@ function doPlayDev(s: GameState, playerId: string, action: Extract<GameAction, {
   s.devPlayedThisTurn = true;
   s.resumeStep = s.step;
   s.step = 'robber';
-  if (s.trade) closeTrade(s, 'cancelled');
+  closeAllTrades(s, 'cancelled');
   pushEvent(s, { kind: 'play_dev', player: playerId, card: 'knight' });
   updateLargestArmy(s, playerId);
   checkWin(s, playerId);
@@ -795,11 +797,16 @@ export function validateTradeBundles(give: Bundle, get: Bundle): string | null {
   return null;
 }
 
-/** 모두에게(to 없음) 또는 한 사람에게 교환을 제안한다. 받은 사람은 수락·거절하고 제안한 사람이 수락한 사람 중 한 명을 골라 확정한다. */
+/**
+ * 모두에게(to 없음) 또는 한 사람에게 교환을 제안한다. 받은 사람은 수락·거절하고 제안한 사람이 수락한 사람 중 한 명을 골라 확정한다.
+ * 차례인 사람은 제안을 여러 번 낼 수 있고 동시에 MAX_OPEN_TRADES 개까지 열어 둔다.
+ */
 function doTradePropose(s: GameState, playerId: string, to: string | undefined, give: Bundle, get: Bundle): ActionResult {
   const bad = requireTurn(s, playerId, ['main']);
   if (bad) return bad;
-  if (s.trade) return fail('TRADE_OPEN', '이미 열린 교환 제안이 있습니다. 응답을 기다리거나 취소하세요.');
+  if (s.trades.filter((t) => t.from === playerId).length >= MAX_OPEN_TRADES) {
+    return fail('TRADE_OPEN', `교환 제안은 동시에 ${MAX_OPEN_TRADES}개까지 열어 둘 수 있습니다. 하나를 취소하거나 응답을 기다리세요.`);
+  }
   // 'constructor' 같은 이름이 객체 기본 속성으로 통과하지 않도록 자기 속성인지 확인한다.
   if (to !== undefined && (to === playerId || !Object.prototype.hasOwnProperty.call(s.players, to))) {
     return fail('TRADE_INVALID', '교환할 상대를 다시 고르세요.');
@@ -811,47 +818,58 @@ function doTradePropose(s: GameState, playerId: string, to: string | undefined, 
   if (!hasBundle(me.resources, give)) return fail('NOT_ENOUGH', '제안한 자원을 모두 가지고 있지 않습니다.');
 
   const targets = to === undefined ? s.order.filter((id) => id !== playerId) : [to];
+  const same = (x: Bundle, y: Bundle) => RESOURCES.every((r) => x[r] === y[r]);
+  if (s.trades.some((t) => t.from === playerId && same(t.give, give) && same(t.get, get) && t.to.join() === targets.join())) {
+    return fail('TRADE_OPEN', '같은 내용의 제안이 이미 열려 있습니다.');
+  }
   s.tradeSeq += 1;
-  s.trade = {
+  s.trades.push({
     id: s.tradeSeq,
     from: playerId,
     to: targets,
     give: { ...give },
     get: { ...get },
     responses: Object.fromEntries(targets.map((id) => [id, 'pending' as TradeResponse])),
-  };
+  });
   pushEvent(s, { kind: 'trade_proposed', from: playerId, to: [...targets], tradeId: s.tradeSeq, give: { ...give }, get: { ...get } });
   return OK;
 }
 
-function closeTrade(s: GameState, reason: TradeCloseReason): void {
-  const t = s.trade;
-  if (!t) return;
-  s.trade = null;
+function findTrade(s: GameState, tradeId: number): TradeOffer | undefined {
+  return s.trades.find((t) => t.id === tradeId);
+}
+
+function closeTrade(s: GameState, t: TradeOffer, reason: TradeCloseReason): void {
+  const i = s.trades.indexOf(t);
+  if (i < 0) return;
+  s.trades.splice(i, 1);
   pushEvent(s, { kind: 'trade_closed', from: t.from, tradeId: t.id, reason });
 }
 
-/** 받은 사람 쪽 요청의 공통 확인: 열린 제안인지, 이 사람이 받은 제안인지 */
-function checkIncoming(s: GameState, playerId: string, tradeId: number): ActionResult | null {
-  if (s.phase !== 'playing') return fail('WRONG_PHASE', '지금은 교환할 수 없습니다.');
-  const t = s.trade;
-  if (!t || t.id !== tradeId) return fail('TRADE_GONE', '이미 처리되었거나 닫힌 교환 제안입니다.');
-  if (!t.to.includes(playerId)) return fail('NOT_ALLOWED', '교환 제안을 받은 사람만 응답할 수 있습니다.');
-  return null;
+function closeAllTrades(s: GameState, reason: TradeCloseReason): void {
+  for (const t of [...s.trades]) closeTrade(s, t, reason);
+}
+
+/** 받은 사람 쪽 요청의 공통 확인: 열린 제안인지, 이 사람이 받은 제안인지. 통과하면 그 제안을 돌려준다. */
+function incomingTrade(s: GameState, playerId: string, tradeId: number): TradeOffer | Extract<ActionResult, { ok: false }> {
+  if (s.phase !== 'playing') return { ok: false, code: 'WRONG_PHASE', message: '지금은 교환할 수 없습니다.' };
+  const t = findTrade(s, tradeId);
+  if (!t) return { ok: false, code: 'TRADE_GONE', message: '이미 처리되었거나 닫힌 교환 제안입니다.' };
+  if (!t.to.includes(playerId)) return { ok: false, code: 'NOT_ALLOWED', message: '교환 제안을 받은 사람만 응답할 수 있습니다.' };
+  return t;
 }
 
 /** 수락: 내가 낼 자원이 있는지 확인하고 표시만 한다. 실제로 옮기는 것은 제안한 사람이 확정할 때다. */
 function doTradeAccept(s: GameState, playerId: string, tradeId: number): ActionResult {
-  const bad = checkIncoming(s, playerId, tradeId);
-  if (bad) return bad;
-  const t = s.trade!;
+  const t = incomingTrade(s, playerId, tradeId);
+  if ('ok' in t) return t;
   if (t.responses[playerId] === 'accepted') return fail('NOT_ALLOWED', '이미 수락했습니다. 제안한 사람이 고르기를 기다리세요.');
   if (currentPlayer(s) !== t.from || s.step !== 'main') {
-    closeTrade(s, 'turn_end');
+    closeTrade(s, t, 'turn_end');
     return { ok: false, code: 'TRADE_GONE', message: '제안한 사람의 차례가 지나 교환이 닫혔습니다.' };
   }
   if (!hasBundle(s.players[t.from].resources, t.give)) {
-    closeTrade(s, 'unaffordable');
+    closeTrade(s, t, 'unaffordable');
     return { ok: false, code: 'TRADE_GONE', message: '제안한 사람의 자원이 바뀌어 교환이 닫혔습니다.' };
   }
   if (!hasBundle(s.players[playerId].resources, t.get)) return fail('NOT_ENOUGH', '요청받은 자원이 부족해 수락할 수 없습니다.');
@@ -862,23 +880,23 @@ function doTradeAccept(s: GameState, playerId: string, tradeId: number): ActionR
 
 /** 거절 (수락했다가 마음을 바꿔도 된다). 받은 사람이 모두 거절하면 제안이 닫힌다. */
 function doTradeReject(s: GameState, playerId: string, tradeId: number): ActionResult {
-  const bad = checkIncoming(s, playerId, tradeId);
-  if (bad) return bad;
-  const t = s.trade!;
+  const t = incomingTrade(s, playerId, tradeId);
+  if ('ok' in t) return t;
   if (t.responses[playerId] === 'rejected') return fail('NOT_ALLOWED', '이미 거절했습니다.');
   t.responses[playerId] = 'rejected';
   pushEvent(s, { kind: 'trade_response', player: playerId, from: t.from, tradeId: t.id, response: 'rejected' });
-  if (t.to.every((id) => t.responses[id] === 'rejected')) closeTrade(s, 'rejected');
+  if (t.to.every((id) => t.responses[id] === 'rejected')) closeTrade(s, t, 'rejected');
   return OK;
 }
 
 /**
  * 제안한 사람이 수락한 사람 중 한 명을 골라 교환을 확정한다. 양쪽 잔고를 다시 확인한 뒤 한 번에 옮기고 제안을 닫는다.
  * 같은 제안을 두 번 확정하면 두 번째 요청은 제안이 이미 닫혀 거절된다.
+ * 옮긴 뒤에는 남은 제안을 다시 본다 (같은 자원을 여러 제안에 걸어 두었을 수 있다).
  */
 function doTradeConfirm(s: GameState, playerId: string, tradeId: number, partner: string): ActionResult {
-  const t = s.trade;
-  if (!t || t.id !== tradeId) return fail('TRADE_GONE', '이미 처리되었거나 닫힌 교환 제안입니다.');
+  const t = findTrade(s, tradeId);
+  if (!t) return fail('TRADE_GONE', '이미 처리되었거나 닫힌 교환 제안입니다.');
   if (t.from !== playerId) return fail('NOT_ALLOWED', '제안한 사람만 교환을 확정할 수 있습니다.');
   const bad = requireTurn(s, playerId, ['main']);
   if (bad) return bad;
@@ -892,23 +910,24 @@ function doTradeConfirm(s: GameState, playerId: string, tradeId: number, partner
   gain(other.resources, t.give);
   pay(other.resources, t.get);
   gain(from.resources, t.get);
-  s.trade = null;
+  s.trades.splice(s.trades.indexOf(t), 1);
   pushEvent(s, { kind: 'trade_accepted', from: t.from, to: partner, tradeId: t.id, give: { ...t.give }, get: { ...t.get } });
+  afterAction(s);
   return OK;
 }
 
 function doTradeCancel(s: GameState, playerId: string, tradeId: number): ActionResult {
-  const t = s.trade;
-  if (!t || t.id !== tradeId) return fail('TRADE_GONE', '이미 처리되었거나 닫힌 교환 제안입니다.');
+  const t = findTrade(s, tradeId);
+  if (!t) return fail('TRADE_GONE', '이미 처리되었거나 닫힌 교환 제안입니다.');
   if (t.from !== playerId) return fail('NOT_ALLOWED', '제안한 사람만 취소할 수 있습니다.');
-  closeTrade(s, 'cancelled');
+  closeTrade(s, t, 'cancelled');
   return OK;
 }
 
 function doEndTurn(s: GameState, playerId: string): ActionResult {
   const bad = requireTurn(s, playerId, ['main']);
   if (bad) return bad;
-  if (s.trade) closeTrade(s, 'turn_end');
+  closeAllTrades(s, 'turn_end');
   pushEvent(s, { kind: 'turn_end', player: playerId });
   s.current = (s.current + 1) % s.order.length;
   s.turn += 1;
@@ -921,18 +940,18 @@ function doEndTurn(s: GameState, playerId: string): ActionResult {
 }
 
 /**
- * 차례인 사람이 자원을 쓰거나 바꾼 뒤 열린 제안을 다시 본다.
- * 제안한 자원이 모자라면 제안을 닫고 수락했던 사람의 자원이 모자라게 되면(독점 카드 등) 그 사람의 수락을 되돌린다.
+ * 자원이 바뀐 뒤 열린 제안을 다시 본다 (건설·발전 카드·은행 교환·교환 확정).
+ * 제안한 자원이 모자라면 그 제안을 닫고, 수락했던 사람의 자원이 모자라게 되면(독점 카드, 다른 교환 등) 그 사람의 수락을 되돌린다.
  */
 function afterAction(s: GameState): void {
-  const t = s.trade;
-  if (!t) return;
-  if (!hasBundle(s.players[t.from].resources, t.give)) {
-    closeTrade(s, 'unaffordable');
-    return;
-  }
-  for (const id of t.to) {
-    if (t.responses[id] === 'accepted' && !hasBundle(s.players[id].resources, t.get)) t.responses[id] = 'pending';
+  for (const t of [...s.trades]) {
+    if (!hasBundle(s.players[t.from].resources, t.give)) {
+      closeTrade(s, t, 'unaffordable');
+      continue;
+    }
+    for (const id of t.to) {
+      if (t.responses[id] === 'accepted' && !hasBundle(s.players[id].resources, t.get)) t.responses[id] = 'pending';
+    }
   }
 }
 
@@ -972,7 +991,7 @@ function checkWin(s: GameState, playerId: string): void {
   if (s.phase !== 'playing' || currentPlayer(s) !== playerId) return;
   if (victoryPoints(s, playerId, true) < WIN_POINTS) return;
   s.phase = 'finished';
-  s.trade = null;
+  s.trades = [];
   s.result = computeResult(s, playerId);
   pushEvent(s, { kind: 'game_end', winners: [playerId] });
 }

@@ -12,13 +12,12 @@ import {
   LONGEST_ROAD_MIN,
   TILES,
   TILE_MAP,
-  bundleLabel,
   bundleTotal,
   hasBundle,
 } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
 import { buildableRoads, buildableVillages, pieceCount, placeableVertices, setupRoadEdges, upgradableVillages } from '../../shared/rules';
-import type { Bundle, DevKind, GameEvent, PieceKind, TradeCloseReason } from '../../shared/types';
+import type { Bundle, DevKind, GameAction, GameEvent, PieceKind, TradeCloseReason } from '../../shared/types';
 import { josa } from '../ui/josa';
 
 export interface PlayerInfo {
@@ -62,10 +61,10 @@ export function buildBlocker(view: RoomView, kind: PieceKind): string | null {
   }
   if (!g) return '게임이 없습니다.';
   if (pieceCount(g.buildings, g.roads, view.you, kind) >= PIECE_LIMIT[kind]) return `${PIECE_LABEL[kind]}은(는) 최대 ${PIECE_LIMIT[kind]}개까지입니다.`;
-  if (!free && !hasBundle(g.myResources, PIECE_COST[kind])) return `${bundleLabel(PIECE_COST[kind])}가 필요합니다.`;
+  if (!free && !hasBundle(g.myResources, PIECE_COST[kind])) return `${shortfallText(g.myResources, PIECE_COST[kind])} 더 필요합니다.`;
   if (buildSpots(view, kind).length === 0) {
     if (kind === 'road') return '내 마을이나 길과 이어진 빈 변이 없습니다.';
-    if (kind === 'village') return '내 길 끝에 마을을 지을 빈 꼭짓점이 없습니다 (이웃 꼭짓점이 비어 있어야 합니다).';
+    if (kind === 'village') return '마을을 지을 빈자리가 없습니다. 길을 더 이어 보세요.';
     return '도시로 올릴 내 마을이 없습니다.';
   }
   return null;
@@ -78,6 +77,21 @@ export function buildSpots(view: RoomView, kind: PieceKind): string[] {
   if (kind === 'road') return buildableRoads(g.buildings, g.roads, view.you);
   if (kind === 'village') return buildableVillages(g.buildings, g.roads, view.you);
   return upgradableVillages(g.buildings, view.you);
+}
+
+/** 비용에서 모자란 만큼 (자원마다) */
+export function shortfall(have: Bundle, cost: Bundle): Bundle {
+  const out = { ...cost };
+  for (const r of RESOURCES) out[r] = Math.max(0, cost[r] - have[r]);
+  return out;
+}
+
+/** "벽돌 1, 양모 1" 처럼 모자란 자원을 짧게 */
+export function shortfallText(have: Bundle, cost: Bundle): string {
+  const lack = shortfall(have, cost);
+  return RESOURCES.filter((r) => lack[r] > 0)
+    .map((r) => `${RESOURCE_LABEL[r]} ${lack[r]}`)
+    .join(', ');
 }
 
 export function tradeBlocker(view: RoomView): string | null {
@@ -100,7 +114,7 @@ export function buyDevBlocker(view: RoomView): string | null {
   if (turn) return turn;
   const g = view.game!;
   if (g.devDeckCount <= 0) return '발전 카드가 모두 팔렸습니다.';
-  if (!hasBundle(g.myResources, DEV_COST)) return `${bundleLabel(DEV_COST)}가 필요합니다.`;
+  if (!hasBundle(g.myResources, DEV_COST)) return `${shortfallText(g.myResources, DEV_COST)} 더 필요합니다.`;
   return null;
 }
 
@@ -189,6 +203,28 @@ export function spotName(numbers: Record<string, number>, kind: 'vertex' | 'edge
   return coast ? `${names} 바닷가` : `${names} 사이`;
 }
 
+/**
+ * 오른쪽 '최근 기록'에 남기는 점수와 이어진 기록: 마을·도시, 최장 교역로·최강 기사단, 기사 사용, 승점 카드, 게임 끝.
+ * 주사위·교환·길 같은 나머지는 메뉴의 전체 기록에서 본다.
+ */
+export function isScoreEvent(e: GameEvent): boolean {
+  switch (e.kind) {
+    case 'placement':
+    case 'award':
+    case 'game_end':
+      return true;
+    case 'build':
+      return e.piece !== 'road';
+    case 'play_dev':
+      return e.card === 'knight';
+    case 'buy_dev':
+      // 승점 카드를 샀다는 내용은 산 사람 화면에만 온다.
+      return e.detail === 'victory';
+    default:
+      return false;
+  }
+}
+
 /** 기록 한 줄. 비공개 내용(detail)은 서버가 볼 수 있는 사람에게만 보낸다. */
 export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: string, numbers: Record<string, number> = {}): string {
   const place = (kind: 'vertex' | 'edge', id: string) => spotName(numbers, kind, id);
@@ -220,6 +256,7 @@ export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: 
       if (e.piece === 'city') return `${subj(e.player)} ${place('vertex', e.at)}의 마을을 도시로 올렸습니다.`;
       return `${subj(e.player)} ${place('vertex', e.at)}에 마을을 지었습니다.`;
     case 'buy_dev':
+      if (e.detail === 'victory') return `${subj(e.player)} 승점 카드를 뽑았습니다 (+1점, 나만 봅니다).`;
       return `${subj(e.player)} 발전 카드를 샀습니다${e.detail ? ` (${DEV_LABEL[e.detail]})` : ''}.`;
     case 'play_dev':
       if (e.card === 'monopoly') return `${subj(e.player)} 독점 카드로 ${RESOURCE_LABEL[e.resources![0]]}을(를) 모두 가져갔습니다 (${e.amount ?? 0}장).`;
@@ -249,4 +286,46 @@ export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: 
     case 'game_end':
       return `게임 종료. 승리: ${e.winners.map(name).join(', ')}`;
   }
+}
+
+export interface SpotAction {
+  label: string;
+  blocker: string | null;
+  action: GameAction;
+}
+
+/**
+ * 보드에서 고른 자리에서 할 수 있는 일 (없으면 null): 동상 옮기기, 시작 마을과 길, 길·마을 짓기, 도시로 올리기.
+ * 건설 모드나 길 건설 카드로 빛나는 자리를 누르면 이것으로 바로 짓는다.
+ */
+export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edge'; id: string }, pendingVertex: string | null): SpotAction | null {
+  const g = view.game;
+  if (!g) return null;
+  const me = view.you;
+  const myMain = g.phase === 'playing' && g.currentPlayerId === me && g.step === 'main';
+  if (sel.kind === 'tile') {
+    if (g.phase !== 'playing' || g.step !== 'robber' || g.currentPlayerId !== me) return null;
+    return {
+      label: '여기로 기사단 동상 옮기기',
+      blocker: g.robber === sel.id ? '동상은 다른 칸으로 옮겨야 합니다.' : null,
+      action: { type: 'move_robber', tileId: sel.id },
+    };
+  }
+  if (sel.kind === 'vertex') {
+    const b = g.buildings.find((x) => x.vertexId === sel.id);
+    if (myMain && b && b.owner === me && b.kind === 'village') return { label: '도시로 올리기', blocker: buildBlocker(view, 'city'), action: { type: 'build_city', vertexId: sel.id } };
+    if (myMain && !b && buildSpots(view, 'village').includes(sel.id)) return { label: '마을 짓기', blocker: buildBlocker(view, 'village'), action: { type: 'build_village', vertexId: sel.id } };
+    return null;
+  }
+  if (g.roads.some((r) => r.edgeId === sel.id)) return null;
+  if (g.phase === 'placement' && g.placementPlayerId === me) {
+    if (!pendingVertex || !setupRoadEdges(g.roads, pendingVertex).includes(sel.id)) return null;
+    return { label: '시작 마을과 길 놓기', blocker: null, action: { type: 'place', vertexId: pendingVertex, edgeId: sel.id } };
+  }
+  if (!buildSpots(view, 'road').includes(sel.id)) return null;
+  if (g.phase === 'playing' && g.step === 'road_building' && g.currentPlayerId === me) {
+    return { label: `공짜 길 놓기 (남은 ${g.freeRoads}개)`, blocker: null, action: { type: 'build_road', edgeId: sel.id } };
+  }
+  if (myMain) return { label: '길 놓기', blocker: buildBlocker(view, 'road'), action: { type: 'build_road', edgeId: sel.id } };
+  return null;
 }

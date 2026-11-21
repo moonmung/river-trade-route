@@ -464,25 +464,25 @@ describe('플레이어 교환', () => {
     expectFail(s, 'p1', { type: 'trade_propose', give: bundle({ brick: 1 }), get: bundle({ stone: 1 }) }, 'WRONG_STEP');
     toMain(s);
     act(s, 'p1', { type: 'trade_propose', give: bundle({ brick: 1 }), get: bundle({ stone: 1 }) });
-    const id = s.trade!.id;
-    expect(s.trade).toMatchObject({ from: 'p1', to: ['p2', 'p3'], responses: { p2: 'pending', p3: 'pending' } });
+    const id = s.trades[0].id;
+    expect(s.trades[0]).toMatchObject({ from: 'p1', to: ['p2', 'p3'], responses: { p2: 'pending', p3: 'pending' } });
 
     // 석재가 없는 p3 는 수락할 수 없고 수락만으로는 자원이 옮겨지지 않는다
     expectFail(s, 'p3', { type: 'trade_accept', tradeId: id }, 'NOT_ENOUGH');
     act(s, 'p2', { type: 'trade_accept', tradeId: id });
-    expect(s.trade!.responses.p2).toBe('accepted');
+    expect(s.trades[0].responses.p2).toBe('accepted');
     expect(s.players.p2.resources).toEqual(bundle({ grain: 1, stone: 1, wood: 1 }));
     expectFail(s, 'p2', { type: 'trade_accept', tradeId: id }, 'NOT_ALLOWED');
     // 수락하지 않은 사람과는 확정할 수 없고 제안한 사람만 확정한다
     expectFail(s, 'p1', { type: 'trade_confirm', tradeId: id, with: 'p3' }, 'NOT_ALLOWED');
     expectFail(s, 'p2', { type: 'trade_confirm', tradeId: id, with: 'p2' }, 'NOT_ALLOWED');
     act(s, 'p3', { type: 'trade_reject', tradeId: id });
-    expect(s.trade!.responses).toEqual({ p2: 'accepted', p3: 'rejected' });
+    expect(s.trades[0].responses).toEqual({ p2: 'accepted', p3: 'rejected' });
 
     act(s, 'p1', { type: 'trade_confirm', tradeId: id, with: 'p2' });
     expect(s.players.p1.resources).toEqual(bundle({ grain: 1, stone: 2 }));
     expect(s.players.p2.resources).toEqual(bundle({ grain: 1, wood: 1, brick: 1 }));
-    expect(s.trade).toBeNull();
+    expect(s.trades).toEqual([]);
     expect(s.events.at(-1)).toMatchObject({ kind: 'trade_accepted', from: 'p1', to: 'p2', give: bundle({ brick: 1 }), get: bundle({ stone: 1 }) });
     // 두 번째 확정·수락은 제안이 이미 닫혀 거절된다 (자원이 두 번 옮겨지지 않는다)
     expectFail(s, 'p1', { type: 'trade_confirm', tradeId: id, with: 'p2' }, 'TRADE_GONE');
@@ -492,21 +492,21 @@ describe('플레이어 교환', () => {
   it('한 사람에게만 제안할 수도 있고 받은 사람이 모두 거절하면 제안이 닫힌다', () => {
     const s = toMain(setup3());
     act(s, 'p1', { type: 'trade_propose', to: 'p2', give: bundle({ grain: 1 }), get: bundle({ wood: 1 }) });
-    let id = s.trade!.id;
-    expect(s.trade!.to).toEqual(['p2']);
+    let id = s.trades[0].id;
+    expect(s.trades[0].to).toEqual(['p2']);
     expectFail(s, 'p3', { type: 'trade_accept', tradeId: id }, 'NOT_ALLOWED');
     act(s, 'p2', { type: 'trade_reject', tradeId: id });
-    expect(s.trade).toBeNull();
+    expect(s.trades).toEqual([]);
     expect(s.events.at(-1)).toMatchObject({ kind: 'trade_closed', from: 'p1', reason: 'rejected' });
 
     act(s, 'p1', { type: 'trade_propose', give: bundle({ grain: 1 }), get: bundle({ wood: 1 }) });
-    id = s.trade!.id;
+    id = s.trades[0].id;
     // 수락했다가 마음을 바꿔 거절할 수 있다
     act(s, 'p2', { type: 'trade_accept', tradeId: id });
     act(s, 'p2', { type: 'trade_reject', tradeId: id });
     expectFail(s, 'p1', { type: 'trade_confirm', tradeId: id, with: 'p2' }, 'NOT_ALLOWED');
     act(s, 'p3', { type: 'trade_reject', tradeId: id });
-    expect(s.trade).toBeNull();
+    expect(s.trades).toEqual([]);
   });
 
   it('양쪽 모두 자원을 내야 하고, 같은 종류를 양쪽에 둘 수 없다', () => {
@@ -518,7 +518,8 @@ describe('플레이어 교환', () => {
     }
     expectFail(s, 'p1', { type: 'trade_propose', give: bundle({ wood: 5 }), get: bundle({ grain: 1 }) }, 'NOT_ENOUGH');
     act(s, 'p1', { type: 'trade_propose', give: bundle({ grain: 1 }), get: bundle({ wood: 1 }) });
-    expectFail(s, 'p1', { type: 'trade_propose', give: bundle({ stone: 1 }), get: bundle({ wood: 1 }) }, 'TRADE_OPEN');
+    // 같은 내용을 두 번 열 수는 없다
+    expectFail(s, 'p1', { type: 'trade_propose', give: bundle({ grain: 1 }), get: bundle({ wood: 1 }) }, 'TRADE_OPEN');
   });
 
   it('제안한 사람이 낼 자원을 써 버리면 제안이 닫히고 수락한 사람의 자원이 줄면 수락이 풀린다', () => {
@@ -526,27 +527,89 @@ describe('플레이어 교환', () => {
     s.players.p1.resources = bundle({ wood: 1, brick: 1, grain: 1 });
     s.players.p1.devCards = [{ kind: 'monopoly', boughtTurn: 0 }];
     act(s, 'p1', { type: 'trade_propose', give: bundle({ grain: 1 }), get: bundle({ wood: 1 }) });
-    const id = s.trade!.id;
+    const id = s.trades[0].id;
     act(s, 'p2', { type: 'trade_accept', tradeId: id });
     // 독점 카드로 목재를 모두 가져오면 p2 는 낼 목재가 없어져 수락이 풀린다
     act(s, 'p1', { type: 'play_dev', kind: 'monopoly', resource: 'wood' });
-    expect(s.trade!.responses.p2).toBe('pending');
+    expect(s.trades[0].responses.p2).toBe('pending');
     expectFail(s, 'p1', { type: 'trade_confirm', tradeId: id, with: 'p2' }, 'NOT_ALLOWED');
     act(s, 'p1', { type: 'trade_cancel', tradeId: id });
 
     act(s, 'p1', { type: 'trade_propose', give: bundle({ brick: 1 }), get: bundle({ stone: 1 }) });
     act(s, 'p1', { type: 'build_road', edgeId: buildableRoads(s.buildings, s.roads, 'p1')[0] });
-    expect(s.trade).toBeNull();
+    expect(s.trades).toEqual([]);
     expect(s.events.at(-1)).toMatchObject({ kind: 'trade_closed', reason: 'unaffordable' });
+  });
+
+  it('차례인 사람은 제안을 3개까지 함께 열어 두고 제안마다 따로 응답·확정한다', () => {
+    const s = toMain(setup3());
+    s.players.p1.resources = bundle({ grain: 2, brick: 1, stone: 1 });
+    act(s, 'p1', { type: 'trade_propose', give: bundle({ grain: 1 }), get: bundle({ wood: 1 }) });
+    act(s, 'p1', { type: 'trade_propose', give: bundle({ brick: 1 }), get: bundle({ wool: 1 }) });
+    act(s, 'p1', { type: 'trade_propose', to: 'p3', give: bundle({ stone: 1 }), get: bundle({ wool: 1 }) });
+    expect(s.trades.map((t) => t.id)).toEqual([1, 2, 3]);
+    expectFail(s, 'p1', { type: 'trade_propose', give: bundle({ grain: 1 }), get: bundle({ stone: 1 }) }, 'TRADE_OPEN');
+    const [a, b, c] = s.trades.map((t) => t.id);
+
+    // 응답은 제안마다 따로 남는다
+    act(s, 'p2', { type: 'trade_accept', tradeId: a });
+    act(s, 'p2', { type: 'trade_reject', tradeId: b });
+    expect(s.trades.find((t) => t.id === a)!.responses).toEqual({ p2: 'accepted', p3: 'pending' });
+    expect(s.trades.find((t) => t.id === b)!.responses).toEqual({ p2: 'rejected', p3: 'pending' });
+    // 모두 거절한 제안 하나만 닫힌다
+    act(s, 'p3', { type: 'trade_reject', tradeId: b });
+    expect(s.trades.map((t) => t.id)).toEqual([a, c]);
+    expect(s.events.at(-1)).toMatchObject({ kind: 'trade_closed', tradeId: b, reason: 'rejected' });
+
+    act(s, 'p1', { type: 'trade_confirm', tradeId: a, with: 'p2' });
+    expect(s.players.p1.resources).toEqual(bundle({ grain: 1, brick: 1, stone: 1, wood: 1 }));
+    expect(s.trades.map((t) => t.id)).toEqual([c]);
+    // 하나가 닫히면 다시 새 제안을 열 수 있다
+    act(s, 'p1', { type: 'trade_propose', give: bundle({ grain: 1 }), get: bundle({ stone: 1 }) });
+    expect(s.trades).toHaveLength(2);
+  });
+
+  it('같은 자원을 건 다른 제안은 한 교환이 확정되면 닫히거나 수락이 풀린다', () => {
+    const s = toMain(setup3());
+    // p1 곡물 1장으로 두 제안, p2 목재 1장으로 두 제안을 수락한다
+    s.players.p1.resources = bundle({ grain: 1, brick: 1 });
+    s.players.p2.resources = bundle({ wood: 1, stone: 1 });
+    act(s, 'p1', { type: 'trade_propose', give: bundle({ grain: 1 }), get: bundle({ wood: 1 }) });
+    act(s, 'p1', { type: 'trade_propose', give: bundle({ grain: 1 }), get: bundle({ stone: 1 }) });
+    act(s, 'p1', { type: 'trade_propose', give: bundle({ brick: 1 }), get: bundle({ wood: 1 }) });
+    const [a, b, c] = s.trades.map((t) => t.id);
+    act(s, 'p2', { type: 'trade_accept', tradeId: a });
+    act(s, 'p2', { type: 'trade_accept', tradeId: b });
+    act(s, 'p2', { type: 'trade_accept', tradeId: c });
+
+    act(s, 'p1', { type: 'trade_confirm', tradeId: a, with: 'p2' });
+    // p1 은 곡물이 없어져 b 가 닫히고, p2 는 목재가 없어져 c 의 수락이 풀린다
+    expect(s.trades.map((t) => t.id)).toEqual([c]);
+    expect(s.events.find((e) => e.kind === 'trade_closed' && e.tradeId === b)).toMatchObject({ reason: 'unaffordable' });
+    expect(s.trades[0].responses.p2).toBe('pending');
+    expectFail(s, 'p1', { type: 'trade_confirm', tradeId: c, with: 'p2' }, 'NOT_ALLOWED');
+    expect(s.players.p1.resources).toEqual(bundle({ brick: 1, wood: 1 }));
+    expect(s.players.p2.resources).toEqual(bundle({ grain: 1, stone: 1 }));
+  });
+
+  it('턴을 넘기거나 기사를 쓰면 열린 제안이 모두 닫힌다', () => {
+    const s = toMain(setup3());
+    s.players.p1.resources = bundle({ grain: 1, brick: 1 });
+    s.players.p1.devCards = [{ kind: 'knight', boughtTurn: 0 }];
+    act(s, 'p1', { type: 'trade_propose', give: bundle({ grain: 1 }), get: bundle({ wood: 1 }) });
+    act(s, 'p1', { type: 'trade_propose', give: bundle({ brick: 1 }), get: bundle({ wood: 1 }) });
+    act(s, 'p1', { type: 'play_dev', kind: 'knight' });
+    expect(s.trades).toEqual([]);
+    expect(s.events.filter((e) => e.kind === 'trade_closed').map((e) => e.kind === 'trade_closed' && e.reason)).toEqual(['cancelled', 'cancelled']);
   });
 
   it('턴을 넘기면 제안이 닫힌다', () => {
     const s = toMain(setup3());
     act(s, 'p1', { type: 'trade_propose', give: bundle({ grain: 1 }), get: bundle({ wood: 1 }) });
-    const id = s.trade!.id;
+    const id = s.trades[0].id;
     act(s, 'p2', { type: 'trade_accept', tradeId: id });
     act(s, 'p1', { type: 'end_turn' });
-    expect(s.trade).toBeNull();
+    expect(s.trades).toEqual([]);
     expect(applyAction(s, 'p2', { type: 'trade_accept', tradeId: id }).ok).toBe(false);
     expect(applyAction(s, 'p1', { type: 'trade_confirm', tradeId: id, with: 'p2' }).ok).toBe(false);
   });

@@ -4,6 +4,8 @@ import type { RoomView, ServerInfo } from '../../shared/protocol';
 import { client } from '../net/client';
 import { navigate } from '../router';
 import { playerColor } from '../theme';
+import { useChat } from '../net/chat';
+import { ChatBox, EmoteBar } from '../ui/chat';
 import { AsyncButton, Brand, copyText } from '../ui/common';
 import { Emblem } from '../ui/icons';
 import { RulesSummary } from '../ui/RulesSummary';
@@ -63,6 +65,7 @@ export function Lobby({ view }: { view: RoomView }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const me = view.players.find((p) => p.id === view.you);
   const isHost = view.hostId === view.you;
+  const { emotes } = useChat(view.code);
   const { base, local, missingLan } = inviteBase(info, chosen);
   const link = `${base}/join/${view.code}`;
   const n = view.players.length;
@@ -137,6 +140,11 @@ export function Lobby({ view }: { view: RoomView }) {
                     {p.nickname}
                     {p.id === view.you && <span className="tag">나</span>}
                     {p.isHost && <span className="tag tag-host">방장</span>}
+                    {emotes[p.id] && (
+                      <span key={emotes[p.id].key} className="emote-pop">
+                        {emotes[p.id].emote}
+                      </span>
+                    )}
                   </span>
                   <span className={`seat-state ${p.ready ? 'ready' : ''}`}>
                     {!p.connected ? '연결 끊김' : p.ready ? '준비 완료' : '준비 중'}
@@ -201,6 +209,11 @@ export function Lobby({ view }: { view: RoomView }) {
           </AsyncButton>
         </div>
       </div>
+      <section className="card lobby-chat" aria-label="대기실 대화">
+        <h2>대화</h2>
+        <ChatBox code={view.code} you={view.you} />
+        <EmoteBar />
+      </section>
       <RulesSummary />
     </main>
   );
