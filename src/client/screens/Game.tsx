@@ -24,7 +24,7 @@ import { clearFlyingCards, useHeldCards } from '../game/cardFly';
 import { useGameEffects } from '../game/effects';
 import { usePaceWait } from '../game/pace';
 import { Hand } from '../game/hand';
-import { BuildBar, PlayersPanel, TradeButton, TurnButton } from '../game/panels';
+import { BankPanel, BuildBar, PlayersPanel, TradeButton, TurnButton } from '../game/panels';
 import { TradeDeeds, TradePanel, handPickToDraft, newDraft, type TradeDraft } from '../game/trade';
 import { OrderRollPanel, TurnStatus } from '../game/turn';
 import { sendAction, useLocalSetting, useMediaQuery } from '../game/ui';
@@ -286,6 +286,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
           <div className="hud-status" ref={topRef}>
             <TurnStatus view={view} players={players} onMenu={openMenu} wait={wait} compact />
             <PlayersPanel view={view} players={players} emotes={chat.emotes} compact />
+            <BankPanel view={view} compact />
           </div>
         )}
         <div className="hud-float">
@@ -317,6 +318,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             <ChatBox code={view.code} you={view.you} />
             <EmoteBar />
           </section>
+          <BankPanel view={view} />
           <section className="side-players">
             <PlayersPanel view={view} players={players} emotes={chat.emotes} />
           </section>

@@ -4,7 +4,7 @@ import type { RoomView } from '../../shared/protocol';
 import { pieceCount } from '../../shared/rules';
 import type { Bundle, PieceKind } from '../../shared/types';
 import { throwDice } from '../dice';
-import { ArtImg, DEV_BACK_ART, PIECE_ART } from '../ui/art';
+import { ArtImg, DEV_BACK_ART, PIECE_ART, RESOURCE_ART } from '../ui/art';
 import { playerColor } from '../theme';
 import { Emblem, ResourceIcon } from '../ui/icons';
 import { MiniHand } from './hand';
@@ -355,6 +355,68 @@ export function TurnButton({ view, wait = null }: { view: RoomView; wait?: strin
         icon={<span className="act-ico">⏭</span>}
       />
     </div>
+  );
+}
+
+/** 은행 건물: 세모 지붕과 기둥 셋 (먹선) */
+function BankIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>
+      <g fill="#efe2c2" stroke="#3a2a1f" strokeWidth="1.4" strokeLinejoin="round">
+        <path d="M2.5 9 L12 3.5 L21.5 9 Z" />
+        <rect x="4" y="9.5" width="16" height="1.8" />
+        <rect x="5.2" y="11.8" width="2.4" height="6.6" />
+        <rect x="10.8" y="11.8" width="2.4" height="6.6" />
+        <rect x="16.4" y="11.8" width="2.4" height="6.6" />
+        <rect x="3" y="18.6" width="18" height="2.2" />
+      </g>
+    </svg>
+  );
+}
+
+/**
+ * 은행: 자원마다 은행에 남은 카드와 발전 카드 더미에 남은 장수. 손 카드와 같은 물감 색의 작은 카드 더미로 그리고 오른쪽 위에 장수를 적는다.
+ * 세 장 이하로 줄면 장수를 황토색, 다 떨어지면 카드를 흐리게 하고 장수를 붉게 칠한다. 장수를 정하기 전에 저장한 게임(무제한)은 ∞ 로 적는다.
+ * compact: 좁은 화면의 차례 쪽지 아래에 아이콘과 숫자만 한 줄로 놓는 작은 꼴
+ */
+export function BankPanel({ view, compact = false }: { view: RoomView; compact?: boolean }) {
+  const g = view.game!;
+  if (g.phase === 'order') return null;
+  const items: { key: string; label: string; src: string; n: number | null }[] = [
+    ...RESOURCES.map((r) => ({ key: r as string, label: RESOURCE_LABEL[r], src: RESOURCE_ART[r], n: g.bank ? g.bank[r] : null })),
+    { key: 'dev', label: '발전 카드', src: DEV_BACK_ART, n: g.devDeckCount },
+  ];
+  const state = (n: number | null) => (n === null ? '' : n === 0 ? 'bank-empty' : n <= 3 ? 'bank-low' : '');
+  const title = (it: (typeof items)[number]) => `${it.label} ${it.n === null ? '무제한' : `${it.n}장 남음`}`;
+  if (compact) {
+    return (
+      <div className="bank-strip" role="group" aria-label="은행에 남은 카드">
+        <BankIcon size={15} />
+        {items.map((it) => (
+          <span key={it.key} className={`bank-chip ${state(it.n)}`} title={title(it)} aria-label={title(it)}>
+            <ArtImg src={it.src} size={15} />
+            <b>{it.n === null ? '∞' : it.n}</b>
+          </span>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <section className="side-bank" aria-label="은행에 남은 카드">
+      <h3>
+        <BankIcon size={18} /> 은행
+      </h3>
+      <ul className="bank-cards">
+        {items.map((it) => (
+          <li key={it.key} className={`bank-card bank-${it.key} ${state(it.n)}`} title={title(it)} aria-label={title(it)}>
+            <span className="bank-face">
+              <ArtImg src={it.src} size={28} />
+            </span>
+            <b className="bank-n">{it.n === null ? '∞' : it.n}</b>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
