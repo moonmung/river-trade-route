@@ -187,14 +187,14 @@ const BUILD_ITEMS: { key: BuildKey; label: string; cost: Bundle }[] = [
   { key: 'dev', label: '발전 카드', cost: DEV_COST },
 ];
 
-/** 버튼 아래 재료: 아이콘과 개수. 모자란 재료는 흐리게 */
+/** 말풍선 안의 재료: 아이콘과 개수. 모자란 재료는 흐리게 */
 function CostRow({ cost, have }: { cost: Bundle; have: Bundle }) {
   const lack = shortfall(have, cost);
   return (
     <span className="bb-cost">
       {RESOURCES.filter((r) => cost[r] > 0).map((r) => (
-        <span key={r} className={`bb-res ${lack[r] ? 'bb-lack' : ''}`} title={`${RESOURCE_LABEL[r]} ${cost[r]}${lack[r] ? ` (${lack[r]} 모자람)` : ''}`}>
-          <ResourceIcon kind={r} size={15} />
+        <span key={r} className={`bb-res ${lack[r] ? 'bb-lack' : ''}`}>
+          <ResourceIcon kind={r} size={16} />
           <b>{cost[r]}</b>
         </span>
       ))}
@@ -202,10 +202,17 @@ function CostRow({ cost, have }: { cost: Bundle; have: Bundle }) {
   );
 }
 
+function costText(cost: Bundle): string {
+  return RESOURCES.filter((r) => cost[r] > 0)
+    .map((r) => `${RESOURCE_LABEL[r]} ${cost[r]}`)
+    .join(', ');
+}
+
 /**
- * 손 카드 옆의 네모 버튼 네 개: [도로] [마을] [도시] [발전 카드].
+ * 교환과 턴 종료 사이의 네모 버튼 네 개: [도로] [마을] [도시] [발전 카드].
+ * 버튼에는 큰 그림과 작은 이름만 두고, 오른쪽 위 모서리에 앞으로 더 지을 수 있는 개수(발전 카드는 더미에 남은 장수)를 적는다.
+ * 재료는 마우스를 올리거나 누르면 버튼 위 말풍선에 아이콘과 개수로 보이고, 못 하는 까닭도 같은 말풍선에 나온다.
  * 도로·마을·도시는 누르면 지을 수 있는 자리가 빛나고 그 자리를 누르면 바로 짓는다. 발전 카드는 누르면 바로 산다.
- * 못 하는 까닭은 마우스를 올리거나 누르면 버튼 위 말풍선으로 짧게 알려 준다.
  * wait: 주사위·생산·동상 연출이 끝나기를 기다리는 중이면 그 까닭 (game/pace.ts). 그동안은 모두 막는다.
  */
 export function BuildBar({
@@ -233,10 +240,11 @@ export function BuildBar({
       {BUILD_ITEMS.map((item) => {
         const active = item.key !== 'dev' && buildMode === item.key;
         const blocker = active ? null : (wait ?? (item.key === 'dev' ? buyDevBlocker(view) : buildBlocker(view, item.key)));
-        const left =
-          item.key === 'dev'
-            ? `남은 카드 ${g.devDeckCount}장`
-            : `${PIECE_LIMIT[item.key] - pieceCount(g.buildings, g.roads, view.you, item.key)}개 남음${PIECE_POINTS[item.key] ? ` · ${PIECE_POINTS[item.key]}점` : ''}`;
+        const left = item.key === 'dev' ? g.devDeckCount : PIECE_LIMIT[item.key] - pieceCount(g.buildings, g.roads, view.you, item.key);
+        const unit = item.key === 'dev' ? '장' : '개';
+        const points = item.key !== 'dev' && PIECE_POINTS[item.key] ? ` · ${PIECE_POINTS[item.key]}점` : '';
+        const note =
+          blocker ?? (active ? '빛나는 자리를 누르면 짓습니다' : item.key === 'dev' ? '누르면 한 장을 삽니다' : '누르면 지을 자리가 빛납니다');
         return (
           <div key={item.key} className="bb-slot">
             <button
@@ -244,10 +252,12 @@ export function BuildBar({
               className={`bb-btn bb-${item.key} ${blocker ? 'is-blocked' : ''} ${active ? 'is-active' : ''}`}
               aria-disabled={!!blocker || busy}
               aria-pressed={item.key === 'dev' ? undefined : active}
-              aria-label={`${item.label}${active ? ' 그만두기' : ''}${blocker ? ` (${blocker})` : ''}`}
+              aria-label={`${item.label}${active ? ' 그만두기' : ''}, ${item.key === 'dev' ? '남은 카드' : '남은 수'} ${left}${unit}, 재료 ${costText(item.cost)}${blocker ? ` (${blocker})` : ''}`}
               onClick={async () => {
                 if (active) return onBuild(null);
-                if (blocker) return setTip({ key: item.key, n: Date.now() });
+                // 터치 화면에는 마우스 올리기가 없으니 누를 때 말풍선(재료와 안내)을 잠깐 띄운다.
+                setTip({ key: item.key, n: Date.now() });
+                if (blocker) return;
                 if (item.key !== 'dev') return onBuild(item.key);
                 if (busy) return;
                 setBusy(true);
@@ -259,13 +269,21 @@ export function BuildBar({
               }}
             >
               <span className="bb-ico">
-                <ArtImg src={item.key === 'dev' ? DEV_BACK_ART : PIECE_ART[item.key]} size={30} />
+                <ArtImg src={item.key === 'dev' ? DEV_BACK_ART : PIECE_ART[item.key]} size={44} />
               </span>
               <span className="bb-name">{active ? '그만두기' : item.label}</span>
-              <CostRow cost={item.cost} have={g.myResources} />
+              <span className={`bb-count ${left <= 0 ? 'bb-count-out' : ''}`} aria-hidden>
+                {left}
+              </span>
             </button>
             <span className={`bb-tip ${tip?.key === item.key ? 'bb-tip-show' : ''}`} role={tip?.key === item.key ? 'status' : undefined}>
-              {blocker ?? (active ? '빛나는 자리를 누르면 짓습니다' : left)}
+              <span className="bb-tip-head">
+                {item.label} · 남은 {left}
+                {unit}
+                {points}
+              </span>
+              <CostRow cost={item.cost} have={g.myResources} />
+              <span className="bb-tip-note">{note}</span>
             </span>
           </div>
         );
@@ -274,8 +292,31 @@ export function BuildBar({
   );
 }
 
-/** 건설 버튼 줄 옆의 큰 버튼: 굴리기 단계에는 주사위 굴리기, 그 밖에는 교환과 턴 종료. wait 는 BuildBar 와 같다. */
-export function ActionBar({ view, tradeOpen, wait = null, onTrade }: { view: RoomView; tradeOpen: boolean; wait?: string | null; onTrade: () => void }) {
+/** 아래 버튼 줄 맨 왼쪽의 교환 버튼. 은행·교역로와 바로 바꿀 수 있는 자원이 있으면 황토 점이 붙는다. */
+export function TradeButton({ view, tradeOpen, wait = null, onTrade }: { view: RoomView; tradeOpen: boolean; wait?: string | null; onTrade: () => void }) {
+  const g = view.game!;
+  if (g.phase !== 'playing') return null;
+  const bankable = !wait && canBankNow(view);
+  return (
+    <div className="act-slot">
+      <ActionButton
+        className={`btn act act-trade ${bankable ? 'act-bankable' : ''}`}
+        label="교환"
+        active={tradeOpen}
+        blocker={tradeOpen ? null : (wait ?? tradeButtonBlocker(view))}
+        onClick={onTrade}
+        icon={
+          <span className="act-ico">
+            ⇄{bankable && <i className="act-dot" title="은행·교역로와 바로 바꿀 수 있는 자원이 있습니다" aria-label="은행 교환 가능" />}
+          </span>
+        }
+      />
+    </div>
+  );
+}
+
+/** 아래 버튼 줄 맨 오른쪽: 굴리기 단계에는 주사위 굴리기, 그 밖에는 턴 종료. wait 는 BuildBar 와 같다. */
+export function TurnButton({ view, wait = null }: { view: RoomView; wait?: string | null }) {
   const g = view.game!;
   const mine = isMyTurn(view);
   const [rolling, setRolling] = useState(false);
@@ -284,7 +325,7 @@ export function ActionBar({ view, tradeOpen, wait = null, onTrade }: { view: Roo
   if (g.phase !== 'playing') return null;
   if (mine && g.step === 'roll') {
     return (
-      <div className="actions actions-roll">
+      <div className="act-slot act-slot-roll">
         <ActionButton
           className="btn btn-primary act act-roll"
           label={rolling ? '굴리는 중…' : '주사위 굴리기'}
@@ -304,26 +345,12 @@ export function ActionBar({ view, tradeOpen, wait = null, onTrade }: { view: Roo
       </div>
     );
   }
-  const endBlocker = wait ?? turnBlocker(view);
-  const bankable = !wait && canBankNow(view);
   return (
-    <div className="actions">
-      <ActionButton
-        className={`btn act act-trade ${bankable ? 'act-bankable' : ''}`}
-        label="교환"
-        active={tradeOpen}
-        blocker={tradeOpen ? null : (wait ?? tradeButtonBlocker(view))}
-        onClick={onTrade}
-        icon={
-          <span className="act-ico">
-            ⇄{bankable && <i className="act-dot" title="은행·교역로와 바로 바꿀 수 있는 자원이 있습니다" aria-label="은행 교환 가능" />}
-          </span>
-        }
-      />
+    <div className="act-slot">
       <ActionButton
         className="btn act act-end"
         label="턴 종료"
-        blocker={endBlocker}
+        blocker={wait ?? turnBlocker(view)}
         onClick={() => sendAction({ type: 'end_turn' })}
         icon={<span className="act-ico">⏭</span>}
       />

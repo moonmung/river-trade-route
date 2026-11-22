@@ -339,21 +339,29 @@
   justify-content: flex-end;
 }
 
+/* 아래 버튼 줄: [교환] [도로] [마을] [도시] [발전 카드] [턴 종료]. 넓은 화면은 손 카드 오른쪽에 한 줄로,
+   휴대폰은 손 카드 아래에 여섯 칸을 같은 너비로 한 줄에 놓는다. */
 .me-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: stretch;
 }
 
 .game-narrow .me-actions {
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
 }
 
 .build-bar {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
+}
+
+.game-narrow .build-bar {
+  grid-column: span 4;
+  gap: 5px;
 }
 
 .game-wide .build-bar {
@@ -366,17 +374,18 @@
   min-width: 0;
 }
 
+/* 건설 버튼: 큰 그림과 작은 이름, 오른쪽 위 모서리에 남은 개수. 재료는 말풍선에 둔다. */
 .bb-btn {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* 그림·이름·재료를 위에서부터 같은 자리에 둔다 (재료 줄 수가 달라도 그림과 이름 높이가 버튼마다 같게) */
-  justify-content: flex-start;
-  gap: 1px;
-  padding: 5px 3px 4px;
-  min-height: 70px;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 3px 5px;
+  min-height: 64px;
   background-color: var(--parchment-hi);
   background-image: var(--tex-grain);
   border: 1.5px solid rgba(58, 42, 31, 0.6);
@@ -391,7 +400,7 @@
 }
 
 .game-wide .bb-btn {
-  min-height: 80px;
+  min-height: 74px;
 }
 
 .bb-btn:not(.is-blocked):hover {
@@ -410,7 +419,7 @@
   box-shadow: 0 0 0 2px var(--gold);
 }
 
-/* 못 하는 버튼: 그림과 이름만 흐리게 하고 재료는 모자란 것만 흐리게 둔다 */
+/* 못 하는 버튼: 그림과 이름만 흐리게 하고 남은 개수는 그대로 읽히게 둔다 */
 .bb-btn.is-blocked {
   opacity: 1;
   background-color: rgba(250, 243, 226, 0.7);
@@ -424,43 +433,59 @@
 
 .bb-ico {
   display: flex;
-  height: 26px;
+  height: 44px;
   align-items: center;
 }
 
 .bb-name {
   font-family: var(--font-title);
   font-weight: 700;
-  font-size: 0.8rem;
-  line-height: 1.15;
+  font-size: 0.68rem;
+  line-height: 1.1;
   white-space: nowrap;
 }
 
-/* 재료: 한 줄에 두 개씩, 칸 너비를 똑같이 잡아 위아래 줄의 아이콘과 숫자가 세로로 맞는다. 두 줄 자리를 늘 비워 둔다. */
-.build-bar {
-  --bb-res-w: 27px;
-  --bb-res-h: 14px;
+/* 남은 개수: 오른쪽 위 모서리의 작은 먹색 딱지 (다 쓰면 붉게) */
+.bb-count {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: rgba(58, 42, 31, 0.82);
+  color: #fbf0d6;
+  font-family: var(--font-title);
+  font-weight: 700;
+  font-size: 0.7rem;
+  line-height: 18px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.bb-count-out {
+  background: var(--danger);
+}
+
+/* 말풍선 안 재료: 아이콘과 개수를 한 줄로. 모자란 재료는 흐리게 */
+.bb-tip-head {
+  display: block;
+  font-weight: 700;
 }
 
 .bb-cost {
   display: flex;
-  flex-wrap: wrap;
   justify-content: center;
-  align-content: flex-start;
-  gap: 1px 4px;
-  width: calc(2 * var(--bb-res-w) + 4px);
-  max-width: 100%;
-  min-height: calc(2 * var(--bb-res-h) + 1px);
+  gap: 8px;
+  margin: 3px 0 2px;
 }
 
 .bb-res {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 2px;
-  width: var(--bb-res-w);
-  height: var(--bb-res-h);
-  font-size: 0.72rem;
+  font-size: 0.86rem;
   line-height: 1;
 }
 
@@ -469,11 +494,17 @@
 }
 
 .bb-lack {
-  opacity: 0.32;
+  opacity: 0.38;
   filter: grayscale(0.85);
 }
 
-/* 못 하는 까닭이나 남은 개수: 버튼 위 먹색 말풍선 (마우스를 올리거나 눌렀을 때). 양 끝 버튼은 화면 밖으로 나가지 않게 끝을 맞춘다. */
+.bb-tip-note {
+  display: block;
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+
+/* 재료와 못 하는 까닭: 버튼 위 먹색 말풍선 (마우스를 올리거나 눌렀을 때). 양 끝 버튼은 화면 밖으로 나가지 않게 끝을 맞춘다. */
 .bb-tip {
   --tx: -50%;
   position: absolute;
@@ -481,8 +512,8 @@
   left: 50%;
   z-index: 30;
   width: max-content;
-  max-width: 200px;
-  padding: 4px 8px;
+  max-width: 210px;
+  padding: 5px 9px 6px;
   border-radius: 5px;
   background: var(--ink);
   color: #f5e6c2;
@@ -540,18 +571,23 @@
   }
 }
 
-.actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+/* 교환·턴 종료·주사위 굴리기: 건설 버튼과 같은 크기의 칸 하나씩 */
+.act-slot {
+  display: flex;
+  min-width: 0;
 }
 
-.game-wide .actions {
-  grid-template-columns: repeat(2, 82px);
+.act-slot > .act {
+  flex: 1;
+  min-width: 0;
 }
 
-.game-wide .actions-roll {
-  grid-template-columns: 170px;
+.game-wide .act-slot {
+  width: 78px;
+}
+
+.game-wide .act-slot-roll {
+  width: 150px;
 }
 
 .act {
@@ -559,20 +595,20 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  padding: 5px 4px;
-  font-size: 0.84rem;
-  line-height: 1.2;
-  min-height: 44px;
+  gap: 2px;
+  padding: 5px 3px;
+  font-size: 0.68rem;
+  line-height: 1.1;
+  min-height: 64px;
   white-space: nowrap;
 }
 
 .game-wide .act {
-  min-height: 80px;
+  min-height: 74px;
 }
 
 .act-ico {
-  font-size: 1.1rem;
+  font-size: 1.7rem;
   line-height: 1;
 }
 
@@ -2775,12 +2811,12 @@
 
 /* 건설 버튼: 판자 길, 작은 집, 성벽 마을, 발전 카드 뒷면 */
 .bb-ico {
-  height: 30px;
+  height: 44px;
 }
 
 .bb-ico .art-img {
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   filter: drop-shadow(0 1px 1px rgba(58, 42, 31, 0.3));
   transition: transform 0.18s ease-out;
 }
@@ -2797,13 +2833,19 @@
   filter: grayscale(0.7);
 }
 
+/* 휴대폰: 여섯 칸이 한 줄이라 그림을 조금 줄인다 */
 @media (max-width: 720px) {
   .bb-ico,
   .bb-ico .art-img {
-    height: 28px;
+    height: 34px;
   }
   .bb-ico .art-img {
-    width: 28px;
+    width: 34px;
+  }
+  .game-narrow .act-roll {
+    white-space: normal;
+    word-break: keep-all;
+    font-size: 0.66rem;
   }
 }
 
@@ -3505,12 +3547,16 @@
     grid-template-columns: repeat(4, 66px);
     gap: 5px;
   }
-  .game-wide .actions {
-    grid-template-columns: repeat(2, 70px);
-    gap: 5px;
+  .game-wide .act-slot {
+    width: 66px;
   }
-  .game-wide .actions-roll {
-    grid-template-columns: 145px;
+  .game-wide .act-slot-roll {
+    width: 128px;
+  }
+  .game-wide .bb-ico,
+  .game-wide .bb-ico .art-img {
+    width: 38px;
+    height: 38px;
   }
   .game-wide .me-actions {
     gap: 6px;
@@ -3631,12 +3677,11 @@
     grid-template-columns: repeat(4, 54px);
     gap: 4px;
   }
-  .game-wide .actions {
-    grid-template-columns: repeat(2, 56px);
-    gap: 4px;
+  .game-wide .act-slot {
+    width: 54px;
   }
-  .game-wide .actions-roll {
-    grid-template-columns: 112px;
+  .game-wide .act-slot-roll {
+    width: 108px;
   }
   .game-wide .bb-btn,
   .game-wide .act {
@@ -3645,24 +3690,21 @@
   }
   .game-wide .bb-ico,
   .game-wide .bb-ico .art-img {
-    width: 22px;
-    height: 22px;
+    width: 30px;
+    height: 30px;
   }
   .game-wide .bb-name,
   .game-wide .act {
-    font-size: 0.7rem;
-  }
-  .game-wide .bb-res {
     font-size: 0.62rem;
   }
-  .game-wide .build-bar {
-    --bb-res-w: 22px;
-    --bb-res-h: 12px;
+  .game-wide .act-ico {
+    font-size: 1.3rem;
   }
-  .game-wide .bb-res .res-icon,
-  .game-wide .bb-res svg {
-    width: 11px;
-    height: 11px;
+  .game-wide .bb-count {
+    min-width: 15px;
+    height: 15px;
+    font-size: 0.6rem;
+    line-height: 15px;
   }
   .game-wide .hud-side {
     padding: calc(6px + var(--safe-top)) 8px calc(6px + var(--safe-bottom));
