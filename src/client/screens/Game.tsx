@@ -24,7 +24,7 @@ import { clearFlyingCards, useHeldCards } from '../game/cardFly';
 import { useGameEffects } from '../game/effects';
 import { usePaceWait } from '../game/pace';
 import { Hand } from '../game/hand';
-import { ActionBar, BuildBar, PlayersPanel } from '../game/panels';
+import { BuildBar, PlayersPanel, TradeButton, TurnButton } from '../game/panels';
 import { TradeDeeds, TradePanel, handPickToDraft, newDraft, type TradeDraft } from '../game/trade';
 import { OrderRollPanel, TurnStatus } from '../game/turn';
 import { sendAction, useLocalSetting, useMediaQuery } from '../game/ui';
@@ -367,18 +367,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             }}
           />
           <div className="me-actions">
-            <BuildBar
-              view={view}
-              buildMode={buildMode}
-              wait={wait}
-              onBuild={(kind) => {
-                setSelected(null);
-                setTradeDraft(null);
-                setDevOpen(null);
-                setBuildMode(kind);
-              }}
-            />
-            <ActionBar
+            <TradeButton
               view={view}
               tradeOpen={!!tradeDraft}
               wait={wait}
@@ -390,6 +379,18 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
                 setTradeDraft(newDraft(view));
               }}
             />
+            <BuildBar
+              view={view}
+              buildMode={buildMode}
+              wait={wait}
+              onBuild={(kind) => {
+                setSelected(null);
+                setTradeDraft(null);
+                setDevOpen(null);
+                setBuildMode(kind);
+              }}
+            />
+            <TurnButton view={view} wait={wait} />
           </div>
         </div>
       </div>
