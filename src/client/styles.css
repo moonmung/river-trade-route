@@ -388,6 +388,33 @@ h2 {
   }
 }
 
+/*
+ * 게임 화면과 알림: 주사위 값·알림·패널 글자가 끌기나 길게 누르기로 파랗게 선택되거나
+ * 그림·링크가 끌려 나오지 않게 한다. 채팅처럼 글을 쓰는 칸만 예외로 둔다.
+ * 방 대기실의 초대 주소와 자리 넘기기 코드는 복사해야 하므로 이 밖에 있다.
+ */
+.game,
+.toast-host,
+.conn-banner {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.game img,
+.game a,
+.game svg {
+  -webkit-user-drag: none;
+}
+
+.game input,
+.game textarea,
+.game [contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 .toast-host {
   position: fixed;
   z-index: 60;
