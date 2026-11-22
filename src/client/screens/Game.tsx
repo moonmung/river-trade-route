@@ -191,14 +191,18 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       setSelected((cur) => (cur && cur.kind === sel.kind && cur.id === sel.id ? null : spotAction(view, sel) ? sel : null));
       return;
     }
-    // 건설 모드나 길 건설 카드: 빛나는 자리를 누르면 확인 없이 바로 짓는다.
-    const freeRoads = g.phase === 'playing' && g.step === 'road_building' && g.currentPlayerId === view.you;
-    if (buildMode || freeRoads) {
+    // 길 건설 카드: 빛나는 변을 고르면 ✓ 도로 건설 버튼이 뜨고, 길마다 그 버튼을 눌러 하나씩 놓는다.
+    if (g.phase === 'playing' && g.step === 'road_building' && g.currentPlayerId === view.you) {
+      setSelected((cur) => (cur && cur.kind === sel.kind && cur.id === sel.id ? null : spotAction(view, sel) ? sel : null));
+      return;
+    }
+    // 건설 모드: 빛나는 자리를 누르면 확인 없이 바로 짓는다.
+    if (buildMode) {
       const act = spotAction(view, sel);
-      const want = freeRoads || buildMode === 'road' ? 'build_road' : buildMode === 'village' ? 'build_village' : 'build_city';
+      const want = buildMode === 'road' ? 'build_road' : buildMode === 'village' ? 'build_village' : 'build_city';
       if (act && act.action.type === want && !act.blocker) {
         setSelected(null);
-        void sendAction(act.action).then((ok) => ok && !freeRoads && setBuildMode(null));
+        void sendAction(act.action).then((ok) => ok && setBuildMode(null));
         return;
       }
     }
@@ -216,7 +220,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     : myTurn && g.step === 'robber'
       ? '기사단 동상을 옮길 칸을 누르세요. 그 칸은 동상이 떠날 때까지 생산하지 않습니다.'
       : myTurn && g.step === 'road_building'
-        ? `길 건설 카드: 빛나는 변을 눌러 공짜 길 ${g.freeRoads}개를 놓으세요.`
+        ? `길 건설 카드: 빛나는 변을 고르고 ✓ 도로 건설을 누르세요. 공짜 길이 ${g.freeRoads}개 남았습니다.`
         : null;
   // 좁은 화면에서는 보드 위에 떠 있고, 넓은 화면에서는 오른쪽 패널 위쪽에 놓인다 (보드를 가리지 않게).
   const banners = (

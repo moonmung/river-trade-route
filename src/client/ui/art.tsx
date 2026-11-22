@@ -20,9 +20,9 @@ export const DEV_ART: Record<DevKind, string> = {
   monopoly: `${BASE}dev_monopoly.webp`,
 };
 
-/** 길은 엇갈린 판자, 마을은 작은 집, 도시는 성벽 두른 마을 */
+/** 길은 판자 길 한 조각, 마을은 작은 집, 도시는 성벽 두른 마을 (길 건설 카드는 판자 길 두 조각에 ×2 딱지) */
 export const PIECE_ART: Record<PieceKind, string> = {
-  road: `${BASE}dev_road_building.webp`,
+  road: `${BASE}road.webp`,
   village: `${BASE}village.webp`,
   city: `${BASE}city.webp`,
 };

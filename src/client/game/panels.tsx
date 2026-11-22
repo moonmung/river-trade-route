@@ -259,7 +259,7 @@ export function BuildBar({
               }}
             >
               <span className="bb-ico">
-                <ArtImg src={item.key === 'dev' ? DEV_BACK_ART : PIECE_ART[item.key]} size={34} />
+                <ArtImg src={item.key === 'dev' ? DEV_BACK_ART : PIECE_ART[item.key]} size={30} />
               </span>
               <span className="bb-name">{active ? '그만두기' : item.label}</span>
               <CostRow cost={item.cost} have={g.myResources} />
