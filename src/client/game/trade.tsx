@@ -183,15 +183,20 @@ export function TradePanel({
   const getSlots: SlotSpec[] = RESOURCES.map((r) => ({
     r,
     count: draft.get[r],
-    sub: draft.give[r] > 0 ? '내는 중' : '',
-    off: draft.give[r] > 0 ? '낼 자원과 같은 자원은 받을 수 없습니다.' : null,
+    sub: draft.give[r] > 0 ? '내는 중' : bank && g.bank ? `은행 ${g.bank[r]}` : '',
+    off:
+      draft.give[r] > 0
+        ? '낼 자원과 같은 자원은 받을 수 없습니다.'
+        : bank && g.bank && draft.get[r] >= g.bank[r]
+          ? `은행에 남은 ${RESOURCE_LABEL[r]}이(가) ${g.bank[r]}장뿐입니다.`
+          : null,
     onAdd: () => onDraft(draftAddGet(draft, r, view)),
     onRemove: () => onDraft(draftRemoveGet(draft, r)),
   }));
 
   const turn = turnBlocker(view);
   const name = (id: string) => players.get(id)?.nickname ?? '?';
-  const bankProblem = bankTradeProblem(draft.give, draft.get, ratio, mine);
+  const bankProblem = bankTradeProblem(draft.give, draft.get, ratio, mine, g.bank);
   const playerProblem =
     tradeBlocker(view) ??
     (myOffers >= MAX_OPEN_TRADES ? `제안은 동시에 ${MAX_OPEN_TRADES}개까지 열 수 있습니다. 증서 하나를 취소하세요.` : null) ??

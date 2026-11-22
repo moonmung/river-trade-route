@@ -9,6 +9,11 @@ import { showToast } from '../ui/toast';
 /** 행동을 서버 대신 받는 곳 (실험실 모의 게임). 정하면 행동이 서버로 가지 않고 이리로 간다. */
 let actionSink: ((action: GameAction) => Promise<AckResult>) | null = null;
 
+/** 실험실 모의 게임처럼 서버 대신 다른 곳으로 행동을 보내는 중인지 (실제 방이 없다) */
+export function isSandboxed(): boolean {
+  return actionSink !== null;
+}
+
 export function setActionSink(sink: ((action: GameAction) => Promise<AckResult>) | null): void {
   actionSink = sink;
 }

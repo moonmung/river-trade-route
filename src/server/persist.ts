@@ -7,7 +7,7 @@
 //  - 끝난 게임과 maxAgeMs(기본 하루) 넘게 아무 일도 없던 방은 저장하지도 되살리지도 않는다.
 import fs from 'node:fs';
 import path from 'node:path';
-import { DISCARD_LIMIT, TILES, WIN_POINTS } from '../shared/constants';
+import { DISCARD_LIMIT, TILES, WIN_POINTS, normalizeDevCards, normalizeResourceCards } from '../shared/constants';
 import { normalizeMapArrange, normalizeMapShape } from '../shared/maps';
 import type { AckResult } from '../shared/protocol';
 import { createGame } from '../shared/rules';
@@ -117,6 +117,9 @@ function reviveRoom(raw: unknown): Room | null {
     if (!('startRolls' in game)) game.startRolls = Object.fromEntries(game.order.map((id) => [id, []]));
     // 맵을 고를 수 있기 전에 저장한 게임은 표준 육각 보드였다.
     if (!('tiles' in game)) game.tiles = TILES.map((t) => ({ ...t }));
+    // 자원 카드 장수를 정하기 전에 저장한 게임은 은행이 무제한이었다.
+    if (!('bank' in game)) game.bank = null;
+    if (!('bankSize' in game)) game.bankSize = null;
     const keys = requiredGameKeys();
     if (keys && keys.some((k) => !(k in game))) return null;
     const ids = new Set(players.map((p) => p.id));
@@ -138,6 +141,8 @@ function reviveRoom(raw: unknown): Room | null {
     players,
     game,
     map,
+    resourceCards: normalizeResourceCards(raw.resourceCards) ?? base.resourceCards,
+    devCards: normalizeDevCards(raw.devCards) ?? base.devCards,
     gameNumber: typeof raw.gameNumber === 'number' ? raw.gameNumber : base.gameNumber,
     touchedAt: typeof raw.touchedAt === 'number' ? raw.touchedAt : base.touchedAt,
   } as Room;

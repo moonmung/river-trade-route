@@ -40,7 +40,7 @@ export function RoomScreen({ code }: { code: string }) {
                 이 화면에서 계속하기
               </button>
             )}
-            {interruption.kind !== 'replaced' && (
+            {interruption.kind !== 'replaced' && interruption.kind !== 'closed' && (
               <button
                 className="btn"
                 onClick={() => {

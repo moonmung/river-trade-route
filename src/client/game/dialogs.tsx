@@ -5,6 +5,7 @@ import type { Bundle, DevKind, GameAction, Resource } from '../../shared/types';
 import { client } from '../net/client';
 import { navigate } from '../router';
 import { playerColor } from '../theme';
+import { CloseRoomButton } from '../ui/common';
 import { CrownIcon, Emblem, ResourceIcon } from '../ui/icons';
 import { josa } from '../ui/josa';
 import { RulesSummary } from '../ui/RulesSummary';
@@ -13,7 +14,7 @@ import type { BoardSelection } from '../board/BoardRenderer';
 import { DevIcon } from './hand';
 import { AwardIcon } from './panels';
 import { bundleText, formatEvent, playDevBlocker, spotAction, type PlayerInfo } from './derive';
-import { ActionButton, Sheet, Stepper, sendAction } from './ui';
+import { ActionButton, Sheet, Stepper, isSandboxed, sendAction } from './ui';
 
 type Players = Map<string, PlayerInfo>;
 
@@ -46,10 +47,12 @@ export function DevPlayCard({ view, kind, wait = null, onClose }: { view: RoomVi
   const fresh = g.myDevCards.filter((c) => c.kind === kind && c.boughtTurn >= g.turn).length;
   const need = kind === 'year_of_plenty' ? 2 : kind === 'monopoly' ? 1 : 0;
   const pick = (r: Resource) => setPicked((cur) => (need === 1 ? [r] : cur.length >= need ? [r] : [...cur, r]));
+  const lack = kind === 'year_of_plenty' && g.bank ? RESOURCES.find((r) => picked.filter((x) => x === r).length > g.bank![r]) : undefined;
   const blocker =
     wait ??
     playDevBlocker(view, kind) ??
-    (picked.length < need ? (kind === 'monopoly' ? '가져올 자원을 고르세요.' : `받을 자원 ${need - picked.length}개를 더 고르세요.`) : null);
+    (picked.length < need ? (kind === 'monopoly' ? '가져올 자원을 고르세요.' : `받을 자원 ${need - picked.length}개를 더 고르세요.`) : null) ??
+    (lack ? `은행에 ${RESOURCE_LABEL[lack]}이(가) ${g.bank![lack]}장밖에 없습니다.` : null);
   return (
     <div className="tile-card dev-play" role="dialog" aria-label={`${DEV_LABEL[kind]} 카드`}>
       <div className="tile-card-head">
@@ -152,7 +155,7 @@ export function StealDialog({ view, players }: { view: RoomView; players: Player
 }
 
 /**
- * 보드를 눌렀을 때 그 자리에서 할 수 있는 일(동상 옮기기, 시작 배치, 길·마을 짓기, 도시로 올리기)만 버튼으로 띄운다.
+ * 보드를 눌렀을 때 그 자리에서 할 수 있는 일(동상 옮기기, 시작 배치, 길·마을 짓기, 도시로 업그레이드)만 버튼으로 띄운다.
  * 할 수 있는 일이 없는 자리는 아무것도 띄우지 않는다 (칸 설명은 보드 그림과 숫자 패로 충분하다).
  */
 export function SpotCard({ view, sel, onClose, onDone }: { view: RoomView; sel: BoardSelection; onClose: () => void; onDone: () => void }) {
@@ -275,6 +278,7 @@ export function MenuDialog({
             >
               처음 화면으로
             </button>
+            {view.hostId === view.you && !isSandboxed() && <CloseRoomButton />}
           </div>
         </div>
       )}

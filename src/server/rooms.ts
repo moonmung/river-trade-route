@@ -1,18 +1,26 @@
 // 방과 자리 관리. 진행 상태는 메모리에 두고, 바뀔 때마다 onChange 로 알려 persist.ts 가 디스크에 저장한다.
 import { randomBytes, randomInt } from 'node:crypto';
 import {
+  DEV_CARDS,
+  DEV_CARDS_MAX,
+  DEV_CARDS_MIN,
   DISCARD_LIMIT,
   HAND_LIMIT_MAX,
   HAND_LIMIT_MIN,
   MAX_PLAYERS,
   MIN_PLAYERS,
+  RESOURCE_CARDS,
+  RESOURCE_CARDS_MAX,
+  RESOURCE_CARDS_MIN,
   ROOM_CODE_ALPHABET,
   ROOM_CODE_LENGTH,
   TURN_SECONDS,
   WIN_POINTS,
   WIN_POINTS_MAX,
   WIN_POINTS_MIN,
+  normalizeDevCards,
   normalizeHandLimit,
+  normalizeResourceCards,
   normalizeTurnSeconds,
   normalizeWinPoints,
 } from '../shared/constants';
@@ -49,6 +57,10 @@ export interface Room {
   turnSeconds: number;
   /** 방장이 정한 맵 모양과 땅 배치 (다음 게임부터 쓴다) */
   map: MapConfig;
+  /** 방장이 정한 은행 자원 카드 수, 자원마다 (다음 게임부터 쓴다) */
+  resourceCards: number;
+  /** 방장이 정한 발전 카드 총 장수 (다음 게임부터 쓴다) */
+  devCards: number;
   createdAt: number;
   /** 마지막으로 상태가 바뀐 시각 (오래 비어 있는 방 정리용) */
   touchedAt: number;
@@ -85,6 +97,8 @@ export function blankRoom(code: string, now = Date.now()): Room {
     handLimit: DISCARD_LIMIT,
     turnSeconds: TURN_SECONDS,
     map: { ...DEFAULT_MAP },
+    resourceCards: RESOURCE_CARDS,
+    devCards: DEV_CARDS,
     createdAt: now,
     touchedAt: now,
   };
@@ -202,12 +216,19 @@ export class RoomManager {
     return this.setSettings(room, playerId, { winPoints });
   }
 
-  /** 방장이 대기실에서 규칙(승리 점수·자원 보유 한도·차례 시간·맵)을 바꾼다. 보낸 값만 바꾸고, 하나라도 틀리면 아무것도 바꾸지 않는다. */
+  /** 방장이 대기실에서 규칙(승리 점수·자원 보유 한도·차례 시간·맵·카드 장수)을 바꾼다. 보낸 값만 바꾸고, 하나라도 틀리면 아무것도 바꾸지 않는다. */
   setSettings(room: Room, playerId: string, patch: unknown): RoomError | null {
     if (room.hostId !== playerId) return { error: '방장만 규칙을 바꿀 수 있습니다.' };
     if (room.phase !== 'lobby') return { error: '대기실에서만 규칙을 바꿀 수 있습니다.' };
     const p = (typeof patch === 'object' && patch !== null ? patch : {}) as Record<string, unknown>;
-    const next = { winPoints: room.winPoints, handLimit: room.handLimit, turnSeconds: room.turnSeconds, map: { ...room.map } };
+    const next = {
+      winPoints: room.winPoints,
+      handLimit: room.handLimit,
+      turnSeconds: room.turnSeconds,
+      map: { ...room.map },
+      resourceCards: room.resourceCards,
+      devCards: room.devCards,
+    };
     if (p.winPoints !== undefined) {
       const n = normalizeWinPoints(p.winPoints);
       if (n === null) return { error: `승리 점수는 ${WIN_POINTS_MIN}~${WIN_POINTS_MAX}점 사이로 정하세요.` };
@@ -233,12 +254,24 @@ export class RoomManager {
       if (!arrange) return { error: '맵 배치는 황금 배치와 섞기 중에서 정하세요.' };
       next.map.arrange = arrange;
     }
+    if (p.resourceCards !== undefined) {
+      const n = normalizeResourceCards(p.resourceCards);
+      if (n === null) return { error: `자원 카드는 종류마다 ${RESOURCE_CARDS_MIN}~${RESOURCE_CARDS_MAX}장 사이로 정하세요.` };
+      next.resourceCards = n;
+    }
+    if (p.devCards !== undefined) {
+      const n = normalizeDevCards(p.devCards);
+      if (n === null) return { error: `발전 카드는 ${DEV_CARDS_MIN}~${DEV_CARDS_MAX}장 사이로 정하세요.` };
+      next.devCards = n;
+    }
     const same =
       next.winPoints === room.winPoints &&
       next.handLimit === room.handLimit &&
       next.turnSeconds === room.turnSeconds &&
       next.map.shape === room.map.shape &&
-      next.map.arrange === room.map.arrange;
+      next.map.arrange === room.map.arrange &&
+      next.resourceCards === room.resourceCards &&
+      next.devCards === room.devCards;
     if (same) return null;
     Object.assign(room, next);
     // 규칙이 바뀌면 다른 사람은 다시 확인하고 준비하도록 준비를 푼다.
@@ -260,7 +293,14 @@ export class RoomManager {
     room.game = createGame(
       room.players.map((p) => p.id),
       secureRandom,
-      { winPoints: room.winPoints, handLimit: room.handLimit, rollForOrder: true, map: { ...room.map } },
+      {
+        winPoints: room.winPoints,
+        handLimit: room.handLimit,
+        rollForOrder: true,
+        map: { ...room.map },
+        resourceCards: room.resourceCards,
+        devCards: room.devCards,
+      },
     );
     room.phase = 'game';
     for (const p of room.players) p.recent.clear();
@@ -295,6 +335,14 @@ export class RoomManager {
     // 방장이 나가면 지금 접속해 있는 사람 중 가장 먼저 들어온 사람이 방장이 된다.
     // (연결이 끊긴 사람에게 넘기면 남은 사람들이 시작도 내보내기도 못 하게 된다.)
     if (room.hostId === playerId) room.hostId = (room.players.find((p) => p.connected) ?? room.players[0]).id;
+  }
+
+  /** 방장이 방을 닫는다 (대기실·게임 중 언제든). 방과 게임 기록이 모두 사라지고, 남은 사람은 처음 화면으로 돌아간다. */
+  close(room: Room, playerId: string): RoomError | null {
+    if (room.hostId !== playerId) return { error: '방장만 방을 닫을 수 있습니다.' };
+    this.deleteRoom(room.code);
+    this.changed();
+    return null;
   }
 
   /** 게임이 끝난 뒤 같은 멤버로 대기실에 돌아간다. */

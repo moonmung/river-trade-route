@@ -88,7 +88,8 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           if (animate && total !== 7) {
             for (const tileId of e.tiles) {
               const kind = boardOf(g).tileMap[tileId]?.kind;
-              if (!kind || kind === 'plaza') continue;
+              // 은행에 모자라 나눠 주지 못한 자원은 날리지 않는다 (받은 장수는 서버 화면 정보에 이미 맞춰져 있다).
+              if (!kind || kind === 'plaza' || e.short?.includes(kind)) continue;
               for (const b of g.buildings) {
                 if (!boardOf(g).vertexMap[b.vertexId]?.tiles.includes(tileId)) continue;
                 items.push({ tileId, vertexId: b.vertexId, resource: kind, amount: b.kind === 'city' ? 2 : 1, owner: b.owner });

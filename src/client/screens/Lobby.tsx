@@ -6,15 +6,32 @@ import { navigate } from '../router';
 import { playerColor } from '../theme';
 import { useChat } from '../net/chat';
 import { ChatBox, EmoteBar } from '../ui/chat';
-import { AsyncButton, Brand, copyText } from '../ui/common';
+import { AsyncButton, Brand, CloseRoomButton, copyText } from '../ui/common';
 import { Emblem } from '../ui/icons';
 import { RulesSummary } from '../ui/RulesSummary';
 import { showToast } from '../ui/toast';
 import { NumberStepper, WinPointsStepper, saveWinPoints, turnSecondsLabel } from '../ui/WinPoints';
-import { HAND_LIMIT_MAX, HAND_LIMIT_MIN, TURN_SECONDS_OPTIONS } from '../../shared/constants';
+import {
+  DEV_CARDS_MAX,
+  DEV_CARDS_MIN,
+  DEV_LABEL,
+  HAND_LIMIT_MAX,
+  HAND_LIMIT_MIN,
+  RESOURCE_CARDS_MAX,
+  RESOURCE_CARDS_MIN,
+  TURN_SECONDS_OPTIONS,
+  devDeckFor,
+} from '../../shared/constants';
+import type { DevKind } from '../../shared/types';
 import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL, mapTileCount } from '../../shared/maps';
 import type { MapArrange, MapShape } from '../../shared/types';
 import { MapPreview } from '../ui/MapPreview';
+
+/** 발전 카드 더미 구성: "기사 14 · 승점 5 · 길 건설 2 · 풍년 2 · 독점 2" */
+function devDeckText(total: number): string {
+  const counts = devDeckFor(total);
+  return (Object.keys(counts) as DevKind[]).map((k) => `${DEV_LABEL[k]} ${counts[k]}`).join(" · ");
+}
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -174,6 +191,50 @@ export function Lobby({ view }: { view: RoomView }) {
               )}
             </div>
             <div className="rule-row">
+              <span className="rule-name" title="은행에 자원마다 두는 카드 수. 다 떨어지면 그 자원은 받을 수 없습니다">
+                자원 카드
+              </span>
+              {isHost ? (
+                <NumberStepper
+                  value={view.resourceCards}
+                  min={RESOURCE_CARDS_MIN}
+                  max={RESOURCE_CARDS_MAX}
+                  unit="장씩"
+                  label="자원 카드 장수 (종류마다)"
+                  onChange={async (n) => {
+                    const res = await client.setSettings({ resourceCards: n });
+                    if (!res.ok) showToast(res.error, 'error');
+                  }}
+                />
+              ) : (
+                <div className="wp-fixed">
+                  <b>{view.resourceCards}</b>장씩
+                </div>
+              )}
+            </div>
+            <div className="rule-row">
+              <span className="rule-name" title="발전 카드 더미의 총 장수. 종류 비율은 그대로 둡니다">
+                발전 카드
+              </span>
+              {isHost ? (
+                <NumberStepper
+                  value={view.devCards}
+                  min={DEV_CARDS_MIN}
+                  max={DEV_CARDS_MAX}
+                  unit="장"
+                  label="발전 카드 총 장수"
+                  onChange={async (n) => {
+                    const res = await client.setSettings({ devCards: n });
+                    if (!res.ok) showToast(res.error, 'error');
+                  }}
+                />
+              ) : (
+                <div className="wp-fixed">
+                  <b>{view.devCards}</b>장
+                </div>
+              )}
+            </div>
+            <div className="rule-row">
               <span className="rule-name">차례 시간</span>
               {isHost ? (
                 <select
@@ -257,7 +318,9 @@ export function Lobby({ view }: { view: RoomView }) {
           <p className="muted small">
             {isHost ? '바꾸면 다른 사람은 다시 준비해야 합니다. ' : '방장이 정한 규칙입니다. '}
             7이 나오면 자원이 {view.handLimit}장보다 많은 사람이 절반을 버립니다.{' '}
-            {view.turnSeconds > 0 ? `한 차례 ${turnSecondsLabel(view.turnSeconds)} 안에 끝내지 못하면 자동으로 진행합니다.` : '차례 시간 제한이 없습니다.'}
+            {view.turnSeconds > 0 ? `한 차례 ${turnSecondsLabel(view.turnSeconds)} 안에 끝내지 못하면 자동으로 진행합니다.` : '차례 시간 제한이 없습니다.'}{' '}
+            은행에는 자원마다 {view.resourceCards}장이 있고 다 떨어진 자원은 생산과 교환으로 받을 수 없습니다. 발전 카드 {view.devCards}장은{' '}
+            {devDeckText(view.devCards)}입니다.
           </p>
         </section>
 
@@ -341,6 +404,7 @@ export function Lobby({ view }: { view: RoomView }) {
           >
             대기실에서 나가기
           </AsyncButton>
+          {isHost && <CloseRoomButton className="link-btn link-danger" />}
         </div>
       </div>
       <section className="card lobby-chat" aria-label="대기실 대화">

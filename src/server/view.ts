@@ -29,5 +29,7 @@ export function buildRoomView(room: Room, viewer: string, deadline: number | nul
     handLimit: room.handLimit,
     turnSeconds: room.turnSeconds,
     map: { ...room.map },
+    resourceCards: room.resourceCards,
+    devCards: room.devCards,
   };
 }
