@@ -69,6 +69,8 @@ export function buildGameView(g: GameState, viewer: string, clock: ClockInfo = {
     discards: { ...g.discards },
     stealFrom: [...g.stealFrom],
     tiles: g.tiles.map((t) => ({ ...t })),
+    bank: g.bank ? { ...g.bank } : null,
+    bankSize: g.bankSize,
     robber: g.robber,
     numbers: { ...g.numbers },
     harbors: g.harbors.map((h) => ({ ...h })),

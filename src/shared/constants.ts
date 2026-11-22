@@ -107,13 +107,52 @@ export const PIECE_COST: Record<PieceKind, Bundle> = {
 };
 /** 한 사람이 가질 수 있는 개수 */
 export const PIECE_LIMIT: Record<PieceKind, number> = { road: 15, village: 5, city: 4 };
-/** 마을 1점, 도시 2점 (도시로 올리면 마을 1점이 도시 2점으로 바뀐다) */
+/** 마을 1점, 도시 2점 (도시로 업그레이드하면 마을 1점이 도시 2점으로 바뀐다) */
 export const PIECE_POINTS: Record<PieceKind, number> = { road: 0, village: 1, city: 2 };
 
 /** 발전 카드 1장 값: 양모·곡물·석재 1개씩 */
 export const DEV_COST: Bundle = { wood: 0, grain: 1, wool: 1, brick: 0, stone: 1 };
 /** 발전 카드 25장: 기사 14, 승점 5, 길 건설 2, 풍년 2, 독점 2 */
 export const DEV_DECK: Readonly<Record<DevKind, number>> = { knight: 14, victory: 5, road_building: 2, year_of_plenty: 2, monopoly: 2 };
+/** 발전 카드 더미의 기본 장수와 방장이 고를 수 있는 범위. 종류 비율은 DEV_DECK 을 따른다. */
+export const DEV_CARDS = 25;
+export const DEV_CARDS_MIN = 10;
+export const DEV_CARDS_MAX = 50;
+
+export function normalizeDevCards(v: unknown): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= DEV_CARDS_MIN && v <= DEV_CARDS_MAX ? v : null;
+}
+
+/**
+ * 총 장수가 total 인 발전 카드 더미의 종류별 장수. DEV_DECK(25장)의 비율로 나누고, 내림하고 남은 장수는 소수점이 큰 종류부터 한 장씩 더한다.
+ * 다섯 종류가 모두 한 장 이상 들어가게 한다 (25장이면 DEV_DECK 그대로).
+ */
+export function devDeckFor(total: number): Record<DevKind, number> {
+  const kinds = Object.keys(DEV_DECK) as DevKind[];
+  const base = kinds.reduce((n, k) => n + DEV_DECK[k], 0);
+  const exact = kinds.map((k) => ({ k, v: (DEV_DECK[k] * total) / base }));
+  const out = Object.fromEntries(exact.map(({ k, v }) => [k, Math.max(1, Math.floor(v))])) as Record<DevKind, number>;
+  let left = total - kinds.reduce((n, k) => n + out[k], 0);
+  const order = [...exact].sort((a, b) => b.v - Math.floor(b.v) - (a.v - Math.floor(a.v)) || DEV_DECK[b.k] - DEV_DECK[a.k]);
+  for (let i = 0; left > 0; i = (i + 1) % order.length, left--) out[order[i].k] += 1;
+  // 한 장씩 채우느라 넘쳤으면 가장 많은 종류(기사)에서 뺀다.
+  while (left < 0) {
+    const most = kinds.reduce((a, b) => (out[b] > out[a] ? b : a));
+    out[most] -= 1;
+    left += 1;
+  }
+  return out;
+}
+
+/** 은행에 두는 자원 카드 수 (자원마다). 생산·풍년·은행 교환은 여기서 꺼내고 건설·버리기·은행 교환으로 돌아온다. */
+export const RESOURCE_CARDS = 19;
+export const RESOURCE_CARDS_MIN = 10;
+export const RESOURCE_CARDS_MAX = 40;
+
+export function normalizeResourceCards(v: unknown): number | null {
+  return typeof v === 'number' && Number.isInteger(v) && v >= RESOURCE_CARDS_MIN && v <= RESOURCE_CARDS_MAX ? v : null;
+}
+
 export const DEV_LABEL: Record<DevKind, string> = {
   knight: '기사',
   victory: '승점',

@@ -228,7 +228,7 @@ export function formatScoreEvent(e: GameEvent, players: Map<string, PlayerInfo>,
   const subj = (id: string) => (id === me ? '내가' : josa(name(id), '이/가'));
   switch (e.kind) {
     case 'build':
-      if (e.piece === 'city') return `${subj(e.player)} 마을을 도시로 올렸습니다 (+1점).`;
+      if (e.piece === 'city') return `${subj(e.player)} 마을을 도시로 업그레이드했습니다 (+1점).`;
       if (e.piece === 'village') return `${subj(e.player)} 마을을 지었습니다 (+1점).`;
       break;
     case 'buy_dev':
@@ -266,7 +266,8 @@ export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: 
       if (total === 7) return `${subj(e.player)} 주사위 ${e.dice[0]}+${e.dice[1]} = 7. 기사단 동상이 움직입니다.`;
       const mine = e.detail?.[me];
       const blocked = e.blocked.length ? ` (${e.blocked.map((t) => tileName(map, t)).join(', ')} 칸은 동상에 막힘)` : '';
-      return `${subj(e.player)} 주사위 ${e.dice[0]}+${e.dice[1]} = ${total}.${mine && bundleTotal(mine) ? ` 내 생산: ${bundleText(mine)}.` : ''}${blocked}`;
+      const short = e.short?.length ? ` 은행에 ${e.short.map((r) => RESOURCE_LABEL[r]).join('·')}이(가) 모자라 몫을 다 나눠 주지 못했습니다.` : '';
+      return `${subj(e.player)} 주사위 ${e.dice[0]}+${e.dice[1]} = ${total}.${mine && bundleTotal(mine) ? ` 내 생산: ${bundleText(mine)}.` : ''}${blocked}${short}`;
     }
     case 'discard':
       return `${subj(e.player)} 자원 ${e.count}장을 버렸습니다${e.detail ? ` (${bundleText(e.detail)})` : ''}.`;
@@ -278,7 +279,7 @@ export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: 
         : `${subj(e.player)} ${name(e.from)}에게서 자원 1장을 빼앗았습니다.`;
     case 'build':
       if (e.piece === 'road') return `${subj(e.player)} ${place('edge', e.at)}에 ${e.free ? '공짜 ' : ''}길을 놓았습니다.`;
-      if (e.piece === 'city') return `${subj(e.player)} ${place('vertex', e.at)}의 마을을 도시로 올렸습니다.`;
+      if (e.piece === 'city') return `${subj(e.player)} ${place('vertex', e.at)}의 마을을 도시로 업그레이드했습니다.`;
       return `${subj(e.player)} ${place('vertex', e.at)}에 마을을 지었습니다.`;
     case 'buy_dev':
       if (e.detail === 'victory') return `${subj(e.player)} 승점 카드를 뽑았습니다 (+1점, 나만 봅니다).`;
@@ -322,7 +323,7 @@ export interface SpotAction {
 }
 
 /**
- * 보드에서 고른 자리에서 할 수 있는 일 (없으면 null): 동상 옮기기, 시작 마을과 길, 길·마을 짓기, 도시로 올리기.
+ * 보드에서 고른 자리에서 할 수 있는 일 (없으면 null): 동상 옮기기, 시작 마을과 길, 길·마을 짓기, 도시로 업그레이드.
  * 건설 모드나 길 건설 카드로 빛나는 자리를 누르면 이것으로 바로 짓는다.
  */
 export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edge'; id: string }): SpotAction | null {
@@ -345,7 +346,7 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
       return { label: '마을 짓기', blocker: null, action: { type: 'place_village', vertexId: sel.id }, confirm: true };
     }
     const b = g.buildings.find((x) => x.vertexId === sel.id);
-    if (myMain && b && b.owner === me && b.kind === 'village') return { label: '도시로 올리기', blocker: buildBlocker(view, 'city'), action: { type: 'build_city', vertexId: sel.id } };
+    if (myMain && b && b.owner === me && b.kind === 'village') return { label: '도시로 업그레이드', blocker: buildBlocker(view, 'city'), action: { type: 'build_city', vertexId: sel.id } };
     if (myMain && !b && buildSpots(view, 'village').includes(sel.id)) return { label: '마을 짓기', blocker: buildBlocker(view, 'village'), action: { type: 'build_village', vertexId: sel.id } };
     return null;
   }

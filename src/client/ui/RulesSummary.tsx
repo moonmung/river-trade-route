@@ -2,7 +2,9 @@ import {
   AWARD_POINTS,
   BANK_RATIO,
   DEV_COST,
+  DEV_CARDS,
   DEV_DECK,
+  RESOURCE_CARDS,
   DEV_LABEL,
   DISCARD_LIMIT,
   GENERIC_HARBOR_RATIO,
@@ -77,7 +79,7 @@ export function RulesSummary({ open = false }: { open?: boolean }) {
         </li>
         <li>
           <b>건설</b>: <Cost kind="road" /> <Cost kind="village" /> <Cost kind="city" /> 한 사람이 길 {PIECE_LIMIT.road}개, 마을{' '}
-          {PIECE_LIMIT.village}개, 도시 {PIECE_LIMIT.city}개까지 가집니다. 마을을 도시로 올리면 그 마을 조각은 다시 쓸 수 있습니다.
+          {PIECE_LIMIT.village}개, 도시 {PIECE_LIMIT.city}개까지 가집니다. 마을을 도시로 업그레이드하면 그 마을 조각은 다시 쓸 수 있습니다.
         </li>
         <li>
           <b>교환</b>: 은행에는 같은 자원 {BANK_RATIO}장을 내고 원하는 자원 1장을 받습니다. 바닷가 해상 교역로에 마을·도시가 닿아 있으면 아무
@@ -85,8 +87,13 @@ export function RulesSummary({ open = false }: { open?: boolean }) {
           플레이어 모두에게 교환을 제안할 수 있고 수락한 사람 중 한 명을 골라 교환을 확정합니다.
         </li>
         <li>
-          <b>발전 카드</b>: <CostOf name="한 장" cost={DEV_COST} /> 덱 구성은 {DEV_LIST}장입니다. 산 턴에는 쓸 수 없고 한 턴에 한 장만 씁니다.
-          기사는 주사위를 굴리기 전에도 써서 동상을 옮길 수 있고, 승점 카드는 숨겨 두었다가 승리 점수에 닿을 때 셉니다.
+          <b>은행 자원 카드</b>: 은행에는 자원마다 방장이 정한 장수(기본 {RESOURCE_CARDS}장)만 있어서 다 떨어진 자원은 생산·은행 교환·풍년으로 받을
+          수 없습니다. 한 자원을 여러 사람이 받아야 하는데 은행에 모자라면 그 자원은 아무도 받지 못하고 받을 사람이 한 명이면 남은 만큼만 받습니다.
+        </li>
+        <li>
+          <b>발전 카드</b>: <CostOf name="한 장" cost={DEV_COST} /> 기본 덱은 {DEV_LIST}장으로 모두 {DEV_CARDS}장이고 방장이 총 장수를 바꾸면 같은
+          비율로 나눕니다. 산 턴에는 쓸 수 없고 한 턴에 한 장만 씁니다. 기사는 내 차례라면 주사위를 굴리기 전에도 굴린 뒤에도 써서 동상을 옮길 수 있고
+          승점 카드는 숨겨 두었다가 승리 점수에 닿을 때 셉니다.
         </li>
         <li>
           <b>최장 교역로</b>: 끊기지 않고 이어진 길이 {LONGEST_ROAD_MIN}개 이상으로 가장 긴 사람이 {AWARD_POINTS}점을 받습니다. 남의 마을·도시가

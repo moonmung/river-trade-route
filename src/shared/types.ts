@@ -164,6 +164,8 @@ export type GameEvent = EventBase &
         blocked: TileId[];
         /** 플레이어별 종류별 생산량 (본인 것만 전송) */
         detail?: Record<string, Bundle>;
+        /** 은행에 모자라 받을 사람 몫을 다 채우지 못한 자원 */
+        short?: Resource[];
       }
     | { kind: 'discard'; player: string; count: number; detail?: Bundle }
     | { kind: 'robber'; player: string; tileId: TileId }

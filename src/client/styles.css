@@ -316,6 +316,12 @@ h2 {
   font-weight: 600;
 }
 
+/* 방장만 보는 "방 닫기" 같은 되돌릴 수 없는 링크 */
+.link-btn.link-danger {
+  color: var(--danger);
+  text-decoration-color: rgba(140, 40, 28, 0.45);
+}
+
 .row-buttons {
   display: flex;
   gap: 10px;

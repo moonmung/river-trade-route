@@ -9,6 +9,9 @@ import {
   AWARD_POINTS,
   BANK_RATIO,
   DEV_COST,
+  DEV_CARDS,
+  DEV_CARDS_MAX,
+  DEV_CARDS_MIN,
   DEV_DECK,
   DEV_LABEL,
   DISCARD_LIMIT,
@@ -26,6 +29,9 @@ import {
   PIECE_LIMIT,
   PIECE_POINTS,
   RESOURCES,
+  RESOURCE_CARDS,
+  RESOURCE_CARDS_MAX,
+  RESOURCE_CARDS_MIN,
   RESOURCE_LABEL,
   SPECIAL_HARBOR_RATIO,
   WIN_POINTS,
@@ -33,6 +39,9 @@ import {
   WIN_POINTS_MIN,
   normalizeWinPoints,
   normalizeHandLimit,
+  normalizeDevCards,
+  normalizeResourceCards,
+  devDeckFor,
   numberPips,
   bundleLabel,
   bundleTotal,
@@ -86,6 +95,10 @@ export interface GameState {
   setupVillage: VertexId | null;
   /** 자원 보유 한도: 7이 나오면 이보다 많이 든 사람이 절반을 버린다 (방장이 정한 값, 기본 7) */
   handLimit: number;
+  /** 은행에 남은 자원 카드 (자원마다). null 이면 무제한이다 (장수를 정하기 전에 저장한 게임). */
+  bank: Bundle | null;
+  /** 게임을 시작할 때 은행에 둔 자원 카드 수 (자원마다, 무제한이면 null) */
+  bankSize: number | null;
   /** 진행 턴 번호 (1부터). 시작 배치 중에는 0 */
   turn: number;
   /** 차례인 사람의 자리 번호 */
@@ -176,6 +189,10 @@ export interface GameOptions {
   rollForOrder?: boolean;
   /** 맵 모양과 땅 배치 (기본: 육각형 황금 배치) */
   map?: MapConfig;
+  /** 은행에 두는 자원 카드 수, 자원마다 (기본 19) */
+  resourceCards?: number;
+  /** 발전 카드 더미의 총 장수 (기본 25, 종류 비율은 그대로) */
+  devCards?: number;
 }
 
 export function createGame(playerIds: string[], random: () => number = Math.random, opts: number | GameOptions = {}): GameState {
@@ -184,6 +201,10 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
   const handLimit = o.handLimit ?? DISCARD_LIMIT;
   if (normalizeWinPoints(winPoints) === null) throw new Error(`승리 점수는 ${WIN_POINTS_MIN}~${WIN_POINTS_MAX}점이어야 합니다.`);
   if (normalizeHandLimit(handLimit) === null) throw new Error(`자원 보유 한도는 ${HAND_LIMIT_MIN}~${HAND_LIMIT_MAX}장이어야 합니다.`);
+  const resourceCards = o.resourceCards ?? RESOURCE_CARDS;
+  const devCards = o.devCards ?? DEV_CARDS;
+  if (normalizeResourceCards(resourceCards) === null) throw new Error(`자원 카드는 종류마다 ${RESOURCE_CARDS_MIN}~${RESOURCE_CARDS_MAX}장이어야 합니다.`);
+  if (normalizeDevCards(devCards) === null) throw new Error(`발전 카드는 ${DEV_CARDS_MIN}~${DEV_CARDS_MAX}장이어야 합니다.`);
   if (playerIds.length < MIN_PLAYERS || playerIds.length > MAX_PLAYERS) {
     throw new Error(`플레이어는 ${MIN_PLAYERS}~${MAX_PLAYERS}명이어야 합니다.`);
   }
@@ -191,7 +212,8 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
   const order = o.rollForOrder ? [...playerIds] : shuffle(playerIds, random);
   const players: Record<string, PlayerGameState> = {};
   for (const id of order) players[id] = { id, resources: emptyBundle(), devCards: [], knightsPlayed: 0 };
-  const deck = (Object.keys(DEV_DECK) as DevKind[]).flatMap((k) => Array<DevKind>(DEV_DECK[k]).fill(k));
+  const counts = devDeckFor(devCards);
+  const deck = (Object.keys(counts) as DevKind[]).flatMap((k) => Array<DevKind>(counts[k]).fill(k));
   const map = buildMap(o.map ?? DEFAULT_MAP, random);
   const state: GameState = {
     phase: o.rollForOrder ? 'order' : 'placement',
@@ -201,6 +223,8 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     placementIndex: 0,
     setupVillage: null,
     handLimit,
+    bank: Object.fromEntries(RESOURCES.map((r) => [r, resourceCards])) as Bundle,
+    bankSize: resourceCards,
     turn: 0,
     current: 0,
     step: 'roll',
@@ -573,9 +597,9 @@ function putSetupVillage(s: GameState, playerId: string, vertexId: VertexId): Bu
   const gained = emptyBundle();
   for (const t of boardOf(s).vertexMap[vertexId].tiles) {
     const kind = boardOf(s).tileMap[t].kind;
-    if (kind !== 'plaza') gained[kind] += 1;
+    if (kind !== 'plaza' && (!s.bank || s.bank[kind] > gained[kind])) gained[kind] += 1;
   }
-  gain(s.players[playerId].resources, gained);
+  takeFromBank(s, s.players[playerId].resources, gained);
   return gained;
 }
 
@@ -674,13 +698,15 @@ function doRoll(s: GameState, playerId: string, random: () => number): ActionRes
     s.step = Object.keys(s.discards).length ? 'discard' : 'robber';
     return OK;
   }
-  const { gains, tiles, blocked } = productionFor(s, total, s.order);
+  const owed = productionFor(s, total, s.order);
+  const { tiles, blocked } = owed;
+  const { paid: gains, short } = settleProduction(s.bank, owed.gains);
   const totals: Record<string, number> = {};
   for (const id of s.order) {
-    gain(s.players[id].resources, gains[id]);
+    takeFromBank(s, s.players[id].resources, gains[id]);
     totals[id] = bundleTotal(gains[id]);
   }
-  pushEvent(s, { kind: 'roll', player: playerId, dice, gains: totals, tiles, blocked, detail: gains });
+  pushEvent(s, { kind: 'roll', player: playerId, dice, gains: totals, tiles, blocked, detail: gains, ...(short.length ? { short } : {}) });
   s.step = 'main';
   return OK;
 }
@@ -692,7 +718,7 @@ function doDiscard(s: GameState, playerId: string, bundle: Bundle): ActionResult
   if (RESOURCES.some((r) => !Number.isInteger(bundle[r]) || bundle[r] < 0)) return fail('BAD_REQUEST', '버릴 수량이 올바르지 않습니다.');
   if (bundleTotal(bundle) !== need) return fail('BAD_REQUEST', `자원 ${need}장을 골라 버리세요.`);
   if (!hasBundle(s.players[playerId].resources, bundle)) return fail('NOT_ENOUGH', '가진 것보다 많이 버릴 수 없습니다.');
-  pay(s.players[playerId].resources, bundle);
+  payToBank(s, s.players[playerId].resources, bundle);
   delete s.discards[playerId];
   pushEvent(s, { kind: 'discard', player: playerId, count: need, detail: { ...bundle } });
   if (Object.keys(s.discards).length === 0) s.step = 'robber';
@@ -760,7 +786,7 @@ function doBuildRoad(s: GameState, playerId: string, edgeId: EdgeId): ActionResu
   const free = s.step === 'road_building';
   const err = checkPiece(s, playerId, 'road', free);
   if (err) return err;
-  if (!free) pay(s.players[playerId].resources, PIECE_COST.road);
+  if (!free) payToBank(s, s.players[playerId].resources, PIECE_COST.road);
   s.roads.push({ edgeId, owner: playerId, builtTurn: s.turn });
   pushEvent(s, { kind: 'build', player: playerId, piece: 'road', at: edgeId, ...(free ? { free: true } : {}) });
   if (free) {
@@ -789,7 +815,7 @@ function doBuildVillage(s: GameState, playerId: string, vertexId: VertexId): Act
   }
   const err = checkPiece(s, playerId, 'village');
   if (err) return err;
-  pay(s.players[playerId].resources, PIECE_COST.village);
+  payToBank(s, s.players[playerId].resources, PIECE_COST.village);
   s.buildings.push({ vertexId, owner: playerId, kind: 'village', builtTurn: s.turn });
   pushEvent(s, { kind: 'build', player: playerId, piece: 'village', at: vertexId });
   afterBuild(s, playerId);
@@ -803,7 +829,7 @@ function doBuildCity(s: GameState, playerId: string, vertexId: VertexId): Action
   if (!b || b.owner !== playerId || b.kind !== 'village') return fail('SPOT_INVALID', '도시는 내 마을을 올려서만 지을 수 있습니다.');
   const err = checkPiece(s, playerId, 'city');
   if (err) return err;
-  pay(s.players[playerId].resources, PIECE_COST.city);
+  payToBank(s, s.players[playerId].resources, PIECE_COST.city);
   b.kind = 'city';
   b.builtTurn = s.turn;
   pushEvent(s, { kind: 'build', player: playerId, piece: 'city', at: vertexId });
@@ -823,7 +849,7 @@ function doBuyDev(s: GameState, playerId: string): ActionResult {
   if (!s.devDeck.length) return fail('NO_CARD', '발전 카드가 모두 팔렸습니다.');
   const me = s.players[playerId];
   if (!hasBundle(me.resources, DEV_COST)) return fail('NOT_ENOUGH', `발전 카드는 ${bundleLabel(DEV_COST)}가 필요합니다.`);
-  pay(me.resources, DEV_COST);
+  payToBank(s, me.resources, DEV_COST);
   const kind = s.devDeck.pop()!;
   me.devCards.push({ kind, boughtTurn: s.turn });
   pushEvent(s, { kind: 'buy_dev', player: playerId, detail: kind });
@@ -863,9 +889,13 @@ function doPlayDev(s: GameState, playerId: string, action: Extract<GameAction, {
     if (action.kind !== 'year_of_plenty' || action.resources.length !== 2 || !action.resources.every((r) => RESOURCES.includes(r))) {
       return fail('BAD_REQUEST', '받을 자원 2개를 고르세요.');
     }
+    const want = emptyBundle();
+    for (const r of action.resources) want[r] += 1;
+    const lack = s.bank ? RESOURCES.find((r) => want[r] > s.bank![r]) : undefined;
+    if (lack) return fail('NOT_ENOUGH', `은행에 ${RESOURCE_LABEL[lack]}이(가) ${s.bank![lack]}장밖에 없습니다.`);
     me.devCards.splice(idx, 1);
     s.devPlayedThisTurn = true;
-    for (const r of action.resources) me.resources[r] += 1;
+    takeFromBank(s, me.resources, want);
     pushEvent(s, { kind: 'play_dev', player: playerId, card: 'year_of_plenty', resources: [...action.resources] });
     afterAction(s);
     return OK;
@@ -912,7 +942,7 @@ export function bankUnits(give: Bundle, ratios: Record<Resource, number>): numbe
  * 은행·해상 교역로 교환이 성립하지 않는 이유 (성립하면 null).
  * 낼 자원은 자원마다 내 비율(4:1, 교역로 3:1·2:1)의 배수여야 하고 받을 자원 수는 그 묶음 수와 같아야 한다.
  */
-export function bankTradeProblem(give: Bundle, get: Bundle, ratios: Record<Resource, number>, have: Bundle): string | null {
+export function bankTradeProblem(give: Bundle, get: Bundle, ratios: Record<Resource, number>, have: Bundle, bank: Bundle | null = null): string | null {
   for (const b of [give, get]) {
     if (RESOURCES.some((r) => !Number.isInteger(b[r]) || b[r] < 0)) return '교환 수량이 올바르지 않습니다.';
   }
@@ -924,6 +954,8 @@ export function bankTradeProblem(give: Bundle, get: Bundle, ratios: Record<Resou
   if (!hasBundle(have, give)) return '낼 자원이 모자랍니다.';
   const want = bundleTotal(get);
   if (want !== units) return want < units ? `받을 자원을 ${units - want}개 더 고르세요.` : `받을 자원은 ${units}개까지 고를 수 있습니다.`;
+  const lack = bank ? RESOURCES.find((r) => get[r] > bank[r]) : undefined;
+  if (lack) return `은행에 ${RESOURCE_LABEL[lack]}이(가) ${bank![lack]}장밖에 없습니다.`;
   return null;
 }
 
@@ -932,10 +964,10 @@ function doBankTrade(s: GameState, playerId: string, give: Bundle, get: Bundle):
   if (bad) return bad;
   const me = s.players[playerId];
   const ratios = tradeRatios(s, playerId);
-  const problem = bankTradeProblem(give, get, ratios, me.resources);
+  const problem = bankTradeProblem(give, get, ratios, me.resources, s.bank);
   if (problem) return fail(problem === '낼 자원이 모자랍니다.' ? 'NOT_ENOUGH' : 'BAD_REQUEST', problem);
-  pay(me.resources, give);
-  gain(me.resources, get);
+  payToBank(s, me.resources, give);
+  takeFromBank(s, me.resources, get);
   const harbor = RESOURCES.some((r) => give[r] > 0 && ratios[r] < BANK_RATIO);
   pushEvent(s, { kind: 'bank_trade', player: playerId, give: { ...give }, get: { ...get }, harbor });
   afterAction(s);
@@ -1295,4 +1327,35 @@ function pay(have: Bundle, cost: Bundle): void {
 
 function gain(have: Bundle, add: Bundle): void {
   for (const r of RESOURCES) have[r] += add[r];
+}
+
+/** 은행에 낸다 (건설·발전 카드·버리기·은행 교환). 무제한 은행이면 그냥 사라진다. */
+function payToBank(s: GameState, have: Bundle, cost: Bundle): void {
+  pay(have, cost);
+  if (s.bank) gain(s.bank, cost);
+}
+
+/** 은행에서 받는다. 은행에 그만큼 있는지는 부르는 쪽이 먼저 확인한다. */
+function takeFromBank(s: GameState, to: Bundle, add: Bundle): void {
+  if (s.bank) pay(s.bank, add);
+  gain(to, add);
+}
+
+/**
+ * 주사위 생산을 은행에서 나눠 준다. 한 자원을 받을 사람들의 몫을 은행이 다 채우지 못하면 그 자원은 아무도 받지 못한다.
+ * 받을 사람이 한 명뿐이면 은행에 남은 만큼만 받는다. short 는 몫을 다 채우지 못한 자원이다.
+ */
+export function settleProduction(bank: Bundle | null, gains: Record<string, Bundle>): { paid: Record<string, Bundle>; short: Resource[] } {
+  const paid: Record<string, Bundle> = Object.fromEntries(Object.entries(gains).map(([id, b]) => [id, { ...b }]));
+  const short: Resource[] = [];
+  if (!bank) return { paid, short };
+  for (const r of RESOURCES) {
+    const owed = Object.keys(gains).filter((id) => gains[id][r] > 0);
+    const total = owed.reduce((n, id) => n + gains[id][r], 0);
+    if (total <= bank[r]) continue;
+    short.push(r);
+    if (owed.length === 1) paid[owed[0]][r] = bank[r];
+    else for (const id of owed) paid[id][r] = 0;
+  }
+  return { paid, short };
 }
