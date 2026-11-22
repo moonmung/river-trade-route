@@ -253,6 +253,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             quality={settings.quality}
             showTileLabels={false}
             motion={settings.motion ?? !prefersReducedMotion()}
+            shadows={settings.shadows ?? true}
             onTap={onTap}
             onHover={(sel, x, y) => setHoverRoad(sel?.kind === 'edge' && g.roads.some((r) => r.edgeId === sel.id) ? { edgeId: sel.id, x, y } : null)}
             onPerf={settings.perf ? setPerf : undefined}

@@ -185,6 +185,8 @@ export interface GameSettings {
   perf: boolean;
   /** 보드 움직임 (바람·양·가마 연기). 저장된 값이 없으면 기기의 '동작 줄이기' 설정을 따른다. */
   motion?: boolean;
+  /** 소품·조각이 바닥에 드리우는 그림자 (저장된 값이 없으면 켬) */
+  shadows?: boolean;
 }
 
 /** 기기에서 '동작 줄이기'를 켰는지 */
@@ -254,6 +256,15 @@ export function MenuDialog({
               onChange={(e) => onSettings({ ...settings, motion: e.target.checked })}
             />{' '}
             보드 움직임 (흔들리는 나무·밀, 거니는 양, 가마 연기). 끄면 배터리를 아낍니다
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.shadows ?? true}
+              disabled={settings.quality === 'low'}
+              onChange={(e) => onSettings({ ...settings, shadows: e.target.checked })}
+            />{' '}
+            물체 그림자 (나무·집·바위가 바닥에 드리우는 그림자, 그래픽 품질이 낮음이면 꺼짐)
           </label>
           <label>
             <input type="checkbox" checked={settings.perf} onChange={(e) => onSettings({ ...settings, perf: e.target.checked })} /> 프레임 시간 표시
