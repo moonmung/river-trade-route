@@ -2619,16 +2619,18 @@
 }
 
 /* ───────── 달성 공지 ─────────
- * 화면 위쪽에 "빨강 플레이어 최장 교역로 달성"을 크게 띄운다. 양피지 띠 양 끝은 제비꼬리로 자르고,
- * 띠 가장자리와 색 이름을 그 플레이어 색(--pc)으로 칠한다. 위에서 내려와 머물다 올라가며 사라진다.
+ * 띠나 도장 없이 글자만 보드 위쪽 가운데에 크게 띄운다. 밝은 글자에 먹 테두리와 옅은 그늘을 둘러
+ * 숲·밀밭·바다 어디 위에서도 읽히게 하고, 색 이름은 그 플레이어 색으로 칠한다. 움직이지 않고 나타났다가 흐려진다.
  */
 .award-banner {
+  --award-ink: rgba(40, 28, 20, 0.92);
   position: fixed;
   left: 50%;
-  top: calc(var(--safe-top) + 10px);
+  top: calc(var(--safe-top) + 14px);
   z-index: 45;
-  width: min(94vw, 640px);
+  width: min(94vw, 720px);
   transform: translateX(-50%);
+  text-align: center;
   pointer-events: none;
   animation: award-banner-life 4.2s ease-in-out forwards;
 }
@@ -2636,86 +2638,49 @@
 /* 넓은 화면: 오른쪽 패널을 뺀 보드 위 가운데 */
 .game-wide .award-banner {
   left: calc((100% - var(--side-w)) / 2);
-  width: min(calc(94vw - var(--side-w)), 640px);
+  width: min(calc(94vw - var(--side-w)), 720px);
 }
 
-.award-ribbon {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 34px 12px 30px;
-  background-color: var(--parchment-hi);
-  background-image: var(--tex-grain), linear-gradient(180deg, var(--pc-soft), var(--parchment-hi) 30%, var(--parchment-hi) 70%, var(--pc-soft));
-  clip-path: polygon(0 0, 100% 0, calc(100% - 18px) 50%, 100% 100%, 0 100%, 18px 50%);
-  filter: drop-shadow(0 6px 10px rgba(24, 38, 46, 0.35));
-  animation: award-drop 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.25) both;
+/* 휴대폰: 위쪽은 차례 쪽지와 상태 창이 차지하므로 그 아래 보드 위에 띄운다 */
+.game-narrow .award-banner {
+  top: calc(var(--safe-top) + 30vh);
 }
 
-/* 위아래 가장자리의 색 띠 (먹선 두 줄 사이를 플레이어 색으로) */
-.award-ribbon::before,
-.award-ribbon::after {
+/* 글자 뒤의 옅은 그늘: 테두리 없이 가장자리로 갈수록 사라져서 띠처럼 보이지 않고, 뒤의 교역로 표지가 글자 사이로 덜 비친다 */
+.award-banner::before {
   content: '';
   position: absolute;
-  left: 0;
-  right: 0;
-  height: 6px;
-  background: var(--pc);
-  border-block: 1px solid rgba(58, 42, 31, 0.7);
+  inset: -14px -30px;
+  z-index: -1;
+  background: radial-gradient(closest-side, rgba(30, 22, 16, 0.5), rgba(30, 22, 16, 0.28) 60%, rgba(30, 22, 16, 0));
 }
 
-.award-ribbon::before {
-  top: 3px;
-}
-
-.award-ribbon::after {
-  bottom: 3px;
-}
-
-/* 밀랍 도장 안의 달성 표식 */
-.award-seal {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 54px;
-  height: 54px;
-  border-radius: 52% 48% 50% 46% / 47% 53% 48% 52%;
-  background-color: var(--pc);
-  background-image: var(--tex-grain);
-  box-shadow:
-    inset 0 0 0 3px rgba(0, 0, 0, 0.18),
-    inset 0 0 0 5px rgba(255, 240, 220, 0.25),
-    0 2px 3px rgba(30, 10, 5, 0.4);
-  animation: award-seal 0.7s 0.25s cubic-bezier(0.3, 1.6, 0.5, 1) both;
-}
-
-.award-seal svg {
-  filter: drop-shadow(0 0 1.5px rgba(255, 248, 230, 0.9));
-}
-
-.award-text {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+/* 글자 둘레를 여덟 방향 그늘로 감싸 먹 테두리를 만든다 (어느 브라우저에서도 글자 획이 가늘어지지 않게) */
+.award-headline,
+.award-sub {
+  font-family: var(--font-title);
+  font-weight: 800;
+  color: #fff8ea;
+  text-shadow:
+    2px 0 0 var(--award-ink),
+    -2px 0 0 var(--award-ink),
+    0 2px 0 var(--award-ink),
+    0 -2px 0 var(--award-ink),
+    1.5px 1.5px 0 var(--award-ink),
+    -1.5px 1.5px 0 var(--award-ink),
+    1.5px -1.5px 0 var(--award-ink),
+    -1.5px -1.5px 0 var(--award-ink),
+    0 4px 16px rgba(20, 14, 10, 0.6);
 }
 
 .award-headline {
-  font-family: var(--font-title);
-  font-weight: 700;
-  font-size: clamp(1.15rem, 4.6vw, 1.9rem);
-  line-height: 1.15;
-  color: var(--ink);
+  font-size: clamp(1.5rem, 5.4vw, 2.6rem);
+  line-height: 1.2;
   letter-spacing: 0.01em;
 }
 
 .award-color {
   color: var(--pc);
-  /* 연한 색(주황)도 양피지 위에서 읽히게 먹으로 가는 테두리 */
-  -webkit-text-stroke: 0.6px var(--pc-ink);
-  paint-order: stroke fill;
-  text-shadow: 0 1px 0 rgba(255, 248, 230, 0.8);
 }
 
 /* "최장 교역로 달성"은 한 덩어리로 줄을 바꾼다 */
@@ -2723,63 +2688,22 @@
   white-space: nowrap;
 }
 
-@media (max-width: 480px) {
-  .award-ribbon {
-    gap: 9px;
-    padding: 10px 26px 10px 24px;
-  }
-
-  .award-seal {
-    width: 44px;
-    height: 44px;
-  }
-
-  .award-seal svg {
-    width: 28px;
-    height: 28px;
-  }
-}
-
 .award-sub {
-  font-size: 0.86rem;
-  line-height: 1.35;
-  color: var(--ink-soft);
-}
-
-.award-sub svg {
-  vertical-align: -2px;
-}
-
-@keyframes award-drop {
-  from {
-    transform: translateY(-120%);
-    opacity: 0;
-  }
-  to {
-    transform: none;
-    opacity: 1;
-  }
-}
-
-@keyframes award-seal {
-  from {
-    transform: scale(0.2) rotate(-40deg);
-    opacity: 0;
-  }
-  to {
-    transform: none;
-    opacity: 1;
-  }
+  margin-top: 4px;
+  font-size: clamp(0.95rem, 3vw, 1.2rem);
+  font-weight: 700;
 }
 
 @keyframes award-banner-life {
-  0%,
+  0% {
+    opacity: 0;
+  }
+  8%,
   86% {
     opacity: 1;
   }
   100% {
     opacity: 0;
-    transform: translateX(-50%) translateY(-24px);
   }
 }
 
@@ -2967,8 +2891,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .award-ribbon,
-  .award-seal,
   .trade-panel,
   .deed,
   .emote-pop,

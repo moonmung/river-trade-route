@@ -2,9 +2,7 @@
 import { useSyncExternalStore, type CSSProperties } from 'react';
 import { DiceShowHost } from '../dice/DiceShow';
 import { colorWord } from '../game/derive';
-import { AwardIcon } from '../game/panels';
 import { playerColor } from '../theme';
-import { Emblem } from './icons';
 
 export interface AwardWho {
   colorIndex: number;
@@ -61,7 +59,10 @@ export function SpectacleHost() {
   );
 }
 
-/** 달성 공지 띠: 위에서 내려와 잠시 머물다 올라간다. 색 이름과 그 색으로 누가 달성했는지 먼저 읽히게 한다. */
+/**
+ * 달성 공지: 띠나 도장 없이 글자만 보드 위에 크게 띄운다. 어떤 칸 위에서도 읽히게 글자에 먹 테두리를 두르고,
+ * 색 이름은 그 플레이어 색으로 칠한다. 움직임 없이 나타났다가 흐려지며 사라진다.
+ */
 function AwardBanner({ show }: { show: AwardShow }) {
   const color = playerColor(show.colorIndex);
   const label = AWARD_LABEL[show.award];
@@ -72,21 +73,14 @@ function AwardBanner({ show }: { show: AwardShow }) {
       role="status"
       aria-live="assertive"
       aria-label={`${word} 플레이어 ${label} 달성. ${show.nickname}${show.mine ? '(나)' : ''}, ${show.detail}`}
-      style={{ ['--pc' as string]: color.hex, ['--pc-soft' as string]: color.soft, ['--pc-ink' as string]: color.ink } as CSSProperties}
+      style={{ ['--pc' as string]: color.hex, ['--pc-ink' as string]: color.ink } as CSSProperties}
     >
-      <div className="award-ribbon">
-        <span className="award-seal" aria-hidden>
-          <AwardIcon kind={show.award} size={34} />
-        </span>
-        <div className="award-text">
-          <div className="award-headline">
-            <span className="award-color">{word} 플레이어</span> <span className="award-what">{label} 달성</span>
-          </div>
-          <div className="award-sub">
-            <Emblem colorIndex={show.colorIndex} size={15} /> {show.nickname}
-            {show.mine && <span className="tag">나</span>} · {show.detail}
-          </div>
-        </div>
+      <div className="award-headline">
+        <span className="award-color">{word} 플레이어</span> <span className="award-what">{label} 달성</span>
+      </div>
+      <div className="award-sub">
+        {show.nickname}
+        {show.mine ? ' (나)' : ''} · {show.detail}
       </div>
     </div>
   );
