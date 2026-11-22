@@ -697,6 +697,182 @@
   flex: none;
   margin-top: auto;
 }
+/* ───────── 은행 ─────────
+ * 넓은 화면: 오른쪽 패널의 플레이어 바로 위. 자원 다섯 가지와 발전 카드를 손 카드와 같은 물감 색의 작은 카드 더미로 그리고
+ * 오른쪽 위 먹색 딱지에 남은 장수를 적는다. 좁은 화면: 차례 쪽지 아래에 아이콘과 숫자만 한 줄로.
+ */
+.side-bank {
+  flex: none;
+  margin-top: auto;
+}
+
+.side-bank + .side-players {
+  margin-top: 0;
+}
+
+.side-bank h3 {
+  gap: 5px;
+}
+
+.bank-cards {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 7px 9px 2px 2px;
+  list-style: none;
+}
+
+.bank-card {
+  --paper: #f1e5c8;
+  --wash: #d9c49a;
+  position: relative;
+  justify-self: center;
+  width: 100%;
+  max-width: 42px;
+  aspect-ratio: 3 / 4;
+}
+
+/* 뒤에 두 장이 더 겹쳐 있는 더미 */
+.bank-card::before,
+.bank-card::after,
+.bank-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 4px 5px 4px 5px;
+  border: 1px solid rgba(58, 42, 31, 0.7);
+  background-color: var(--paper);
+}
+
+.bank-card::before {
+  content: '';
+  transform: translate(3px, -3px);
+  opacity: 0.75;
+}
+
+.bank-card::after {
+  content: '';
+  transform: translate(1.5px, -1.5px);
+  opacity: 0.9;
+}
+
+.bank-face {
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--wash);
+  background-image: var(--tex-wash), var(--tex-grain);
+  background-size: 120px 120px, 90px 90px;
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 250, 235, 0.45),
+    0 2px 3px rgba(30, 20, 10, 0.25);
+}
+
+.bank-face .art-img {
+  width: 78%;
+  height: auto;
+  filter: drop-shadow(0 1px 1px rgba(58, 42, 31, 0.3));
+}
+
+.bank-wood {
+  --wash: #c8a072;
+}
+
+.bank-grain {
+  --wash: #e8cd84;
+}
+
+.bank-wool {
+  --wash: #c9dca2;
+}
+
+.bank-brick {
+  --wash: #dea082;
+}
+
+.bank-stone {
+  --wash: #c2c8cf;
+}
+
+.bank-dev {
+  --paper: #34466b;
+  --wash: #263553;
+}
+
+/* 남은 장수: 오른쪽 위 먹색 딱지 (세 장 이하 황토, 다 떨어지면 붉게) */
+.bank-n {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  z-index: 2;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: rgba(58, 42, 31, 0.88);
+  color: #fbf0d6;
+  font-family: var(--font-title);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.bank-low .bank-n {
+  background: #9a6a1e;
+}
+
+.bank-empty .bank-n {
+  background: var(--danger);
+}
+
+.bank-empty .bank-face {
+  filter: grayscale(0.85);
+  opacity: 0.55;
+}
+
+/* 좁은 화면: 한 줄 띠 */
+.bank-strip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: max-content;
+  max-width: 100%;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border: 1px solid rgba(58, 42, 31, 0.35);
+  border-radius: 6px;
+  background-color: var(--parchment-hi);
+  background-image: var(--tex-grain);
+  box-shadow: 0 1px 3px rgba(30, 20, 10, 0.18);
+  pointer-events: auto;
+}
+
+.bank-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.74rem;
+  line-height: 1;
+}
+
+.bank-chip b {
+  font-family: var(--font-title);
+}
+
+.bank-chip.bank-low b {
+  color: #9a6a1e;
+}
+
+.bank-chip.bank-empty {
+  opacity: 0.5;
+}
+
+.bank-chip.bank-empty b {
+  color: var(--danger);
+}
+
 
 .log {
   list-style: none;
