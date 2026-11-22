@@ -1,7 +1,7 @@
 // 실험실 모의 게임: 서버 없이 브라우저 안에서 규칙 엔진(shared/rules)을 그대로 돌린다.
 // 화면 정보는 서버와 같은 함수(shared/gameView)로 만들어 실제 게임 화면(Game.tsx)에 그대로 넘긴다.
 // 다른 자리는 봇이 두고, 보는 자리를 바꾸면 그 사람이 되어 직접 둘 수 있다. 차례 시간도 서버처럼 잰다.
-import { DISCARD_LIMIT, MAX_PLAYERS, MIN_PLAYERS, TURN_SECONDS, WIN_POINTS } from '../../shared/constants';
+import { DEV_CARDS, DISCARD_LIMIT, MAX_PLAYERS, MIN_PLAYERS, RESOURCE_CARDS, TURN_SECONDS, WIN_POINTS } from '../../shared/constants';
 import { buildGameView } from '../../shared/gameView';
 import { DEFAULT_MAP } from '../../shared/maps';
 import type { AckResult, ChatEmote, ChatMessage, RoomView } from '../../shared/protocol';
@@ -28,6 +28,8 @@ export interface SandboxOptions {
   turnSeconds?: number;
   rollForOrder?: boolean;
   map?: MapConfig;
+  resourceCards?: number;
+  devCards?: number;
 }
 
 type Listener = () => void;
@@ -39,6 +41,7 @@ export class Sandbox {
   gameNumber = 0;
   turnSeconds = TURN_SECONDS;
   map: MapConfig = { ...DEFAULT_MAP };
+  devCards = DEV_CARDS;
   /** 다른 자리를 봇이 둔다 */
   bots = true;
   /** 봇이 한 수를 두기까지 기다리는 시간 */
@@ -83,10 +86,18 @@ export class Sandbox {
     this.you = 'p0';
     this.turnSeconds = opts.turnSeconds ?? TURN_SECONDS;
     this.map = { ...(opts.map ?? this.map) };
+    this.devCards = opts.devCards ?? DEV_CARDS;
     this.state = createGame(
       this.players.map((p) => p.id),
       Math.random,
-      { winPoints: opts.winPoints ?? WIN_POINTS, handLimit: opts.handLimit ?? DISCARD_LIMIT, rollForOrder: opts.rollForOrder ?? true, map: this.map },
+      {
+        winPoints: opts.winPoints ?? WIN_POINTS,
+        handLimit: opts.handLimit ?? DISCARD_LIMIT,
+        rollForOrder: opts.rollForOrder ?? true,
+        map: this.map,
+        resourceCards: opts.resourceCards ?? RESOURCE_CARDS,
+        devCards: this.devCards,
+      },
     );
     this.gameNumber += 1;
     this.clock = null;
@@ -119,6 +130,8 @@ export class Sandbox {
       handLimit: this.state.handLimit,
       turnSeconds: this.turnSeconds,
       map: { ...this.map },
+      resourceCards: this.state.bankSize ?? RESOURCE_CARDS,
+      devCards: this.devCards,
     };
   }
 

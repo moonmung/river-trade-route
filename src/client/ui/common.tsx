@@ -1,5 +1,8 @@
 import { useState, type ReactNode } from 'react';
+import { client } from '../net/client';
 import { useClient } from '../net/hooks';
+import { navigate } from '../router';
+import { showToast } from './toast';
 
 /** 게임 이름. 그림이나 색 장식 없이 본문과 같은 글꼴, 같은 먹색으로 쓴다. */
 export function Brand({ small = false }: { small?: boolean }) {
@@ -87,4 +90,22 @@ export async function copyText(text: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** 방장만 쓰는 "방 닫기": 대기실이든 게임 중이든 방을 없애고 모두를 처음 화면으로 보낸다. */
+export function CloseRoomButton({ className = 'btn btn-small btn-danger' }: { className?: string }) {
+  return (
+    <AsyncButton
+      className={className}
+      onClick={async () => {
+        if (!window.confirm('방을 닫을까요? 대기실과 진행 중인 게임이 모두 사라지고 참가자 모두 처음 화면으로 돌아갑니다.')) return;
+        const res = await client.close();
+        if (!res.ok) return showToast(res.error, 'error');
+        showToast('방을 닫았습니다.');
+        navigate('/');
+      }}
+    >
+      방 닫기
+    </AsyncButton>
+  );
 }

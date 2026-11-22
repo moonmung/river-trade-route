@@ -258,6 +258,23 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
       reply({ ok: true });
     });
 
+    socket.on('room:close', (_payload, ack) => {
+      const reply = safeAck(ack);
+      const cur = current(socket);
+      if (!cur) return reply(fail('방에 연결되어 있지 않습니다.'));
+      const others = cur.room.players.filter((p) => p.id !== cur.player.id && p.socketId).map((p) => p.socketId!);
+      const err = rooms.close(cur.room, cur.player.id);
+      if (err) return reply(fail(err.error));
+      for (const id of others) {
+        const s = io.sockets.sockets.get(id);
+        if (!s) continue;
+        unbind(s);
+        s.emit('room:closed');
+      }
+      unbind(socket);
+      reply({ ok: true });
+    });
+
     socket.on('room:rematch', (_payload, ack) => {
       const reply = safeAck(ack);
       const cur = current(socket);

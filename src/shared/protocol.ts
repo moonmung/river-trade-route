@@ -89,6 +89,10 @@ export interface GameView {
   stealFrom: string[];
   /** 이 게임의 보드 칸 (맵 모양과 땅 배치) */
   tiles: TileDef[];
+  /** 은행에 남은 자원 카드 (자원마다, 무제한이면 null) */
+  bank: Bundle | null;
+  /** 게임을 시작할 때 은행에 둔 자원 카드 수 (자원마다, 무제한이면 null) */
+  bankSize: number | null;
   /** 기사단 동상이 선 칸 */
   robber: TileId;
   /** 칸마다 놓인 주사위 숫자 */
@@ -138,6 +142,10 @@ export interface RoomView {
   turnSeconds: number;
   /** 방장이 정한 맵 모양과 땅 배치 (다음 게임에 쓴다) */
   map: MapConfig;
+  /** 방장이 정한 은행 자원 카드 수 (자원마다) */
+  resourceCards: number;
+  /** 방장이 정한 발전 카드 총 장수 */
+  devCards: number;
 }
 
 /** 방장이 대기실에서 바꾸는 규칙 (보낸 것만 바뀐다) */
@@ -147,6 +155,8 @@ export interface RoomSettingsPatch {
   turnSeconds?: number;
   mapShape?: MapShape;
   mapArrange?: MapArrange;
+  resourceCards?: number;
+  devCards?: number;
 }
 
 export interface RoomPeek {
@@ -220,6 +230,8 @@ export interface ServerToClientEvents {
   'session:invalid': (info: { reason: string }) => void;
   'session:replaced': () => void;
   kicked: () => void;
+  /** 방장이 방을 닫았다 (방에 있던 다른 사람에게만 보낸다) */
+  'room:closed': () => void;
   /** 방에 붙을 때(참가·재접속) 그 방의 최근 채팅 */
   'chat:history': (p: { code: string; messages: ChatMessage[] }) => void;
   'chat:message': (p: { code: string; message: ChatMessage }) => void;
@@ -241,6 +253,7 @@ export interface ClientToServerEvents {
   'room:leave': (p: Record<string, never>, ack: Ack) => void;
   'room:kick': (p: { playerId: string }, ack: Ack) => void;
   'room:rematch': (p: Record<string, never>, ack: Ack) => void;
+  'room:close': (p: Record<string, never>, ack: Ack) => void;
   'game:action': (p: { requestId: string; action: GameAction }, ack: Ack) => void;
   'chat:send': (p: { text: string }, ack: Ack) => void;
   'chat:emote': (p: { emote: string }, ack: Ack) => void;

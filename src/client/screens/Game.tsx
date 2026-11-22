@@ -227,7 +227,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
         <div className="mode-banner">
           {buildMode === 'road' && '길 놓기 · 빛나는 변을 눌러 고르세요.'}
           {buildMode === 'village' && '마을 짓기 · 빛나는 꼭짓점을 눌러 고르세요.'}
-          {buildMode === 'city' && '도시로 올리기 · 빛나는 내 마을을 눌러 고르세요.'}{' '}
+          {buildMode === 'city' && '도시로 업그레이드 · 빛나는 내 마을을 눌러 고르세요.'}{' '}
           <button className="link-btn small" onClick={() => setBuildMode(null)}>
             그만두기
           </button>

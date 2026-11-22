@@ -17,7 +17,7 @@ import { clearSession, clearTabSession, loadTabSession, saveNickname, saveSessio
 export type ConnState = 'connecting' | 'connected' | 'disconnected';
 
 export interface Interruption {
-  kind: 'invalid' | 'replaced' | 'kicked';
+  kind: 'invalid' | 'replaced' | 'kicked' | 'closed';
   message: string;
   roomCode: string | null;
   /** 연결이 넘어간 자리. "이 화면에서 계속하기"는 정확히 이 자리로만 돌아간다. */
@@ -91,6 +91,15 @@ export class GameClient {
           roomCode: session?.roomCode ?? null,
           session,
         },
+      });
+    });
+    this.socket.on('room:closed', () => {
+      const code = this.snap.session?.roomCode ?? null;
+      if (code) clearSession(code);
+      this.set({
+        session: null,
+        view: null,
+        interruption: { kind: 'closed', message: '방장이 방을 닫았습니다.', roomCode: code },
       });
     });
     this.socket.on('kicked', () => {
@@ -211,6 +220,17 @@ export class GameClient {
 
   kick(playerId: string): Promise<AckResult> {
     return this.emit('room:kick', { playerId });
+  }
+
+  /** 방장이 방을 닫는다. 다른 사람들은 'room:closed' 를 받고 처음 화면 안내로 넘어간다. */
+  async close(): Promise<AckResult> {
+    const code = this.snap.session?.roomCode;
+    const res = await this.emit('room:close', {});
+    if (res.ok && code) {
+      clearSession(code);
+      this.set({ session: null, view: null });
+    }
+    return res;
   }
 
   async leave(): Promise<AckResult> {
