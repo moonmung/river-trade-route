@@ -5,6 +5,7 @@ import type { RoomView } from '../../shared/protocol';
 import { buildableRoads, buildableVillages, longestRoadPath, pieceCount } from '../../shared/rules';
 import type { BoardRenderer, BoardSelection, BoardState, Insets } from '../board/BoardRenderer';
 import BoardView from '../board/BoardView';
+import { BoardPin } from '../board/BoardPin';
 import { FlatBoard } from '../board/FlatBoard';
 import type { PerfStats } from '../board/perf';
 import type { Bundle, DevKind, PieceKind } from '../../shared/types';
@@ -15,7 +16,7 @@ import {
   MenuDialog,
   PlacementBanner,
   ResultOverlay,
-  SpotCard,
+  SpotConfirm,
   StealDialog,
   prefersReducedMotion,
   type GameSettings,
@@ -45,9 +46,9 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   // 넓은 화면이나 가로로 눕힌 휴대폰은 오른쪽 패널 배치를 쓴다.
   const wide = useMediaQuery('(min-width: 900px), (orientation: landscape) and (min-width: 640px)');
   const [settings, setSettings] = useLocalSetting<GameSettings>('rr.settings', DEFAULT_SETTINGS);
-  /** 건설 모드: [도로]·[마을]·[도시]를 누르면 지을 수 있는 자리가 빛나고, 그 자리를 누르면 바로 짓는다 */
+  /** 건설 모드: [도로]·[마을]·[도시]를 누르면 지을 수 있는 자리가 빛나고, 그 자리를 고르면 자리 위에 ✓ / ✕ 가 뜬다 */
   const [buildMode, setBuildMode] = useState<PieceKind | null>(null);
-  /** 보드에서 고른 자리. 시작 배치에서는 고른 뒤 ✓ 를 눌러야 짓는다. */
+  /** 보드에서 고른 자리. 할 일이 있는 자리면 그 위에 ✓ / ✕ 가 붙고 ✓ 를 눌러야 짓는다. */
   const [selected, setSelected] = useState<BoardSelection | null>(null);
   const [dialog, setDialog] = useState<null | 'menu'>(null);
   /** 쓰기 창을 연 발전 카드 (손에 든 발전 카드를 눌러 연다) */
@@ -186,25 +187,15 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     if (wait) return;
     setTradeDraft(null);
     setDevOpen(null);
-    // 시작 배치: 빛나는 자리를 고르면 ✓ 버튼이 뜨고, 눌러야 짓는다 (마을 → 길 순서).
+    // 시작 배치(마을 → 길), 길 건설 카드, 건설 모드, 동상 옮기기 모두 같은 방식이다.
+    // 빛나는 자리를 고르면 그 위에 파란 ✓ 와 빨간 ✕ 가 뜨고, ✓ 를 눌러야 짓는다. 같은 자리를 다시 누르면 무른다.
     if (g.phase === 'placement' && g.placementPlayerId === view.you) {
       setSelected((cur) => (cur && cur.kind === sel.kind && cur.id === sel.id ? null : spotAction(view, sel) ? sel : null));
       return;
     }
-    // 길 건설 카드: 빛나는 변을 고르면 ✓ 도로 건설 버튼이 뜨고, 길마다 그 버튼을 눌러 하나씩 놓는다.
     if (g.phase === 'playing' && g.step === 'road_building' && g.currentPlayerId === view.you) {
       setSelected((cur) => (cur && cur.kind === sel.kind && cur.id === sel.id ? null : spotAction(view, sel) ? sel : null));
       return;
-    }
-    // 건설 모드: 빛나는 자리를 누르면 확인 없이 바로 짓는다.
-    if (buildMode) {
-      const act = spotAction(view, sel);
-      const want = buildMode === 'road' ? 'build_road' : buildMode === 'village' ? 'build_village' : 'build_city';
-      if (act && act.action.type === want && !act.blocker) {
-        setSelected(null);
-        void sendAction(act.action).then((ok) => ok && setBuildMode(null));
-        return;
-      }
     }
     setSelected((cur) => (cur && cur.kind === sel.kind && cur.id === sel.id ? null : sel));
   };
@@ -220,7 +211,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     : myTurn && g.step === 'robber'
       ? '기사단 동상을 옮길 칸을 누르세요. 그 칸은 동상이 떠날 때까지 생산하지 않습니다.'
       : myTurn && g.step === 'road_building'
-        ? `길 건설 카드: 빛나는 변을 고르고 ✓ 도로 건설을 누르세요. 공짜 길이 ${g.freeRoads}개 남았습니다.`
+        ? `길 건설 카드: 빛나는 변을 고르고 ✓ 를 누르세요. 공짜 길이 ${g.freeRoads}개 남았습니다.`
         : null;
   // 좁은 화면에서는 보드 위에 떠 있고, 넓은 화면에서는 오른쪽 패널 위쪽에 놓인다 (보드를 가리지 않게).
   const banners = (
@@ -229,9 +220,9 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       {stepBanner && <div className="mode-banner">{stepBanner}</div>}
       {buildMode && (
         <div className="mode-banner">
-          {buildMode === 'road' && '길 놓기 · 빛나는 변을 눌러 고르세요.'}
-          {buildMode === 'village' && '마을 짓기 · 빛나는 꼭짓점을 눌러 고르세요.'}
-          {buildMode === 'city' && '도시로 업그레이드 · 빛나는 내 마을을 눌러 고르세요.'}{' '}
+          {buildMode === 'road' && '길 놓기 · 빛나는 변을 고르고 ✓ 를 누르세요.'}
+          {buildMode === 'village' && '마을 짓기 · 빛나는 꼭짓점을 고르고 ✓ 를 누르세요.'}
+          {buildMode === 'city' && '도시로 업그레이드 · 빛나는 내 마을을 고르고 ✓ 를 누르세요.'}{' '}
           <button className="link-btn small" onClick={() => setBuildMode(null)}>
             그만두기
           </button>
@@ -240,6 +231,11 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     </>
   );
   const openMenu = () => setDialog('menu');
+  // 고른 자리 위의 ✓ / ✕ (할 일이 있는 자리만). 교환·발전 카드 창이 열려 있거나 연출을 기다리는 동안은 숨긴다.
+  const pinNode =
+    selected && !tradeDraft && !devOpen && !wait && spotAction(view, selected) ? (
+      <SpotConfirm view={view} sel={selected} onClose={() => setSelected(null)} onDone={clearPick} />
+    ) : null;
 
   return (
     <div className={`game ${wide ? 'game-wide' : 'game-narrow'}`}>
@@ -247,7 +243,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
         {useFlat ? (
           <div className="flat-wrap" style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8, paddingRight: insets.right + 8 }}>
             {glFailed && <div className="notice notice-warn small">3D 보드를 표시할 수 없어 2D 보드로 보여 줍니다.</div>}
-            <FlatBoard tiles={boardOf(g).tiles} state={boardState} onTap={onTap} />
+            <FlatBoard tiles={boardOf(g).tiles} state={boardState} onTap={onTap} pin={pinNode && selected ? { sel: selected, node: pinNode } : null} />
           </div>
         ) : (
           <BoardView
@@ -264,6 +260,11 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             onError={() => setGlFailed(true)}
             onRenderer={takeRenderer}
           />
+        )}
+        {!useFlat && renderer && pinNode && selected && (
+          <BoardPin renderer={renderer} sel={selected}>
+            {pinNode}
+          </BoardPin>
         )}
       </div>
 
@@ -333,7 +334,6 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
         )}
         {tradeDraft && <TradePanel view={view} players={players} draft={tradeDraft} onDraft={setTradeDraft} onClose={() => setTradeDraft(null)} />}
         {devOpen && !tradeDraft && <DevPlayCard key={devOpen} view={view} kind={devOpen} wait={wait} onClose={() => setDevOpen(null)} />}
-        {selected && !tradeDraft && !devOpen && !wait && <SpotCard view={view} sel={selected} onClose={() => setSelected(null)} onDone={clearPick} />}
         <div className="me-row">
           <Hand
             resources={shownResources}
