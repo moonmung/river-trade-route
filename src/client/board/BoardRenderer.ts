@@ -594,6 +594,8 @@ export class BoardRenderer {
   private tileLabels: OverlayItem[] = [];
   private badges = new Map<string, OverlayItem>();
   private floating: OverlayItem[] = [];
+  /** 고른 자리 위에 붙은 ✓ / ✕ 같은 HTML 칸 (React 가 안을 채운다) */
+  private pins: OverlayItem[] = [];
   private tileLabelsVisible: boolean;
   /** 숫자 패 (HTML) */
   private numberTokens = new Map<string, OverlayItem>();
@@ -3157,10 +3159,40 @@ export class BoardRenderer {
 
   /** 꼭짓점·변 가운데의 화면 좌표 (테스트·접근성용). 마을은 몸통 높이에서 잰다. */
   spotScreenPosition(kind: 'vertex' | 'edge', id: string): { x: number; y: number } | null {
-    const w = kind === 'vertex' ? this.vertexWorld(id)?.add(new THREE.Vector3(0, 0.16, 0)) : this.edgeWorld(id)?.mid.setY(PLATFORM_TOP + ROAD_DECK_TOP);
+    const w = this.spotWorld(kind, id);
     if (!w) return null;
     const p = w.project(this.camera);
     return { x: ((p.x + 1) / 2) * this.width, y: ((1 - p.y) / 2) * this.height };
+  }
+
+  /** 칸 가운데(타일 윗면), 꼭짓점(마을 몸통 높이), 변 가운데(길 윗면)의 세계 좌표 */
+  private spotWorld(kind: 'tile' | 'vertex' | 'edge', id: string): THREE.Vector3 | null {
+    if (kind === 'tile') {
+      const t = this.tileById.get(id);
+      return t ? tileCenter(t, this.metrics).setY(TILE_TOP) : null;
+    }
+    if (kind === 'vertex') return this.vertexWorld(id)?.add(new THREE.Vector3(0, 0.16, 0)) ?? null;
+    return this.edgeWorld(id)?.mid.setY(PLATFORM_TOP + ROAD_DECK_TOP) ?? null;
+  }
+
+  /**
+   * 보드 위 자리를 따라다니는 빈 HTML 칸을 만든다. 보드를 끌거나 확대해도 그 자리 바로 위에 붙어 있다.
+   * 안은 React 가 createPortal 로 채우고, 다 쓰면 unpin 으로 뗀다. 칸의 아래 가운데가 자리에 닿는다.
+   */
+  pin(kind: 'tile' | 'vertex' | 'edge', id: string): HTMLElement | null {
+    const world = this.spotWorld(kind, id);
+    if (!world || this.disposed) return null;
+    const el = document.createElement('div');
+    el.className = `board-pin board-pin-${kind}`;
+    this.overlay.appendChild(el);
+    this.pins.push({ el, world, anchor: 'translate(-50%, -100%)' });
+    this.updateOverlay();
+    return el;
+  }
+
+  unpin(el: HTMLElement): void {
+    this.pins = this.pins.filter((p) => p.el !== el);
+    el.remove();
   }
 
   private pixelRatioTarget(): number {
@@ -3551,6 +3583,7 @@ export class BoardRenderer {
     this.harborLabels.forEach(place);
     this.badges.forEach(place);
     this.floating.forEach(place);
+    this.pins.forEach(place);
   }
 
   dispose(): void {

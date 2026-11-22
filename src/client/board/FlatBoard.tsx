@@ -1,7 +1,7 @@
 // WebGL 2 를 쓸 수 없는 기기를 위한 2D 보드. 3D 보드와 같은 타일·꼭짓점·변 ID 와 강조 규칙을 쓴다.
 // 타일은 육각형과 숫자 패, 마을·도시는 꼭짓점의 작은 집 모양, 길은 변 위의 굵은 선, 기사단 동상은 방패 모양으로 그린다.
 // 아직 길이 없는 변은 3D 보드의 샛길처럼 희끄무레하고 살짝 굽은 가는 선으로 그린다.
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { mulberry32, hashString } from './art/rng';
 import { boardFor, edgeLabel, tileCenterUnit, vertexLabel } from '../../shared/board';
 import { RESOURCE_LABEL, TILE_KIND_LABEL, numberPips } from '../../shared/constants';
@@ -20,7 +20,18 @@ function hexPoints(cx: number, cy: number, r: number): string {
   }).join(' ');
 }
 
-export function FlatBoard({ tiles, state, onTap }: { tiles: readonly TileDef[]; state: BoardState; onTap?: (sel: BoardSelection) => void }) {
+/** pin: 고른 자리 바로 위에 붙일 것 (✓ / ✕ 단추). 3D 보드의 BoardPin 과 같은 자리에 놓는다. */
+export function FlatBoard({
+  tiles,
+  state,
+  onTap,
+  pin = null,
+}: {
+  tiles: readonly TileDef[];
+  state: BoardState;
+  onTap?: (sel: BoardSelection) => void;
+  pin?: { sel: BoardSelection; node: ReactNode } | null;
+}) {
   const geo = useMemo(() => boardFor(tiles), [tiles]);
   const pad = state.harbors?.length ? 0.85 : 0.4;
   const xs = geo.vertices.map((v) => v.x);
@@ -67,6 +78,17 @@ export function FlatBoard({ tiles, state, onTap }: { tiles: readonly TileDef[]; 
   const sel = state.selected;
   const isSel = (kind: BoardSelection['kind'], id: string) => sel?.kind === kind && sel.id === id;
   const robber = state.robber !== undefined ? state.robber : (tiles.find((t) => t.kind === 'plaza')?.id ?? null);
+  const pinAt = (() => {
+    if (!pin) return null;
+    const { kind, id } = pin.sel;
+    if (kind === 'vertex') return geo.vertexMap[id] ?? null;
+    if (kind === 'edge') {
+      const e = geo.edgeMap[id];
+      return e ? { x: (geo.vertexMap[e.a].x + geo.vertexMap[e.b].x) / 2, y: (geo.vertexMap[e.a].y + geo.vertexMap[e.b].y) / 2 } : null;
+    }
+    const t = tiles.find((x) => x.id === id);
+    return t ? tileCenterUnit(t) : null;
+  })();
 
   return (
     <div className="flat-board" style={{ aspectRatio: `${w} / ${h}` }}>
@@ -183,6 +205,11 @@ export function FlatBoard({ tiles, state, onTap }: { tiles: readonly TileDef[]; 
           );
         })}
       </svg>
+      {pin && pinAt && (
+        <div className={`flat-pin flat-pin-${pin.sel.kind}`} style={{ left: `${((pinAt.x - minX) / w) * 100}%`, top: `${((pinAt.y - minY) / h) * 100}%` }}>
+          {pin.node}
+        </div>
+      )}
     </div>
   );
 }

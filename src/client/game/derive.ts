@@ -318,8 +318,6 @@ export interface SpotAction {
   label: string;
   blocker: string | null;
   action: GameAction;
-  /** 시작 배치처럼 고른 자리를 ✓ 로 확정하는 버튼 */
-  confirm?: boolean;
 }
 
 /**
@@ -343,7 +341,7 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
   if (sel.kind === 'vertex') {
     // 시작 배치: 고른 자리에서 ✓ 를 누르면 마을을 짓는다 (길은 그다음에 따로 고른다).
     if (placing && !g.setupVillage && placeableVertices(boardOf(g), g.buildings).includes(sel.id)) {
-      return { label: '마을 짓기', blocker: null, action: { type: 'place_village', vertexId: sel.id }, confirm: true };
+      return { label: '마을 짓기', blocker: null, action: { type: 'place_village', vertexId: sel.id } };
     }
     const b = g.buildings.find((x) => x.vertexId === sel.id);
     if (myMain && b && b.owner === me && b.kind === 'village') return { label: '도시로 업그레이드', blocker: buildBlocker(view, 'city'), action: { type: 'build_city', vertexId: sel.id } };
@@ -353,12 +351,12 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
   if (g.roads.some((r) => r.edgeId === sel.id)) return null;
   if (placing) {
     if (!g.setupVillage || !setupRoadEdges(boardOf(g), g.roads, g.setupVillage).includes(sel.id)) return null;
-    return { label: '길 놓기', blocker: null, action: { type: 'place_road', edgeId: sel.id }, confirm: true };
+    return { label: '길 놓기', blocker: null, action: { type: 'place_road', edgeId: sel.id } };
   }
   if (!buildSpots(view, 'road').includes(sel.id)) return null;
   if (g.phase === 'playing' && g.step === 'road_building' && g.currentPlayerId === me) {
-    // 길 건설 카드: 고른 변마다 ✓ 버튼을 눌러 하나씩 놓는다.
-    return { label: `도로 건설 · 공짜 ${g.freeRoads}개 남음`, blocker: null, action: { type: 'build_road', edgeId: sel.id }, confirm: true };
+    // 길 건설 카드: 고른 변마다 ✓ 를 눌러 하나씩 놓는다.
+    return { label: `도로 건설 · 공짜 ${g.freeRoads}개 남음`, blocker: null, action: { type: 'build_road', edgeId: sel.id } };
   }
   if (myMain) return { label: '길 놓기', blocker: buildBlocker(view, 'road'), action: { type: 'build_road', edgeId: sel.id } };
   return null;

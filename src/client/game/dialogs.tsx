@@ -155,25 +155,44 @@ export function StealDialog({ view, players }: { view: RoomView; players: Player
 }
 
 /**
- * 보드를 눌렀을 때 그 자리에서 할 수 있는 일(동상 옮기기, 시작 배치, 길·마을 짓기, 도시로 업그레이드)만 버튼으로 띄운다.
- * 할 수 있는 일이 없는 자리는 아무것도 띄우지 않는다 (칸 설명은 보드 그림과 숫자 패로 충분하다).
+ * 보드에서 고른 자리 바로 위에 붙는 동그란 단추 두 개. 파란 ✓ 를 누르면 그 자리에서 할 일(시작 배치, 길·마을 짓기,
+ * 도시로 업그레이드, 기사단 동상 옮기기)을 하고 빨간 ✕ 는 고른 것을 무른다. 글로 된 설명은 두지 않는다.
+ * 못 하는 일이면 ✓ 가 흐려지고 누르면 까닭을 알림으로 띄운다. 할 수 있는 일이 없는 자리는 아무것도 띄우지 않는다.
  */
-export function SpotCard({ view, sel, onClose, onDone }: { view: RoomView; sel: BoardSelection; onClose: () => void; onDone: () => void }) {
+export function SpotConfirm({ view, sel, onClose, onDone }: { view: RoomView; sel: BoardSelection; onClose: () => void; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
   const act = spotAction(view, sel);
   if (!act) return null;
   return (
-    <div className={`spot-actions ${act.confirm ? 'spot-confirm' : ''}`} role="dialog" aria-label={act.label}>
-      <ActionButton
-        className={`btn btn-primary ${act.confirm ? 'btn-check' : ''}`}
-        label={act.label}
-        blocker={act.blocker}
-        icon={act.confirm ? <span className="check-ico" aria-hidden>✓</span> : undefined}
+    <div className="spot-pin" role="group" aria-label={act.label}>
+      <button
+        type="button"
+        className={`pin-btn pin-ok ${act.blocker ? 'is-blocked' : ''}`}
+        aria-label={act.blocker ? `${act.label} (${act.blocker})` : act.label}
+        aria-disabled={!!act.blocker || busy}
+        title={act.label}
         onClick={async () => {
-          if (await sendAction(act.action)) onDone();
+          if (busy) return;
+          if (act.blocker) {
+            showToast(act.blocker, 'warn');
+            return;
+          }
+          setBusy(true);
+          try {
+            if (await sendAction(act.action)) onDone();
+          } finally {
+            setBusy(false);
+          }
         }}
-      />
-      <button className="icon-btn" onClick={onClose} aria-label="닫기">
-        ✕
+      >
+        <svg viewBox="0 0 24 24" aria-hidden>
+          <path d="M5 12.5 L10 17.5 L19 7" />
+        </svg>
+      </button>
+      <button type="button" className="pin-btn pin-no" aria-label="취소" title="취소" onClick={onClose}>
+        <svg viewBox="0 0 24 24" aria-hidden>
+          <path d="M6.5 6.5 L17.5 17.5 M17.5 6.5 L6.5 17.5" />
+        </svg>
       </button>
     </div>
   );
