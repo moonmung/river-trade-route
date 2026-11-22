@@ -1014,8 +1014,8 @@ h2 {
 /* 숫자 패: 양피지 원판에 먹으로 쓴 숫자, 빨간 6·8, 아래 점은 나올 확률(많을수록 자주 나온다).
    바깥 .num-token 은 보드 위 자리만 잡고, 원판(.num-face)이 튀거나 흔들린다. */
 .num-token {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
 }
 
 .num-face {
@@ -1030,17 +1030,18 @@ h2 {
   align-items: center;
   justify-content: center;
   color: #2c2018;
-  font: 700 15px/1 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, var(--font-title);
+  font: 700 17px/1 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, var(--font-title);
 }
 
+/* 숫자와 아래 점(나올 확률)을 한 덩어리로 원판 한가운데에 둔다 */
 .num-face b {
-  margin-top: 3px;
+  margin-top: 2px;
 }
 
 .num-face i {
   font-style: normal;
-  font-size: 8px;
-  line-height: 7px;
+  font-size: 9px;
+  line-height: 8px;
   letter-spacing: -1px;
 }
 

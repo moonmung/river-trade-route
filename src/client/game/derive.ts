@@ -357,7 +357,8 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
   }
   if (!buildSpots(view, 'road').includes(sel.id)) return null;
   if (g.phase === 'playing' && g.step === 'road_building' && g.currentPlayerId === me) {
-    return { label: `공짜 길 놓기 (남은 ${g.freeRoads}개)`, blocker: null, action: { type: 'build_road', edgeId: sel.id } };
+    // 길 건설 카드: 고른 변마다 ✓ 버튼을 눌러 하나씩 놓는다.
+    return { label: `도로 건설 · 공짜 ${g.freeRoads}개 남음`, blocker: null, action: { type: 'build_road', edgeId: sel.id }, confirm: true };
   }
   if (myMain) return { label: '길 놓기', blocker: buildBlocker(view, 'road'), action: { type: 'build_road', edgeId: sel.id } };
   return null;

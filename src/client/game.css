@@ -372,7 +372,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* 그림·이름·재료를 위에서부터 같은 자리에 둔다 (재료 줄 수가 달라도 그림과 이름 높이가 버튼마다 같게) */
+  justify-content: flex-start;
   gap: 1px;
   padding: 5px 3px 4px;
   min-height: 70px;
@@ -435,18 +436,30 @@
   white-space: nowrap;
 }
 
+/* 재료: 한 줄에 두 개씩, 칸 너비를 똑같이 잡아 위아래 줄의 아이콘과 숫자가 세로로 맞는다. 두 줄 자리를 늘 비워 둔다. */
+.build-bar {
+  --bb-res-w: 27px;
+  --bb-res-h: 14px;
+}
+
 .bb-cost {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 0 4px;
-  min-height: 16px;
+  align-content: flex-start;
+  gap: 1px 4px;
+  width: calc(2 * var(--bb-res-w) + 4px);
+  max-width: 100%;
+  min-height: calc(2 * var(--bb-res-h) + 1px);
 }
 
 .bb-res {
   display: inline-flex;
   align-items: center;
-  gap: 1px;
+  justify-content: center;
+  gap: 2px;
+  width: var(--bb-res-w);
+  height: var(--bb-res-h);
   font-size: 0.72rem;
   line-height: 1;
 }
@@ -2762,12 +2775,12 @@
 
 /* 건설 버튼: 판자 길, 작은 집, 성벽 마을, 발전 카드 뒷면 */
 .bb-ico {
-  height: 34px;
+  height: 30px;
 }
 
 .bb-ico .art-img {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   filter: drop-shadow(0 1px 1px rgba(58, 42, 31, 0.3));
   transition: transform 0.18s ease-out;
 }
@@ -3641,6 +3654,10 @@
   }
   .game-wide .bb-res {
     font-size: 0.62rem;
+  }
+  .game-wide .build-bar {
+    --bb-res-w: 22px;
+    --bb-res-h: 12px;
   }
   .game-wide .bb-res .res-icon,
   .game-wide .bb-res svg {

@@ -21,6 +21,7 @@ import {
   PLATFORM_TOP,
   PLAZA_STATUE_SPOT,
   STATUE_SPOT,
+  TOKEN_FACE,
   TOKEN_SPOT,
   TILE_THICKNESS,
   TILE_TOP,
@@ -2461,7 +2462,7 @@ export class BoardRenderer {
         const el = document.createElement('div');
         this.overlay.appendChild(el);
         const c = tileCenter(t, this.metrics);
-        item = { el, world: new THREE.Vector3(c.x + TOKEN_SPOT.x, TILE_TOP + 0.02, c.z + TOKEN_SPOT.z), anchor: 'translate(-50%, -50%) scale(var(--tz, 1))' };
+        item = { el, world: new THREE.Vector3(c.x + TOKEN_FACE.x, TILE_TOP + 0.02, c.z + TOKEN_FACE.z), anchor: 'translate(-50%, -50%) scale(var(--tz, 1))' };
         this.numberTokens.set(t.id, item);
       }
       const locked = robber === t.id;
@@ -2775,7 +2776,7 @@ export class BoardRenderer {
       const to = this.vertexWorld(it.vertexId);
       if (!t || !to) return;
       const c = tileCenter(t, this.metrics);
-      const from = new THREE.Vector3(c.x + TOKEN_SPOT.x, TILE_TOP + 0.3, c.z + TOKEN_SPOT.z);
+      const from = new THREE.Vector3(c.x + TOKEN_FACE.x, TILE_TOP + 0.3, c.z + TOKEN_FACE.z);
       for (let k = 0; k < it.amount; k++) {
         const target = to.clone().add(new THREE.Vector3((k - (it.amount - 1) / 2) * 0.2, 0.55, 0));
         this.launchGoods(it.resource, from.clone(), target, now + 420 + idx * 110 + k * 130, 950, 0.75);

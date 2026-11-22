@@ -100,6 +100,11 @@ type Local = Omit<Placement, 'x' | 'y' | 'z'> & { x: number; z: number; y?: numb
 
 /** 숫자 패가 놓이는 자리 (타일 중심 기준). 생산 칸마다 이 둘레를 비워 둔다. */
 export const TOKEN_SPOT = { x: 0, z: 0.12 };
+/**
+ * 숫자 패를 화면에 띄우는 자리: 칸 한가운데. 위에서 비스듬히 내려다보므로 TOKEN_SPOT 에 띄우면 칸 가운데보다 조금 아래로 보인다.
+ * 소품을 비우는 빈터는 TOKEN_SPOT 기준 그대로 둔다 (가운데도 빈터 안이다).
+ */
+export const TOKEN_FACE = { x: 0, z: 0 };
 /** 기사단 동상이 서는 자리 (숫자 패 바로 뒤라 둘이 겹치지 않는다) */
 export const STATUE_SPOT = { x: 0, z: -0.3 };
 /** 광장에서는 가운데 돌 단 위에 선다. */
