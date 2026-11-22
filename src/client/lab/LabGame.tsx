@@ -71,6 +71,20 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
   const g = view.game!;
   const [open, setOpen] = useState(false);
   const [players, setPlayers] = useState(sb.players.length);
+  /** 달성 공지를 띄울 자리 (누를 때마다 다음 자리로 돌아 색마다 어떻게 보이는지 본다) */
+  const [awardSeat, setAwardSeat] = useState(0);
+  const nextAwardName = sb.players[awardSeat % sb.players.length]?.nickname ?? '';
+  const announce = (award: 'longest_road' | 'largest_army') => {
+    const p = sb.players[awardSeat % sb.players.length];
+    setAwardSeat((n) => n + 1);
+    showAward(award, {
+      colorIndex: p.colorIndex,
+      nickname: p.nickname,
+      mine: p.id === me,
+      detail: award === 'longest_road' ? '이어진 길 5칸 · +2점' : '기사 3장 · +2점',
+    });
+    rendererRef.current?.playAward(award, p.colorIndex, p.id);
+  };
   const [map, setMap] = useState<MapConfig>(sb.map);
   const [dice, setDice] = useState(8);
   const me = sb.you;
@@ -294,26 +308,17 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
           <button className="btn btn-small" onClick={harborTrade}>
             ⛵ 해양 교역 배
           </button>
-          <button
-            className="btn btn-small"
-            onClick={() => {
-              showAward('longest_road', { colorIndex: 0, nickname: sb.players.find((p) => p.id === me)!.nickname, mine: true, detail: '이어진 길 5칸 · +2점' });
-              rendererRef.current?.playAward('longest_road', 0, me);
-            }}
-          >
-            최장 교역로
-          </button>
-          <button
-            className="btn btn-small"
-            onClick={() => {
-              showAward('largest_army', { colorIndex: 1, nickname: sb.players[1].nickname, mine: false, detail: '기사 3장 · +2점' });
-              rendererRef.current?.playAward('largest_army', 1, sb.players[1].id);
-            }}
-          >
-            최강 기사단
-          </button>
           <button className="btn btn-small" onClick={finish}>
             승리 화면
+          </button>
+        </div>
+        <div className="lab-row" title="누를 때마다 다음 자리의 색으로 띄웁니다">
+          <span className="small">달성 공지 ({nextAwardName})</span>
+          <button className="btn btn-small" onClick={() => announce('longest_road')}>
+            최장 교역로
+          </button>
+          <button className="btn btn-small" onClick={() => announce('largest_army')}>
+            최강 기사단
           </button>
         </div>
         <div className="lab-row">
