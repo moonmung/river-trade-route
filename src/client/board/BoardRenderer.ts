@@ -100,6 +100,8 @@ export interface BoardOptions {
   onPerf?: (s: PerfStats) => void;
   showTileLabels?: boolean;
   quality?: QualityMode;
+  /** 소품·조각이 바닥과 옆 소품에 드리우는 그림자 (기본 켬, 품질이 낮음이면 늘 끈다) */
+  shadows?: boolean;
 }
 
 const ELEVATION_DEG = 54;
@@ -108,6 +110,10 @@ const ELEVATION_RAD = THREE.MathUtils.degToRad(ELEVATION_DEG);
 const VIEW_AXIS = new THREE.Vector3(0, Math.sin(ELEVATION_RAD), Math.cos(ELEVATION_RAD));
 const CAMERA_DISTANCE = 40;
 const LIGHT_DIR = new THREE.Vector3(-0.55, 1, 0.5).normalize();
+/** 그림자 맵 해상도 (보드 전체를 한 장에 담는다). 품질이 높음이면 2048, 자동이면 휴대폰 메모리를 아껴 1024 (칸 하나가 약 60픽셀). */
+const SHADOW_MAP_SIZE: Record<QualityMode, number> = { high: 2048, auto: 1024, low: 1024 };
+/** 그늘에서 빠지는 햇빛의 비율 (1 이면 햇빛이 모두 가려진다) */
+const SHADOW_INTENSITY = 0.75;
 /** 그림자가 빛 반대쪽(오른쪽 뒤)으로 살짝 밀리도록 한 오프셋. 조명 방향과 맞춘다. */
 const SHADOW_SHIFT = new THREE.Vector2(0.07, -0.06);
 /**
@@ -507,6 +513,12 @@ export class BoardRenderer {
   private readonly pointerDowns = new Map<number, { x: number; y: number; t: number }>();
 
   private art: ArtLibrary | null = null;
+  /** 햇빛. 정적 그림자 맵을 드리운다. */
+  private sun!: THREE.DirectionalLight;
+  /** 그림자를 켰는지 (설정 값. 품질이 낮음이면 이 값과 상관없이 끈다) */
+  private shadowsWanted = true;
+  /** 다음 그림에서 그림자 맵을 다시 그려야 하는지 (보드 모양이 바뀌었을 때만) */
+  private shadowDirty = true;
   private ready = false;
   private disposed = false;
   private rafId = 0;
@@ -637,6 +649,11 @@ export class BoardRenderer {
     this.renderer.toneMappingExposure = 1.1;
     // 장면 그리기와 후처리 두 번을 한 프레임으로 세도록 통계는 프레임마다 직접 비운다.
     this.renderer.info.autoReset = false;
+    // 그림자 맵은 보드가 바뀔 때만 다시 그린다 (지형·소품·조각은 멈춰 있고, 움직이는 양·교역인은 그림자를 드리우지 않는다).
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.autoUpdate = false;
+    this.shadowsWanted = options.shadows ?? true;
     this.painter = new PaintedRenderer(this.renderer, this.quality === 'low' ? 0 : 4);
     this.canvas = this.renderer.domElement;
     this.canvas.className = 'board-canvas';
@@ -687,7 +704,23 @@ export class BoardRenderer {
     const hemi = new THREE.HemisphereLight('#c9d3e6', '#8c7a5c', 1.35);
     const sun = new THREE.DirectionalLight('#ffe8c2', 1.9);
     sun.position.copy(LIGHT_DIR).multiplyScalar(30);
+    // 그림자 카메라는 보드 받침 전체를 덮는다. 그늘에도 햇빛이 조금 남게 해 그림자가 먹처럼 까맣지 않고 서늘한 물감빛이 된다.
+    const reach = this.metrics.plinthRadius + 1.2;
+    const cam = sun.shadow.camera;
+    cam.left = -reach;
+    cam.right = reach;
+    cam.top = reach;
+    cam.bottom = -reach;
+    cam.near = 20;
+    cam.far = 40;
+    cam.updateProjectionMatrix();
+    sun.shadow.bias = -0.0006;
+    sun.shadow.normalBias = 0.02;
+    sun.shadow.radius = 2.2;
+    sun.shadow.intensity = SHADOW_INTENSITY;
+    this.sun = sun;
     this.scene.add(hemi, sun, sun.target);
+    this.applyShadows();
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -732,6 +765,7 @@ export class BoardRenderer {
     this.buildSmoke();
     this.buildTileLabels();
     this.buildStatue();
+    this.tagShadows();
     this.ready = true;
     this.applyState();
     this.options.onLoaded?.(art.report);
@@ -1135,7 +1169,9 @@ export class BoardRenderer {
     // 윗면에는 빈 변마다 희끄무레한 샛길을 함께 칠한다 (따로 그리는 띠가 없어 그리기 호출이 늘지 않는다).
     const dirtTop = this.withFootpaths(this.groundMaterial('ground_dirt', GROUND_FALLBACK.dirt));
     const dirtSide = this.own(paintMaterial({ color: '#9a7752', map: this.art?.ground('ground_dirt') ?? null }));
-    this.scene.add(new THREE.Mesh(landGeo, [dirtTop, dirtSide]));
+    const landMesh = new THREE.Mesh(landGeo, [dirtTop, dirtSide]);
+    landMesh.userData.ground = true;
+    this.scene.add(landMesh);
 
     // 육각 타일 판 (종류별로 하나의 InstancedMesh). 옆면은 지형마다 흙·풀 둑 색이라 샛길보다 한 뼘 높은 둑처럼 보인다.
     const slabGeo = this.own(new THREE.CylinderGeometry(HEX_RADIUS, HEX_RADIUS + 0.035, TILE_THICKNESS, 6));
@@ -1196,7 +1232,9 @@ export class BoardRenderer {
     // 감김 방향과 상관없이 위에서 보이게 양면으로 칠한다.
     const mat = this.groundMaterial('ground_sand', GROUND_FALLBACK.sand);
     mat.side = THREE.DoubleSide;
-    this.scene.add(new THREE.Mesh(this.own(geo), mat));
+    const beach = new THREE.Mesh(this.own(geo), mat);
+    beach.userData.ground = true;
+    this.scene.add(beach);
   }
 
   /**
@@ -1479,6 +1517,7 @@ export class BoardRenderer {
       const meshes: THREE.InstancedMesh[] = [];
       for (const part of template.parts) {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, list.length);
+        if (key === 'sheep') mesh.userData.moving = true;
         list.forEach((p, i) =>
           mesh.setMatrixAt(i, compose(p.x, p.y, p.z, p.rotY, p.scale * (p.stretch ?? 1), p.scale * (p.sy ?? 1), p.scale)),
         );
@@ -1812,6 +1851,7 @@ export class BoardRenderer {
   }
 
   private updatePieceInstances(): void {
+    this.shadowDirty = true;
     const color = new THREE.Color();
     const gold = new THREE.Color(AWARD_GOLD);
     /** 플레이어 색. 달성 연출로 빛나는 조각은 금빛을 섞어 밝힌다. */
@@ -3034,11 +3074,70 @@ export class BoardRenderer {
 
   setQuality(mode: QualityMode): void {
     this.quality = mode;
+    this.applyShadows();
     this.painter.setSamples(mode === 'low' ? 0 : 4);
     this.pixelStep = 0;
     this.perf.resetRecent();
     this.applyPixelRatio();
     this.requestRender();
+  }
+
+  /** 물체 그림자를 켜고 끈다 (품질이 낮음이면 켜도 그리지 않는다). */
+  setShadows(on: boolean): void {
+    this.shadowsWanted = on;
+    this.applyShadows();
+    this.requestRender();
+  }
+
+  private applyShadows(): void {
+    const on = this.shadowsWanted && this.quality !== 'low';
+    if (this.sun.castShadow !== on) {
+      this.sun.castShadow = on;
+      this.shadowDirty = true;
+    }
+    const size = SHADOW_MAP_SIZE[this.quality];
+    if (this.sun.shadow.mapSize.x !== size) {
+      this.sun.shadow.mapSize.set(size, size);
+      // 다음 그림자 갱신 때 새 크기로 다시 만든다.
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+      this.shadowDirty = true;
+    }
+  }
+
+  /** 보드가 바뀌었으면 이번 그림에서 그림자 맵을 한 번 다시 그린다. */
+  private flushShadows(): void {
+    if (!this.shadowDirty || !this.sun.castShadow) return;
+    this.shadowDirty = false;
+    this.renderer.shadowMap.needsUpdate = true;
+  }
+
+  /**
+   * 그림자를 드리우고 받는 물체를 정한다. 만화 음영 재질을 쓰는 지형·소품·조각은 모두 받고,
+   * 그중 멈춰 있는 것만 드리운다. 땅·모래·바다는 받기만 하고, 양·교역인·날아가는 생산물·배·연기·동상은
+   * 움직이므로 지금처럼 바닥에 깐 그림자 얼룩만 쓴다.
+   */
+  private tagShadows(): void {
+    const moving = new Set<THREE.Object3D>([
+      ...[...this.goods.values()].flat(),
+      ...this.traderParts.map((x) => x.mesh),
+      ...this.shipParts.map((x) => x.mesh),
+      ...(this.smokeMesh ? [this.smokeMesh] : []),
+    ]);
+    const skip = (o: THREE.Object3D): boolean => {
+      for (let p: THREE.Object3D | null = o; p; p = p.parent) {
+        if (p === this.statue || p === this.lockRoot || moving.has(p) || p.userData.moving) return true;
+      }
+      return false;
+    };
+    this.scene.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      const toon = mats.some((m) => m instanceof THREE.MeshToonMaterial);
+      o.receiveShadow = toon;
+      o.castShadow = toon && !o.userData.ground && !skip(o);
+    });
+    this.shadowDirty = true;
   }
 
   setTileLabelsVisible(visible: boolean): void {
@@ -3110,6 +3209,7 @@ export class BoardRenderer {
   private drawNow(): void {
     if (this.disposed) return;
     this.renderer.info.reset();
+    this.flushShadows();
     this.painter.render(this.scene, this.camera);
     this.updateOverlay();
   }
@@ -3371,6 +3471,7 @@ export class BoardRenderer {
     const moving = this.controls.update();
     const t0 = performance.now();
     this.renderer.info.reset();
+    this.flushShadows();
     this.painter.render(this.scene, this.camera);
     this.perf.renderMs = performance.now() - t0;
     this.updateOverlay();
