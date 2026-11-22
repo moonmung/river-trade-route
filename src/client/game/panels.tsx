@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { DEV_COST, DEV_LABEL, PIECE_COST, PIECE_LIMIT, PIECE_POINTS, RESOURCES, RESOURCE_LABEL } from '../../shared/constants';
+import { DEV_COST, DEV_LABEL, PIECE_COST, PIECE_LIMIT, RESOURCES, RESOURCE_LABEL } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
 import { pieceCount } from '../../shared/rules';
 import type { Bundle, PieceKind } from '../../shared/types';
@@ -7,6 +7,7 @@ import { throwDice } from '../dice';
 import { ArtImg, DEV_BACK_ART, PIECE_ART, RESOURCE_ART } from '../ui/art';
 import { playerColor } from '../theme';
 import { Emblem, ResourceIcon } from '../ui/icons';
+import { showToast } from '../ui/toast';
 import { MiniHand } from './hand';
 import { heldTotal, useHeldCards } from './cardFly';
 import { TurnTimer, useTurnClock } from './turn';
@@ -209,9 +210,9 @@ function costText(cost: Bundle): string {
 }
 
 /**
- * 교환과 턴 종료 사이의 네모 버튼 네 개: [도로] [마을] [도시] [발전 카드].
+ * 교환과 턴 종료 사이의 버튼 네 개: [도로] [마을] [도시] [발전 카드].
  * 버튼에는 큰 그림과 작은 이름만 두고, 오른쪽 위 모서리에 앞으로 더 지을 수 있는 개수(발전 카드는 더미에 남은 장수)를 적는다.
- * 재료는 마우스를 올리거나 누르면 버튼 위 말풍선에 아이콘과 개수로 보이고, 못 하는 까닭도 같은 말풍선에 나온다.
+ * 재료는 마우스를 올리거나 누르면 버튼 위 말풍선에 아이콘과 개수로만 보인다. 못 하는 버튼을 누르면 까닭은 교환 버튼처럼 알림으로 띄운다.
  * 도로·마을·도시는 누르면 지을 수 있는 자리가 빛나고 그 자리를 누르면 바로 짓는다. 발전 카드는 누르면 바로 산다.
  * wait: 주사위·생산·동상 연출이 끝나기를 기다리는 중이면 그 까닭 (game/pace.ts). 그동안은 모두 막는다.
  */
@@ -242,9 +243,6 @@ export function BuildBar({
         const blocker = active ? null : (wait ?? (item.key === 'dev' ? buyDevBlocker(view) : buildBlocker(view, item.key)));
         const left = item.key === 'dev' ? g.devDeckCount : PIECE_LIMIT[item.key] - pieceCount(g.buildings, g.roads, view.you, item.key);
         const unit = item.key === 'dev' ? '장' : '개';
-        const points = item.key !== 'dev' && PIECE_POINTS[item.key] ? ` · ${PIECE_POINTS[item.key]}점` : '';
-        const note =
-          blocker ?? (active ? '빛나는 자리를 누르면 짓습니다' : item.key === 'dev' ? '누르면 한 장을 삽니다' : '누르면 지을 자리가 빛납니다');
         return (
           <div key={item.key} className="bb-slot">
             <button
@@ -255,9 +253,12 @@ export function BuildBar({
               aria-label={`${item.label}${active ? ' 그만두기' : ''}, ${item.key === 'dev' ? '남은 카드' : '남은 수'} ${left}${unit}, 재료 ${costText(item.cost)}${blocker ? ` (${blocker})` : ''}`}
               onClick={async () => {
                 if (active) return onBuild(null);
-                // 터치 화면에는 마우스 올리기가 없으니 누를 때 말풍선(재료와 안내)을 잠깐 띄운다.
+                // 터치 화면에는 마우스 올리기가 없으니 누를 때 재료 말풍선을 잠깐 띄운다.
                 setTip({ key: item.key, n: Date.now() });
-                if (blocker) return;
+                if (blocker) {
+                  showToast(blocker, 'warn');
+                  return;
+                }
                 if (item.key !== 'dev') return onBuild(item.key);
                 if (busy) return;
                 setBusy(true);
@@ -276,14 +277,8 @@ export function BuildBar({
                 {left}
               </span>
             </button>
-            <span className={`bb-tip ${tip?.key === item.key ? 'bb-tip-show' : ''}`} role={tip?.key === item.key ? 'status' : undefined}>
-              <span className="bb-tip-head">
-                {item.label} · 남은 {left}
-                {unit}
-                {points}
-              </span>
+            <span className={`bb-tip ${tip?.key === item.key ? 'bb-tip-show' : ''}`} aria-hidden>
               <CostRow cost={item.cost} have={g.myResources} />
-              <span className="bb-tip-note">{note}</span>
             </span>
           </div>
         );

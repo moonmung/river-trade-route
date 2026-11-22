@@ -319,8 +319,9 @@
 }
 
 /*
- * 아래 띠: 손에 든 카드, 그 옆에 [도로][마을][도시][발전 카드] 네모 버튼과 교환·턴 종료(굴리기 단계에는 주사위 굴리기).
- * 좁은 화면은 손 아래에 버튼 두 줄, 넓은 화면은 한 줄로 놓고 자리가 모자라면 버튼 줄이 손 아래로 내려간다.
+ * 아래 띠: 손에 든 카드, 그 옆에 [교환][도로][마을][도시][발전 카드][턴 종료](굴리기 단계에는 주사위 굴리기).
+ * 좁은 화면은 손 아래에 버튼 한 줄, 넓은 화면은 손 오른쪽에 한 줄로 놓고 자리가 모자라면 버튼 줄이 손 아래로 내려간다.
+ * 넓은 화면의 버튼은 손 카드 높이만큼 위아래로 늘려 띠 위쪽에 빈자리가 남지 않게 한다.
  */
 .me-row {
   display: flex;
@@ -337,6 +338,7 @@
 .game-wide .me-row {
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: stretch;
 }
 
 /* 아래 버튼 줄: [교환] [도로] [마을] [도시] [발전 카드] [턴 종료]. 넓은 화면은 손 카드 오른쪽에 한 줄로,
@@ -469,16 +471,10 @@
 }
 
 /* 말풍선 안 재료: 아이콘과 개수를 한 줄로. 모자란 재료는 흐리게 */
-.bb-tip-head {
-  display: block;
-  font-weight: 700;
-}
-
 .bb-cost {
   display: flex;
   justify-content: center;
-  gap: 8px;
-  margin: 3px 0 2px;
+  gap: 9px;
 }
 
 .bb-res {
@@ -498,13 +494,7 @@
   filter: grayscale(0.85);
 }
 
-.bb-tip-note {
-  display: block;
-  font-size: 0.7rem;
-  opacity: 0.85;
-}
-
-/* 재료와 못 하는 까닭: 버튼 위 먹색 말풍선 (마우스를 올리거나 눌렀을 때). 양 끝 버튼은 화면 밖으로 나가지 않게 끝을 맞춘다. */
+/* 재료: 버튼 위 먹색 말풍선에 아이콘과 개수만 (마우스를 올리거나 눌렀을 때). 양 끝 버튼은 화면 밖으로 나가지 않게 끝을 맞춘다. */
 .bb-tip {
   --tx: -50%;
   position: absolute;
@@ -513,7 +503,7 @@
   z-index: 30;
   width: max-content;
   max-width: 210px;
-  padding: 5px 9px 6px;
+  padding: 6px 10px;
   border-radius: 5px;
   background: var(--ink);
   color: #f5e6c2;
@@ -3009,6 +2999,20 @@
   filter: grayscale(0.7);
 }
 
+/* 넓은 화면은 버튼이 손 카드 높이만큼 길어서 그림도 키운다 */
+.game-wide .bb-ico,
+.game-wide .bb-ico .art-img {
+  height: 56px;
+}
+
+.game-wide .bb-ico .art-img {
+  width: 56px;
+}
+
+.game-wide .act-ico {
+  font-size: 2.1rem;
+}
+
 /* 휴대폰: 여섯 칸이 한 줄이라 그림을 조금 줄인다 */
 @media (max-width: 720px) {
   .bb-ico,
@@ -3731,8 +3735,11 @@
   }
   .game-wide .bb-ico,
   .game-wide .bb-ico .art-img {
-    width: 38px;
-    height: 38px;
+    width: 46px;
+    height: 46px;
+  }
+  .game-wide .act-ico {
+    font-size: 1.8rem;
   }
   .game-wide .me-actions {
     gap: 6px;
