@@ -1,7 +1,7 @@
 // 방 채팅 저장소. 서버가 보낸 최근 대화와 이모티콘, 핑을 방 코드와 함께 들고 있다가 React 에 알린다.
 import { useSyncExternalStore } from 'react';
-import { CHAT_HISTORY, PING_MS, PING_SLOW_TEXT, takePingToken, type PingBucket } from '../../shared/constants';
-import type { AckResult, ChatEmote, ChatMessage, ChatPing } from '../../shared/protocol';
+import { BRAG_GAP_MS, CHAT_HISTORY, PING_MS, PING_SLOW_TEXT, takePingToken, type PingBucket } from '../../shared/constants';
+import type { AckResult, ChatBrag, ChatEmote, ChatMessage, ChatPing } from '../../shared/protocol';
 import { client } from './client';
 
 /** 이모티콘이 이름 옆에 떠 있는 시간 (CSS 의 emote-pop 과 같다) */
@@ -37,6 +37,7 @@ export interface ChatSink {
   send: (text: string) => Promise<AckResult>;
   emote: (emote: string) => Promise<AckResult>;
   ping: (kind: ChatPing['kind'], target: string) => Promise<AckResult>;
+  brag: (award: ChatBrag['award']) => Promise<AckResult>;
 }
 let sink: ChatSink | null = null;
 
@@ -60,6 +61,29 @@ export function sendChatPing(kind: ChatPing['kind'], target: string, now = Date.
   return sink ? sink.ping(kind, target) : client.sendPing(kind, target);
 }
 
+/** 마지막으로 자랑한 시각 (화면에서도 서버와 같은 간격을 미리 센다) */
+let lastBrag = -Infinity;
+
+/** 다시 자랑할 수 있기까지 남은 시간 (ms, 0 이면 지금 할 수 있다) */
+export function bragWait(now = Date.now()): number {
+  return Math.max(0, lastBrag + BRAG_GAP_MS - now);
+}
+
+/** 내가 가진 달성을 모두에게 뽐낸다. 간격이 덜 찼으면 서버에 묻지 않고 거절한다. */
+export function sendChatBrag(award: ChatBrag['award'], now = Date.now()): Promise<AckResult> {
+  if (bragWait(now) > 0) return Promise.resolve({ ok: false, error: '자랑은 잠시 뒤에 다시 할 수 있습니다.', code: 'BRAG_SLOW' });
+  lastBrag = now;
+  return sink ? sink.brag(award) : client.sendBrag(award);
+}
+
+const bragListeners = new Set<(b: ChatBrag) => void>();
+
+/** 누군가 자랑하면 부른다 (게임 화면이 달성 연출을 띄운다). 돌려준 함수로 끊는다. */
+export function onChatBrag(fn: (b: ChatBrag) => void): () => void {
+  bragListeners.add(fn);
+  return () => bragListeners.delete(fn);
+}
+
 /** 서버가 보낸 것처럼 대화 한 줄·이모티콘을 넣는다 (실험실 모의 게임) */
 export function injectChat(code: string, message: ChatMessage): void {
   onMessage({ code, message });
@@ -73,6 +97,10 @@ export function injectPing(code: string, ping: ChatPing): void {
   onPing({ code, ping });
 }
 
+export function injectBrag(brag: ChatBrag): void {
+  bragListeners.forEach((fn) => fn(brag));
+}
+
 client.onServer('chat:history', ({ code, messages }) => {
   // 새로고침해서 처음 받은 지난 대화는 읽은 것으로 친다. 같은 방에 다시 붙은 경우(잠깐 끊김)는 읽은 자리를 그대로 둔다.
   const last = messages.length ? messages[messages.length - 1].id : 0;
@@ -83,6 +111,7 @@ client.onServer('chat:history', ({ code, messages }) => {
 client.onServer('chat:message', (p) => onMessage(p));
 client.onServer('chat:emote', (p) => onEmote(p));
 client.onServer('chat:ping', (p) => onPing(p));
+client.onServer('chat:brag', ({ brag }) => bragListeners.forEach((fn) => fn(brag)));
 
 function onMessage({ code, message }: { code: string; message: ChatMessage }): void {
   if (code !== state.code) {

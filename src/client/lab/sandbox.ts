@@ -4,7 +4,7 @@
 import { DEV_CARDS, DISCARD_LIMIT, MIN_PLAYERS, RESOURCE_CARDS, TURN_SECONDS, WIN_POINTS } from '../../shared/constants';
 import { buildGameView } from '../../shared/gameView';
 import { DEFAULT_MAP, mapCardDefaults, maxPlayersFor } from '../../shared/maps';
-import type { AckResult, ChatEmote, ChatMessage, ChatPing, RoomView } from '../../shared/protocol';
+import type { AckResult, ChatBrag, ChatEmote, ChatMessage, ChatPing, RoomView } from '../../shared/protocol';
 import { applyAction, autoPlay, clockKey, createGame, currentPlayer, placementPlayer, type GameState } from '../../shared/rules';
 import type { GameAction, MapConfig } from '../../shared/types';
 import { botSideAction, botTurnAction } from './bot';
@@ -63,6 +63,7 @@ export class Sandbox {
   onChat: ((m: ChatMessage) => void) | null = null;
   onEmote: ((e: ChatEmote) => void) | null = null;
   onPing: ((p: ChatPing) => void) | null = null;
+  onBrag: ((b: ChatBrag) => void) | null = null;
   private pingSeq = 0;
 
   constructor(opts: SandboxOptions) {
@@ -289,5 +290,14 @@ export class Sandbox {
   ping(from: string, kind: ChatPing['kind'], target: string): void {
     this.pingSeq += 1;
     this.onPing?.({ id: this.pingSeq, from, kind, target, at: Date.now() });
+  }
+
+  /** 서버의 ChatHub.brag 처럼 가진 달성만 뽐낸다 (간격은 화면이 센다). */
+  brag(from: string, award: ChatBrag['award']): AckResult {
+    const held = award === 'longest_road' ? this.state.longestRoad : this.state.largestArmy;
+    if (held.holder !== from) return { ok: false, error: '가지고 있는 달성만 자랑할 수 있습니다.', code: 'BRAG_NOT_HOLDER' };
+    const size = 'length' in held ? held.length : held.size;
+    this.onBrag?.({ from, award, size, at: Date.now() });
+    return { ok: true };
   }
 }

@@ -245,6 +245,15 @@ export interface ChatPing {
   at: number;
 }
 
+/** 최장 교역로·최강 기사단을 가진 사람이 모두의 화면에 달성 연출을 다시 띄워 뽐낸다 (보관하지 않는다). */
+export interface ChatBrag {
+  from: string;
+  award: 'longest_road' | 'largest_army';
+  /** 뽐낼 때의 길 칸 수 또는 쓴 기사 장수 */
+  size: number;
+  at: number;
+}
+
 export type AckFail = { ok: false; error: string; code?: string };
 export type AckResult<T extends object = object> = ({ ok: true } & T) | AckFail;
 export type Ack<T extends object = object> = (result: AckResult<T>) => void;
@@ -261,6 +270,7 @@ export interface ServerToClientEvents {
   'chat:message': (p: { code: string; message: ChatMessage }) => void;
   'chat:emote': (p: { code: string; emote: ChatEmote }) => void;
   'chat:ping': (p: { code: string; ping: ChatPing }) => void;
+  'chat:brag': (p: { code: string; brag: ChatBrag }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -286,8 +296,10 @@ export interface ClientToServerEvents {
   'game:action': (p: { requestId: string; action: GameAction }, ack: Ack) => void;
   'chat:send': (p: { text: string }, ack: Ack) => void;
   'chat:emote': (p: { emote: string }, ack: Ack) => void;
-  /** 보드 한 자리를 가리킨다 (3초에 2번까지) */
+  /** 보드 한 자리를 가리킨다 (연달아 3번, 그 뒤 1초에 한 번) */
   'chat:ping': (p: { kind: 'tile' | 'vertex' | 'edge'; target: string }, ack: Ack) => void;
+  /** 내가 가진 달성(최장 교역로·최강 기사단)을 모두에게 뽐낸다 (5초에 한 번) */
+  'chat:brag': (p: { award: 'longest_road' | 'largest_army' }, ack: Ack) => void;
 }
 
 /** Socket.IO 연결 때 보내는 인증 정보 (재접속 시 같은 자리 복구용) */

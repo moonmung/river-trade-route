@@ -1,4 +1,4 @@
-// 새로 들어온 게임 기록에 맞춰 연출과 알림을 낸다: 주사위, 칸 생산, 기사단 동상, 빼앗기, 달성 두루마리.
+// 새로 들어온 게임 기록에 맞춰 연출과 알림을 낸다: 주사위, 칸 생산, 기사단 동상, 빼앗기, 달성 공지, 황금 기사단, 자랑하기.
 import { useEffect, useRef } from 'react';
 import { boardOf } from '../../shared/board';
 import { DEV_LABEL, RESOURCE_LABEL } from '../../shared/constants';
@@ -7,9 +7,10 @@ import type { Resource } from '../../shared/types';
 import type { BoardRenderer } from '../board/BoardRenderer';
 import { josa } from '../ui/josa';
 import { rollDice, settleDice } from '../dice';
-import { showAward } from '../ui/spectacle';
+import { onChatBrag } from '../net/chat';
+import { showAward, showGoldenKnight } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
-import { flyCards, holdCards, type FlyCard } from './cardFly';
+import { flyCards, holdCards, stealCard, type FlyCard } from './cardFly';
 import { bundleText, tileName, type PlayerInfo } from './derive';
 import { resetPace, startPaced } from './pace';
 import { RESOURCES } from '../../shared/constants';
@@ -20,6 +21,9 @@ const SEVEN_READ_MS = 1450;
 const ROLL_READ_MS = 600;
 /** 옮긴 동상이 날아가 내려앉기까지 (BoardRenderer 의 syncRobber) */
 const ROBBER_FLIGHT_MS = 1200;
+/** 빼앗은 카드가 날아가기 시작하는 때: 동상이 막 옮겨 갔으면 내려앉은 뒤, 아니면(고르는 창으로 골랐으면) 바로 */
+const STEAL_AFTER_LANDING_MS = ROBBER_FLIGHT_MS + 150;
+const STEAL_SOON_MS = 150;
 
 /** 보드 위 꼭짓점의 화면 좌표 (렌더러가 없으면 보드 가운데) */
 function boardPoint(renderer: BoardRenderer | null, vertexId: string): { x: number; y: number } {
@@ -52,6 +56,23 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
   const lastTurn = useRef<string | null>(null);
   const rendererRef = useRef(renderer);
   rendererRef.current = renderer;
+  const playersRef = useRef(players);
+  playersRef.current = players;
+  const youRef = useRef(view.you);
+  youRef.current = view.you;
+
+  // 자랑하기: 누가 뽐내면 모두의 화면에 달성 연출을 다시 띄운다 (글만 "뽐냅니다"로 다르다).
+  useEffect(
+    () =>
+      onChatBrag((b) => {
+        const p = playersRef.current.get(b.from);
+        const colorIndex = p?.colorIndex ?? 0;
+        const unit = b.award === 'longest_road' ? `이어진 길 ${b.size}칸` : `기사 ${b.size}장`;
+        showAward(b.award, { colorIndex, nickname: p?.nickname ?? '?', mine: b.from === youRef.current, detail: unit, brag: true });
+        rendererRef.current?.playAward(b.award, colorIndex, b.from);
+      }),
+    [],
+  );
 
   useEffect(() => {
     const g = view.game;
@@ -76,7 +97,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
     lastSeq.current = maxSeq;
     const animate = fresh.length <= 12;
 
-    for (const e of fresh) {
+    for (const [i, e] of fresh.entries()) {
       switch (e.kind) {
         case 'roll': {
           const total = e.dice[0] + e.dice[1];
@@ -163,23 +184,49 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           if (e.player === me) showToast('시간이 다 되어 자동으로 진행했습니다.', 'warn', 3600);
           else showToast(`${name(e.player)}의 시간이 다 되어 자동으로 진행했습니다.`, 'info', 2600);
           break;
-        case 'robber':
+        case 'robber': {
           // 3D 보드에서는 동상이 들려 날아가 내려앉는다. 내려앉은 뒤에 빼앗기 창과 버튼을 연다.
           startPaced('robber', e.seq)(animate && rendererRef.current ? ROBBER_FLIGHT_MS : 0);
           if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} 기사단 동상을 ${tileName(g, e.tileId)} 칸으로 옮겼습니다.`, 'warn');
+          // 동상이 선 칸에 자원을 가진 상대가 없으면 아무것도 빼앗지 않고 넘어간다. 옮긴 사람에게 그렇다고 알려 준다.
+          const stoleLater = fresh.slice(i + 1).some((x) => x.kind === 'steal' && x.player === e.player);
+          const last = fresh.slice(i + 1).every((x) => x.kind !== 'robber');
+          if (e.player === me && !stoleLater && last && g.step !== 'steal') {
+            showToast(`${tileName(g, e.tileId)} 칸에 닿은 상대 중 자원을 가진 사람이 없어 빼앗지 않았습니다.`, 'info', 3600);
+          }
           break;
-        case 'steal':
-          if (e.from === me) {
-            showToast(`${josa(name(e.player), '이/가')} ${e.detail ? RESOURCE_LABEL[e.detail] : '자원'} 1장을 빼앗아 갔습니다.`, 'error', 4000);
-            buzz(120);
-          } else if (e.player === me && e.detail) showToast(`${name(e.from)}에게서 ${RESOURCE_LABEL[e.detail]} 1장을 빼앗았습니다.`, 'good');
+        }
+        case 'steal': {
+          // 뺏긴 사람의 카드 뭉치에서 가져간 사람 쪽으로 카드가 날아간다. 모두에게 보이고, 둘 중 하나가 나면 자원 그림이 보인다.
+          const justMoved = fresh.slice(0, i).some((x) => x.kind === 'robber' && x.player === e.player);
+          const delay = animate ? (justMoved ? STEAL_AFTER_LANDING_MS : STEAL_SOON_MS) : 0;
+          stealCard({ thief: e.player, victim: e.from, resource: e.detail ?? null, me, delay, reduced: !animate || reducedMotion() });
+          const what = e.detail ? RESOURCE_LABEL[e.detail] : '자원';
+          window.setTimeout(() => {
+            if (e.from === me) {
+              showToast(`${josa(name(e.player), '이/가')} 내 ${what} 1장을 빼앗아 갔습니다.`, 'error', 4000);
+              buzz(120);
+            } else if (e.player === me) showToast(`${name(e.from)}에게서 ${what} 1장을 빼앗았습니다.`, 'good', 3600);
+            else showToast(`${josa(name(e.player), '이/가')} ${name(e.from)}에게서 자원 1장을 빼앗았습니다.`, 'info', 3600);
+          }, delay);
           break;
+        }
         case 'buy_dev':
           if (e.player === me && e.detail) showToast(`발전 카드: ${DEV_LABEL[e.detail]}`, 'good');
           break;
-        case 'play_dev':
+        case 'play_dev': {
+          // 최강 기사단을 이미 가진 사람이 기사를 쓰면 황금 기사단으로 크게 출격한다 (이번 기사로 막 달성했으면 달성 공지가 뜬다).
+          const justWon = fresh.slice(i + 1).some((x) => x.kind === 'award' && x.award === 'largest_army' && x.player === e.player);
+          if (e.card === 'knight' && g.largestArmy.holder === e.player && !justWon) {
+            const knights = g.players.find((p) => p.id === e.player)?.knightsPlayed ?? g.largestArmy.size;
+            showGoldenKnight({ colorIndex: color(e.player), nickname: name(e.player), mine: e.player === me, knights });
+            if (animate) rendererRef.current?.playGoldenKnight(e.player);
+            buzz(200);
+            break;
+          }
           if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} ${DEV_LABEL[e.card]} 카드를 썼습니다.`);
           break;
+        }
         case 'award':
           if (e.player) {
             // 화면 위쪽에 "빨강 플레이어 최장 교역로 달성" 공지를 크게 띄운다.

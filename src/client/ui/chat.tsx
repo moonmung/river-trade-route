@@ -124,20 +124,9 @@ export function PingButton({ active, onToggle, compact = false }: { active: bool
   );
 }
 
-/** 깃발이 꽂히는 순간 땅에서 튀는 불꽃 조각: [가로, 세로(px), 늦게 튀는 시간(ms)] */
-const PING_SPARKS: readonly [number, number, number][] = [
-  [-24, -9, 0],
-  [21, -12, 25],
-  [-15, 9, 45],
-  [17, 8, 10],
-  [-3, -18, 35],
-  [27, 1, 55],
-  [-28, 2, 20],
-];
-
 /**
- * 보드 위 핑: 찍은 자리에 그 사람 색 제비꼬리 깃발이 위에서 떨어져 꽂힌다. 꽂히는 순간 땅에 고리 두 겹이 퍼지고
- * 금빛·그 사람 색 불꽃 조각이 튄다. 꽂힌 깃발은 움직이지 않고 서 있다가 PING_MS(2.6초) 뒤 옅어진다.
+ * 보드 위 핑: 찍은 자리에 그 사람 색 삼각 깃발 하나가 톡 떨어져 꽂히고, 땅에 고리 하나가 퍼진다.
+ * 깃대와 깃발만 있는 간단한 꼴이고 꽂힌 뒤에는 움직이지 않다가 PING_MS(2.6초) 뒤 옅어진다.
  * 이름은 보드에 적지 않고 화면 읽기 프로그램에만 알린다. 상자 한가운데가 깃대 끝(꽂힌 자리)이다.
  */
 export function PingMark({ colorIndex, name }: { colorIndex: number; name: string }) {
@@ -145,25 +134,10 @@ export function PingMark({ colorIndex, name }: { colorIndex: number; name: strin
   return (
     <div className="ping-mark" style={{ ['--pc' as string]: color.hex } as CSSProperties} role="status" aria-label={`${name}의 핑`}>
       <span className="ping-ring" />
-      <span className="ping-ring ping-ring-2" />
-      {PING_SPARKS.map(([dx, dy, d], i) => (
-        <i
-          key={i}
-          className={`ping-spark ${i % 2 ? 'ping-spark-gold' : ''}`}
-          style={{ ['--dx' as string]: `${dx}px`, ['--dy' as string]: `${dy}px`, ['--d' as string]: `${d}ms` } as CSSProperties}
-        />
-      ))}
-      <svg className="ping-flag" viewBox="0 0 40 62" aria-hidden>
-        <ellipse className="pf-shadow" cx="9" cy="59.4" rx="7.5" ry="2.3" />
-        <path className="pf-mound" d="M2.6 59.6 Q8 54.6 13.4 59.6 Z" />
-        <g className="pf-cloth">
-          <path className="pf-cloth-body" d="M9 7 H35.5 L28.8 15.5 L35.5 24 H9 Z" />
-          <path className="pf-cloth-shade" d="M9 16.4 H29.5 L35.5 24 H9 Z" />
-          <path className="pf-cloth-band" d="M9 10.4 H31.6" />
-          <path className="pf-cloth-edge" d="M9 7 H35.5 L28.8 15.5 L35.5 24 H9 Z" />
-        </g>
-        <path className="pf-pole" d="M7.1 5 V57 L8 60.6 L8.9 57 V5 Z" />
-        <circle className="pf-knob" cx="8" cy="4.2" r="2.9" />
+      <svg className="ping-flag" viewBox="0 0 30 48" aria-hidden>
+        <ellipse className="pf-shadow" cx="5" cy="46" rx="5" ry="1.7" />
+        <path className="pf-cloth" d="M5.5 4 L27 11.5 L5.5 19 Z" />
+        <path className="pf-pole" d="M4.2 3 H6.8 V46 H4.2 Z" />
       </svg>
     </div>
   );

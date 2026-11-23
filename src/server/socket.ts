@@ -363,6 +363,16 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
       reply({ ok: true });
     });
 
+    socket.on('chat:brag', (payload, ack) => {
+      const reply = safeAck(ack);
+      const cur = current(socket);
+      if (!cur) return reply(fail('방에 연결되어 있지 않습니다.'));
+      const res = chat.brag(cur.room, cur.player, payload);
+      if (!res.ok) return reply(fail(res.error, res.code));
+      io.to(cur.room.code).emit('chat:brag', { code: cur.room.code, brag: res.brag });
+      reply({ ok: true });
+    });
+
     socket.on('disconnect', () => {
       const { roomCode, playerId } = socket.data;
       if (roomCode && playerId) {

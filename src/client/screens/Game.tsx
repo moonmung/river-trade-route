@@ -25,7 +25,7 @@ import { clearFlyingCards, useHeldCards } from '../game/cardFly';
 import { useGameEffects } from '../game/effects';
 import { usePaceWait } from '../game/pace';
 import { Hand } from '../game/hand';
-import { BankPanel, BuildBar, PlayersPanel, TradeButton, TurnButton } from '../game/panels';
+import { BankPanel, BragButtons, BuildBar, PlayersPanel, TradeButton, TurnButton } from '../game/panels';
 import { TradeDeeds, TradePanel, handPickToDraft, newDraft, type TradeDraft } from '../game/trade';
 import { OrderRollPanel, TurnStatus } from '../game/turn';
 import { sendAction, useLocalSetting, useMediaQuery } from '../game/ui';
@@ -356,6 +356,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             <ChatBox code={view.code} you={view.you} />
             <div className="emote-row">
               <EmoteBar />
+              <BragButtons view={view} />
               {pingButton(false)}
             </div>
           </section>
@@ -370,7 +371,16 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       <div className="hud-bottom" ref={bottomRef}>
         {!wide && (
           <div className="hud-corner">
-            <ChatDock code={view.code} you={view.you} extra={pingButton(true)} />
+            <ChatDock
+              code={view.code}
+              you={view.you}
+              extra={
+                <>
+                  <BragButtons view={view} compact />
+                  {pingButton(true)}
+                </>
+              }
+            />
           </div>
         )}
         {tradeDraft && <TradePanel view={view} players={players} draft={tradeDraft} onDraft={setTradeDraft} onClose={() => setTradeDraft(null)} />}

@@ -1123,6 +1123,17 @@ h2 {
   letter-spacing: 0.04em;
 }
 
+/* 황금 기사단: 달성 글자보다 크고 금빛 그늘이 번진다 */
+.float-golden {
+  color: #ffd766;
+  font-size: 30px;
+  letter-spacing: 0.04em;
+  text-shadow:
+    0 0 2px #3d2606,
+    0 2px 0 #3d2606,
+    0 0 14px rgba(255, 200, 70, 0.9);
+}
+
 .float-blocked {
   color: #ffb3a6;
   font-size: 16px;
