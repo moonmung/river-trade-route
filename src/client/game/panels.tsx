@@ -6,7 +6,7 @@ import type { Bundle, PieceKind } from '../../shared/types';
 import { throwDice } from '../dice';
 import { ArtImg, DEV_BACK_ART, PIECE_ART, RESOURCE_ART } from '../ui/art';
 import { playerColor } from '../theme';
-import { Emblem, ResourceIcon } from '../ui/icons';
+import { PersonIcon, ResourceIcon } from '../ui/icons';
 import { showToast } from '../ui/toast';
 import { MiniHand } from './hand';
 import { heldTotal, useHeldCards } from './cardFly';
@@ -57,8 +57,8 @@ export function AwardIcon({ kind, size = 14 }: { kind: 'longest_road' | 'largest
 }
 
 /**
- * 플레이어 상태 창 (화면 오른쪽 맨 아래). 이름·승점 줄과 손 카드·기사·길 줄 두 줄로 적는다.
- * 채팅 이모티콘은 이름 옆에 잠깐 떠오른다.
+ * 플레이어 상태 창 (화면 오른쪽 맨 아래). 왼쪽에 그 사람 색의 사람 아이콘, 가운데에 이름 줄과 손 카드·기사·길 줄,
+ * 오른쪽 아래에 승점을 크게 적는다. 채팅 이모티콘은 이름 옆에 잠깐 떠오른다.
  */
 export function PlayersPanel({
   view,
@@ -95,8 +95,8 @@ export function PlayersPanel({
             className={`player ${isCurrent ? 'player-current' : ''} ${p.connected ? '' : 'player-off'} ${id === view.you ? 'player-me' : ''}`}
             style={{ ['--pc' as string]: color.hex } as CSSProperties}
           >
+            <PersonIcon colorIndex={p.colorIndex} size={compact ? 20 : 26} title={color.name} />
             <div className="player-line">
-              <Emblem colorIndex={p.colorIndex} size={18} title={`${color.name} 깃발`} />
               <span className="player-name">
                 <span className="player-nick">{p.nickname}</span>
                 {id === view.you && <span className="tag">나</span>}
@@ -116,10 +116,12 @@ export function PlayersPanel({
                   <AwardIcon kind="largest_army" />
                 </span>
               )}
+              {offers > 0 && (
+                <span className="stat-offers" title={`열린 교환 제안 ${offers}개`}>
+                  ⇄{offers}
+                </span>
+              )}
               {ticking && clock && <TurnTimer clock={clock} size={22} mine={id === view.you} />}
-              <span title={id === view.you ? '내 승점 (숨긴 승점 카드 포함)' : '공개된 승점 (숨긴 승점 카드는 보이지 않음)'} className="stat-score">
-                ★{points}
-              </span>
             </div>
             <div className="player-stats">
               <MiniHand count={info.devCardCount} kind="dev" title={`발전 카드 ${info.devCardCount}장`} />
@@ -130,16 +132,21 @@ export function PlayersPanel({
                 <PieceIcon kind="road" size={13} />
                 {info.roadLength}
               </span>
-              {offers > 0 && (
-                <span className="stat-offers" title={`열린 교환 제안 ${offers}개`}>
-                  ⇄{offers}
-                </span>
-              )}
-              {/* 자원 카드 뭉치는 오른쪽 아래: 생산한 카드가 여기로 날아든다 */}
+              {/* 자원 카드 뭉치는 오른쪽 아래(승점 바로 왼쪽): 생산한 카드가 여기로 날아든다 */}
               <span className="player-res">
                 <MiniHand count={resCount} kind="res" fly={`hand-${id}`} title={`자원 카드 ${resCount}장 (종류는 본인만 봅니다)`} />
               </span>
             </div>
+            <span
+              className="player-score"
+              title={id === view.you ? '내 승점 (숨긴 승점 카드 포함)' : '공개된 승점 (숨긴 승점 카드는 보이지 않음)'}
+              aria-label={`승점 ${points}점`}
+            >
+              <span className="ps-star" aria-hidden>
+                ★
+              </span>
+              <b>{points}</b>
+            </span>
             {!p.connected && <span className="off-dot" title="연결 끊김" aria-label="연결 끊김" />}
           </li>
         );

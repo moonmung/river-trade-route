@@ -568,7 +568,7 @@ export function TradeDeed({
   );
 }
 
-/** 열린 교환 증서들과 막 닫힌 증서(결과 글씨를 단 채 잠깐 남는다). 화면 왼쪽 위에 쌓는다. */
+/** 열린 교환 증서들과 막 닫힌 증서(결과 글씨를 단 채 잠깐 남는다). 보드 오른쪽 위(넓은 화면은 오른쪽 패널 바로 왼쪽)에 쌓는다. */
 export function TradeDeeds({ view, players, compact = false }: { view: RoomView; players: Players; compact?: boolean }) {
   const g = view.game;
   const closed = useClosedDeeds(view);

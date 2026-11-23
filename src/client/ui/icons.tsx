@@ -69,6 +69,19 @@ export function Emblem({ colorIndex, size = 18, title }: { colorIndex: number; s
   );
 }
 
+/** 사람 모양 (머리와 어깨). 플레이어 색으로 칠하고 먹선을 두른다. 플레이어 상태 창에서 이름 앞에 쓴다. */
+export function PersonIcon({ colorIndex, size = 22, title }: { colorIndex: number; size?: number; title?: string }) {
+  const color = playerColor(colorIndex);
+  const common = { fill: color.hex, stroke: '#1d1a16', strokeWidth: 1.5, strokeLinejoin: 'round' as const };
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" role="img" aria-label={title} aria-hidden={title ? undefined : true} className="person-icon">
+      {title ? <title>{title}</title> : null}
+      <circle cx="12" cy="7.4" r="4.5" {...common} />
+      <path d="M3.4 21.4c0-5.1 3.9-8.4 8.6-8.4s8.6 3.3 8.6 8.4z" {...common} />
+    </svg>
+  );
+}
+
 export function CrownIcon({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden>

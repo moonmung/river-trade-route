@@ -111,8 +111,8 @@
 }
 
 /*
- * 플레이어 상태 창 (오른쪽 맨 아래). 한 사람에 두 줄: 깃발·이름·달성·승점, 그 아래 손 카드·기사·길.
- * 왼쪽 띠를 그 사람 색으로 칠하고, 지금 차례인 사람은 같은 색 테두리를 두른다.
+ * 플레이어 상태 창 (오른쪽 맨 아래). 한 사람에 세 칸: 왼쪽 사람 아이콘(두 줄 높이), 가운데 이름·달성·시계 줄과
+ * 손 카드·기사·길 줄, 오른쪽 아래 큰 승점. 왼쪽 띠를 그 사람 색으로 칠하고, 지금 차례인 사람은 같은 색 테두리를 두른다.
  */
 .players {
   list-style: none;
@@ -124,10 +124,12 @@
 }
 
 .player {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 4px 8px 4px 9px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 7px;
+  row-gap: 1px;
+  align-items: center;
+  padding: 4px 9px 4px 8px;
   background-color: rgba(250, 243, 226, 0.92);
   border-left: 4px solid var(--pc) !important;
   font-size: 0.84rem;
@@ -144,11 +146,43 @@
   opacity: 0.55;
 }
 
+.player .person-icon {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  flex: none;
+}
+
 .player-line {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 5px;
   min-width: 0;
+}
+
+/* 승점: 오른쪽 아래에 크게 (별은 작게, 숫자는 크게) */
+.player-score {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  align-self: end;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  font-family: var(--font-title);
+  color: #8a5a12;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.player-score .ps-star {
+  font-size: 0.85rem;
+}
+
+.player-score b {
+  font-size: 1.6rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .player-name {
@@ -168,10 +202,12 @@
 }
 
 .player-stats {
+  grid-column: 2;
+  grid-row: 2;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding-left: 23px;
+  gap: 7px;
+  min-width: 0;
   color: var(--ink-soft);
   font-size: 0.78rem;
   white-space: nowrap;
@@ -224,8 +260,10 @@
   display: none;
 }
 
+/* 넓은 화면: 교환 증서는 보드 오른쪽 위(오른쪽 패널 바로 왼쪽)에 쌓는다 */
 .game-wide .hud-float {
   width: 292px;
+  align-self: flex-end;
 }
 
 .placement-banner,
@@ -2512,7 +2550,7 @@
 .deeds {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: flex-end;
   gap: 10px;
   padding-top: 8px;
   pointer-events: none;
@@ -2522,7 +2560,7 @@
   max-height: calc(100vh - 240px);
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 10px 8px 8px 2px;
+  padding: 10px 2px 8px 8px;
   scrollbar-width: thin;
 }
 
@@ -3857,8 +3895,9 @@
 }
 
 .players-compact .player {
-  gap: 0;
-  padding: 2px 6px 2px 7px;
+  column-gap: 5px;
+  row-gap: 0;
+  padding: 2px 6px 2px 5px;
   font-size: 0.72rem;
   line-height: 1.3;
   box-shadow: 0 1px 3px rgba(30, 20, 10, 0.25);
@@ -3874,15 +3913,37 @@
   gap: 4px;
 }
 
-.players-compact .player-line svg {
+.players-compact .tag-award svg {
   width: 14px;
   height: 14px;
 }
 
+/* 좁은 칸(휴대폰 두 칸씩): 큰 승점은 이름 줄 오른쪽에 두고 아랫줄은 끝까지 쓴다 (두 자리 숫자가 겹치지 않게) */
+.players-compact .player-score {
+  grid-row: 1;
+  align-self: center;
+}
+
 .players-compact .player-stats {
-  padding-left: 0;
-  gap: 6px;
+  grid-column: 2 / 4;
+}
+
+.players-compact .player-score b {
+  font-size: 1.15rem;
+}
+
+.players-compact .player-score .ps-star {
   font-size: 0.68rem;
+}
+
+.players-compact .player-stats {
+  gap: 5px;
+  font-size: 0.68rem;
+}
+
+/* 좁은 칸은 큰 승점 자리를 남기려고 교환 제안 수(⇄)를 숨긴다. 열린 제안은 증서로 따로 보인다. */
+.players-compact .stat-offers {
+  display: none;
 }
 
 .players-compact .mini-fan {
@@ -3906,6 +3967,17 @@
 
 /* 가로로 눕힌 휴대폰처럼 낮은 화면: 아래 띠를 한 줄로 아주 작게, 오른쪽 패널도 좁게 (보드가 보이게) */
 @media (max-height: 480px) {
+  /* 패널이 좁아 큰 승점은 이름 줄 오른쪽에 두고 아랫줄은 끝까지 쓴다 */
+  .game-wide .player-score {
+    grid-row: 1;
+    align-self: center;
+  }
+  .game-wide .player-stats {
+    grid-column: 2 / 4;
+  }
+  .game-wide .player-score b {
+    font-size: 1.2rem;
+  }
   .game-wide {
     --side-w: clamp(220px, 28vw, 260px);
   }
