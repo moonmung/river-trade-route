@@ -296,8 +296,12 @@ export class GameClient {
     return this.emit('chat:emote', { emote });
   }
 
-  /** 화면 정보(state)와 따로 오는 서버 메시지 (채팅) */
-  onServer<E extends 'chat:history' | 'chat:message' | 'chat:emote'>(event: E, fn: ServerToClientEvents[E]): () => void {
+  sendPing(kind: 'tile' | 'vertex' | 'edge', target: string): Promise<AckResult> {
+    return this.emit('chat:ping', { kind, target });
+  }
+
+  /** 화면 정보(state)와 따로 오는 서버 메시지 (채팅, 이모티콘, 핑) */
+  onServer<E extends 'chat:history' | 'chat:message' | 'chat:emote' | 'chat:ping'>(event: E, fn: ServerToClientEvents[E]): () => void {
     const socket = this.socket as unknown as { on: (e: string, f: unknown) => void; off: (e: string, f: unknown) => void };
     socket.on(event, fn);
     return () => socket.off(event, fn);

@@ -20,17 +20,22 @@ function hexPoints(cx: number, cy: number, r: number): string {
   }).join(' ');
 }
 
-/** pin: 고른 자리 바로 위에 붙일 것 (✓ / ✕ 단추). 3D 보드의 BoardPin 과 같은 자리에 놓는다. */
+/**
+ * pin: 고른 자리 바로 위에 붙일 것 (✓ / ✕ 단추). marks: 자리 한가운데에 겹쳐 놓을 것 (핑 물결).
+ * 3D 보드의 BoardPin 과 같은 자리에 놓는다. Alt 키를 누른 채 누르면 onTap 의 alt 가 참이다 (핑 찍기).
+ */
 export function FlatBoard({
   tiles,
   state,
   onTap,
   pin = null,
+  marks = [],
 }: {
   tiles: readonly TileDef[];
   state: BoardState;
-  onTap?: (sel: BoardSelection) => void;
+  onTap?: (sel: BoardSelection, info: { alt: boolean }) => void;
   pin?: { sel: BoardSelection; node: ReactNode } | null;
+  marks?: { key: string | number; sel: BoardSelection; node: ReactNode }[];
 }) {
   const geo = useMemo(() => boardFor(tiles), [tiles]);
   const pad = state.harbors?.length ? 0.85 : 0.4;
@@ -78,9 +83,8 @@ export function FlatBoard({
   const sel = state.selected;
   const isSel = (kind: BoardSelection['kind'], id: string) => sel?.kind === kind && sel.id === id;
   const robber = state.robber !== undefined ? state.robber : (tiles.find((t) => t.kind === 'plaza')?.id ?? null);
-  const pinAt = (() => {
-    if (!pin) return null;
-    const { kind, id } = pin.sel;
+  const spotAt = (sel: BoardSelection): { x: number; y: number } | null => {
+    const { kind, id } = sel;
     if (kind === 'vertex') return geo.vertexMap[id] ?? null;
     if (kind === 'edge') {
       const e = geo.edgeMap[id];
@@ -88,7 +92,9 @@ export function FlatBoard({
     }
     const t = tiles.find((x) => x.id === id);
     return t ? tileCenterUnit(t) : null;
-  })();
+  };
+  const pinAt = pin ? spotAt(pin.sel) : null;
+  const pct = (p: { x: number; y: number }) => ({ left: `${((p.x - minX) / w) * 100}%`, top: `${((p.y - minY) / h) * 100}%` });
 
   return (
     <div className="flat-board" style={{ aspectRatio: `${w} / ${h}` }}>
@@ -101,7 +107,7 @@ export function FlatBoard({
             <g
               key={t.id}
               className={`flat-hex flat-${t.kind} ${isSel('tile', t.id) ? 'flat-selected' : ''} ${hlT.has(t.id) ? 'flat-target' : ''} ${locked ? 'flat-locked' : ''}`}
-              onClick={() => onTap?.({ kind: 'tile', id: t.id })}
+              onClick={(e) => onTap?.({ kind: 'tile', id: t.id }, { alt: e.altKey })}
               role="button"
               aria-label={`${t.id} ${TILE_KIND_LABEL[t.kind]}${num ? ` 주사위 ${num}` : ''}${locked ? ' 기사단 동상에 막힘' : ''}`}
             >
@@ -166,7 +172,7 @@ export function FlatBoard({
           const x2 = a.x + (b.x - a.x) * 0.84;
           const y2 = a.y + (b.y - a.y) * 0.84;
           return (
-            <g key={e.id} onClick={() => onTap?.({ kind: 'edge', id: e.id })} role="button" aria-label={`${edgeLabel(geo, e.id)}${road ? ' 길' : ''}`}>
+            <g key={e.id} onClick={(ev) => onTap?.({ kind: 'edge', id: e.id }, { alt: ev.altKey })} role="button" aria-label={`${edgeLabel(geo, e.id)}${road ? ' 길' : ''}`}>
               {traceE.has(e.id) && <line x1={x1} y1={y1} x2={x2} y2={y2} className="flat-trace" />}
               {road && (
                 <line
@@ -190,7 +196,7 @@ export function FlatBoard({
           const b = state.buildings.find((x) => x.vertexId === v.id);
           const s = b?.kind === 'city' ? 0.24 : 0.17;
           return (
-            <g key={v.id} onClick={() => onTap?.({ kind: 'vertex', id: v.id })} role="button" aria-label={`${vertexLabel(geo, v.id)}${b ? ` ${b.label}` : ''}`}>
+            <g key={v.id} onClick={(e) => onTap?.({ kind: 'vertex', id: v.id }, { alt: e.altKey })} role="button" aria-label={`${vertexLabel(geo, v.id)}${b ? ` ${b.label}` : ''}`}>
               {(hlV.has(v.id) || isSel('vertex', v.id)) && <circle cx={v.x} cy={v.y} r={0.24} className={`flat-spot-hl ${isSel('vertex', v.id) ? 'flat-spot-sel' : ''}`} />}
               {!hlV.has(v.id) && hintV.has(v.id) && <circle cx={v.x} cy={v.y} r={0.15} className="flat-hint-ring" />}
               {b && (
@@ -206,10 +212,18 @@ export function FlatBoard({
         })}
       </svg>
       {pin && pinAt && (
-        <div className={`flat-pin flat-pin-${pin.sel.kind}`} style={{ left: `${((pinAt.x - minX) / w) * 100}%`, top: `${((pinAt.y - minY) / h) * 100}%` }}>
+        <div className={`flat-pin flat-pin-${pin.sel.kind}`} style={pct(pinAt)}>
           {pin.node}
         </div>
       )}
+      {marks.map((m) => {
+        const at = spotAt(m.sel);
+        return at ? (
+          <div key={m.key} className="flat-mark" style={pct(at)}>
+            {m.node}
+          </div>
+        ) : null;
+      })}
     </div>
   );
 }

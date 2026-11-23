@@ -89,7 +89,8 @@ export interface BoardOptions {
   tiles: readonly TileDef[];
   playerColors: readonly string[];
   ownerMarkup: (colorIndex: number) => string;
-  onTap?: (sel: BoardSelection) => void;
+  /** 자리를 눌렀다. alt: Alt 키를 누른 채 눌렀다 (핑 찍기) */
+  onTap?: (sel: BoardSelection, info: { alt: boolean }) => void;
   /** 마우스가 올라간 자리 (마우스만). x·y 는 캔버스 안 좌표로, 자리 가운데 위쪽 */
   onHover?: (sel: BoardSelection | null, x: number, y: number) => void;
   /** 바람·양·연기 움직임 (기본 켬) */
@@ -3177,15 +3178,15 @@ export class BoardRenderer {
 
   /**
    * 보드 위 자리를 따라다니는 빈 HTML 칸을 만든다. 보드를 끌거나 확대해도 그 자리 바로 위에 붙어 있다.
-   * 안은 React 가 createPortal 로 채우고, 다 쓰면 unpin 으로 뗀다. 칸의 아래 가운데가 자리에 닿는다.
+   * 안은 React 가 createPortal 로 채우고, 다 쓰면 unpin 으로 뗀다. 칸의 아래 가운데가 자리에 닿는다 (center 면 칸 한가운데가 닿는다).
    */
-  pin(kind: 'tile' | 'vertex' | 'edge', id: string): HTMLElement | null {
+  pin(kind: 'tile' | 'vertex' | 'edge', id: string, center = false): HTMLElement | null {
     const world = this.spotWorld(kind, id);
     if (!world || this.disposed) return null;
     const el = document.createElement('div');
-    el.className = `board-pin board-pin-${kind}`;
+    el.className = center ? 'board-pin-center' : `board-pin board-pin-${kind}`;
     this.overlay.appendChild(el);
-    this.pins.push({ el, world, anchor: 'translate(-50%, -100%)' });
+    this.pins.push({ el, world, anchor: center ? 'translate(-50%, -50%)' : 'translate(-50%, -100%)' });
     this.updateOverlay();
     return el;
   }
@@ -3418,7 +3419,7 @@ export class BoardRenderer {
     const sel = this.pick(e.clientX, e.clientY);
     if (sel) {
       this.pokeAt(sel);
-      this.options.onTap?.(sel);
+      this.options.onTap?.(sel, { alt: e.altKey });
     }
   };
 

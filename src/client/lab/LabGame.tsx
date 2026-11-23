@@ -10,7 +10,7 @@ import type { BoardRenderer } from '../board/BoardRenderer';
 import { colorWord } from '../game/derive';
 import { paceBusy } from '../game/pace';
 import { setActionSink } from '../game/ui';
-import { injectChat, injectEmote, setChatSink } from '../net/chat';
+import { injectChat, injectEmote, injectPing, setChatSink } from '../net/chat';
 import Game from '../screens/Game';
 import { navigate } from '../router';
 import { PersonIcon } from '../ui/icons';
@@ -39,9 +39,14 @@ export function LabGame({ onScene }: { onScene: () => void }) {
         sb.emote(sb.you, e);
         return { ok: true };
       },
+      ping: async (kind, target) => {
+        sb.ping(sb.you, kind, target);
+        return { ok: true };
+      },
     });
     sb.onChat = (m) => injectChat(LAB_CODE, m);
     sb.onEmote = (e) => injectEmote(LAB_CODE, e);
+    sb.onPing = (p) => injectPing(LAB_CODE, p);
     // 봇은 화면이 주사위·생산·동상 연출을 다 보여 준 뒤에 다음 수를 둔다.
     sb.busy = () => paceBusy(sb.state.events);
     if (!welcomed) {

@@ -29,8 +29,8 @@ import { BankPanel, BuildBar, PlayersPanel, TradeButton, TurnButton } from '../g
 import { TradeDeeds, TradePanel, handPickToDraft, newDraft, type TradeDraft } from '../game/trade';
 import { OrderRollPanel, TurnStatus } from '../game/turn';
 import { sendAction, useLocalSetting, useMediaQuery } from '../game/ui';
-import { useChat } from '../net/chat';
-import { ChatBox, ChatDock, EmoteBar } from '../ui/chat';
+import { sendChatPing, useChat } from '../net/chat';
+import { ChatBox, ChatDock, EmoteBar, PingButton, PingMark } from '../ui/chat';
 import { PersonIcon } from '../ui/icons';
 import { showToast } from '../ui/toast';
 import { SpectacleHost } from '../ui/spectacle';
@@ -64,6 +64,14 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   const [hoverRoad, setHoverRoad] = useState<{ edgeId: string; x: number; y: number } | null>(null);
   /** 자리 순서가 막 정해져 결과를 잠깐 보여 주는 중 */
   const [orderDone, setOrderDone] = useState(false);
+  /** 핑 찍기: 켜져 있으면 다음에 누른 보드 자리를 모두에게 가리킨다 (Alt+클릭은 켜지 않아도 바로 찍는다) */
+  const [pingMode, setPingMode] = useState(false);
+  useEffect(() => {
+    if (!pingMode) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setPingMode(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pingMode]);
   const myTurn = g.phase === 'playing' && g.currentPlayerId === view.you;
   /**
    * 주사위가 멈추고 합계를 읽을 틈, 생산 카드가 손에 닿을 때, 옮긴 동상이 내려앉을 때까지 기다리는 중이면 그 까닭.
@@ -182,7 +190,15 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     onRenderer?.(r);
   };
 
-  const onTap = (sel: BoardSelection) => {
+  const onTap = (sel: BoardSelection, info?: { alt: boolean }) => {
+    // 핑: 핑 단추를 켰거나 Alt 키를 누른 채 누르면 그 자리를 모두에게 가리킨다 (고르기·짓기는 하지 않는다).
+    if (pingMode || info?.alt) {
+      setPingMode(false);
+      void sendChatPing(sel.kind, sel.id).then((res) => {
+        if (!res.ok) showToast(res.error, 'warn');
+      });
+      return;
+    }
     // 연출이 끝나기 전에는 동상 칸·공짜 길 자리를 고를 수 없다.
     if (wait) return;
     setTradeDraft(null);
@@ -217,6 +233,14 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   const banners = (
     <>
       <PlacementBanner view={view} players={players} picked={!!selected} />
+      {pingMode && (
+        <div className="mode-banner mode-banner-ping">
+          핑 찍기 · 보드에서 모두에게 가리킬 곳을 누르세요.{' '}
+          <button className="link-btn small" onClick={() => setPingMode(false)}>
+            그만두기
+          </button>
+        </div>
+      )}
       {stepBanner && <div className="mode-banner">{stepBanner}</div>}
       {buildMode && (
         <div className="mode-banner">
@@ -231,6 +255,13 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     </>
   );
   const openMenu = () => setDialog('menu');
+  // 보드 위 핑 물결 (찍은 사람 색). 3D 보드는 BoardPin 으로, 2D 보드는 marks 로 그 자리 한가운데에 겹친다.
+  const pingMarks = chat.pings.map((p) => ({
+    key: p.key,
+    sel: { kind: p.kind, id: p.target } as BoardSelection,
+    node: <PingMark colorIndex={players.get(p.from)?.colorIndex ?? 0} name={players.get(p.from)?.nickname ?? '?'} />,
+  }));
+  const pingButton = (compact: boolean) => <PingButton compact={compact} active={pingMode} onToggle={() => setPingMode((v) => !v)} />;
   // 고른 자리 위의 ✓ / ✕ (할 일이 있는 자리만). 교환·발전 카드 창이 열려 있거나 연출을 기다리는 동안은 숨긴다.
   const pinNode =
     selected && !tradeDraft && !devOpen && !wait && spotAction(view, selected) ? (
@@ -238,12 +269,12 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     ) : null;
 
   return (
-    <div className={`game ${wide ? 'game-wide' : 'game-narrow'}`}>
+    <div className={`game ${wide ? 'game-wide' : 'game-narrow'} ${pingMode ? 'is-pinging' : ''}`}>
       <div className="board-layer">
         {useFlat ? (
           <div className="flat-wrap" style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8, paddingRight: insets.right + 8 }}>
             {glFailed && <div className="notice notice-warn small">3D 보드를 표시할 수 없어 2D 보드로 보여 줍니다.</div>}
-            <FlatBoard tiles={boardOf(g).tiles} state={boardState} onTap={onTap} pin={pinNode && selected ? { sel: selected, node: pinNode } : null} />
+            <FlatBoard tiles={boardOf(g).tiles} state={boardState} onTap={onTap} pin={pinNode && selected ? { sel: selected, node: pinNode } : null} marks={pingMarks} />
           </div>
         ) : (
           <BoardView
@@ -266,6 +297,13 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             {pinNode}
           </BoardPin>
         )}
+        {!useFlat &&
+          renderer &&
+          pingMarks.map((m) => (
+            <BoardPin key={m.key} renderer={renderer} sel={m.sel} center>
+              {m.node}
+            </BoardPin>
+          ))}
       </div>
 
       {hoverRoad && traceOwner && trace && (
@@ -317,7 +355,10 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
           <section className="side-chat">
             <h3>대화</h3>
             <ChatBox code={view.code} you={view.you} />
-            <EmoteBar />
+            <div className="emote-row">
+              <EmoteBar />
+              {pingButton(false)}
+            </div>
           </section>
           <BankPanel view={view} />
           <section className="side-players">
@@ -329,7 +370,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       <div className="hud-bottom" ref={bottomRef}>
         {!wide && (
           <div className="hud-corner">
-            <ChatDock code={view.code} you={view.you} />
+            <ChatDock code={view.code} you={view.you} extra={pingButton(true)} />
           </div>
         )}
         {tradeDraft && <TradePanel view={view} players={players} draft={tradeDraft} onDraft={setTradeDraft} onClose={() => setTradeDraft(null)} />}

@@ -235,6 +235,16 @@ export interface ChatEmote {
   at: number;
 }
 
+/** 보드 한 자리(칸·꼭짓점·변)를 가리키는 핑. 같은 방 모두의 보드에 그 사람 색 물결로 잠깐 뜬다. */
+export interface ChatPing {
+  /** 방마다 늘어나는 번호 */
+  id: number;
+  from: string;
+  kind: 'tile' | 'vertex' | 'edge';
+  target: string;
+  at: number;
+}
+
 export type AckFail = { ok: false; error: string; code?: string };
 export type AckResult<T extends object = object> = ({ ok: true } & T) | AckFail;
 export type Ack<T extends object = object> = (result: AckResult<T>) => void;
@@ -250,6 +260,7 @@ export interface ServerToClientEvents {
   'chat:history': (p: { code: string; messages: ChatMessage[] }) => void;
   'chat:message': (p: { code: string; message: ChatMessage }) => void;
   'chat:emote': (p: { code: string; emote: ChatEmote }) => void;
+  'chat:ping': (p: { code: string; ping: ChatPing }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -275,6 +286,8 @@ export interface ClientToServerEvents {
   'game:action': (p: { requestId: string; action: GameAction }, ack: Ack) => void;
   'chat:send': (p: { text: string }, ack: Ack) => void;
   'chat:emote': (p: { emote: string }, ack: Ack) => void;
+  /** 보드 한 자리를 가리킨다 (3초에 2번까지) */
+  'chat:ping': (p: { kind: 'tile' | 'vertex' | 'edge'; target: string }, ack: Ack) => void;
 }
 
 /** Socket.IO 연결 때 보내는 인증 정보 (재접속 시 같은 자리 복구용) */
