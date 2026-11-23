@@ -1,10 +1,20 @@
 // /lab 의 모의 게임: 실제 게임 화면(Game.tsx)을 서버 없이 띄우고, 다른 자리는 봇이 둔다.
-// 왼쪽 '실험' 서랍에서 보는 자리 바꾸기, 주사위 값 정하기, 자원·발전 카드 받기, 해양 교역 배, 달성·승리 화면 같은 연출을 바로 시험한다.
+// 왼쪽 '실험' 서랍에서 맵 바꾸기, 보는 자리 바꾸기, 주사위 값 정하기, 자원·발전 카드 받기, 해양 교역 배, 달성·승리 화면 같은 연출을 바로 시험한다.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { boardOf, harborVertices } from '../../shared/board';
 import { DEV_LABEL, RESOURCES, RESOURCE_LABEL, TURN_SECONDS_OPTIONS, emptyBundle } from '../../shared/constants';
 import { autoPlay, buildingAt, computeResult, tradeRatios, vertexOpen } from '../../shared/rules';
-import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL, maxPlayersFor } from '../../shared/maps';
+import {
+  DEFAULT_MAP,
+  MAP_ARRANGES,
+  MAP_ARRANGE_LABEL,
+  MAP_SHAPES,
+  MAP_SHAPE_LABEL,
+  mapTileCount,
+  maxPlayersFor,
+  normalizeMapArrange,
+  normalizeMapShape,
+} from '../../shared/maps';
 import type { Bundle, DevKind, MapConfig, Resource } from '../../shared/types';
 import type { BoardRenderer } from '../board/BoardRenderer';
 import { colorWord } from '../game/derive';
@@ -14,6 +24,7 @@ import { injectBrag, injectChat, injectEmote, injectPing, setChatSink } from '..
 import Game from '../screens/Game';
 import { navigate } from '../router';
 import { PersonIcon } from '../ui/icons';
+import { MapPreview } from '../ui/MapPreview';
 import { showAward } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
 import { turnSecondsLabel } from '../ui/WinPoints';
@@ -22,8 +33,33 @@ import { LAB_CODE, Sandbox } from './sandbox';
 const DEV_KINDS: DevKind[] = ['knight', 'road_building', 'year_of_plenty', 'monopoly', 'victory'];
 let welcomed = false;
 
+const LAB_MAP_KEY = 'rr.lab.map';
+
+/** 실험실에서 마지막으로 고른 맵. 새로 고쳐도 그 맵으로 시작한다. */
+function savedMap(): MapConfig {
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(LAB_MAP_KEY) ?? 'null') as Partial<MapConfig> | null;
+    return {
+      shape: normalizeMapShape(raw?.shape) ?? DEFAULT_MAP.shape,
+      arrange: normalizeMapArrange(raw?.arrange) ?? DEFAULT_MAP.arrange,
+    };
+  } catch {
+    return { ...DEFAULT_MAP };
+  }
+}
+
+function saveMap(map: MapConfig): void {
+  try {
+    window.localStorage.setItem(LAB_MAP_KEY, JSON.stringify(map));
+  } catch {
+    // 저장이 막힌 브라우저에서는 이번 화면에서만 기억한다.
+  }
+}
+
 export function LabGame({ onScene }: { onScene: () => void }) {
-  const [sb] = useState(() => new Sandbox({ players: 3 }));
+  const [sb] = useState(() => new Sandbox({ players: 3, map: savedMap() }));
+  // 새 게임을 열면 게임 화면이 새로 그려지므로 서랍이 열려 있는지는 여기서 기억한다 (맵을 연달아 바꿔 볼 수 있게).
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const view = useSyncExternalStore(sb.subscribe, sb.getView);
   const rendererRef = useRef<BoardRenderer | null>(null);
 
@@ -53,7 +89,7 @@ export function LabGame({ onScene }: { onScene: () => void }) {
     sb.busy = () => paceBusy(sb.state.events);
     if (!welcomed) {
       welcomed = true;
-      sb.say('p1', '실험실 모의 게임입니다. 왼쪽 🧪 서랍에서 자리 바꾸기·주사위 정하기·해양 교역 배 같은 연출을 시험해 보세요.');
+      sb.say('p1', '실험실 모의 게임입니다. 왼쪽 🧪 서랍에서 맵 바꾸기·자리 바꾸기·주사위 정하기·해양 교역 배 같은 연출을 시험해 보세요.');
     }
     sb.start();
     // 개발 모드에서는 콘솔·자동 시험에서 모의 게임과 보드를 바로 다룰 수 있게 한다.
@@ -68,15 +104,26 @@ export function LabGame({ onScene }: { onScene: () => void }) {
 
   return (
     <Game key={view.gameNumber} view={view} onRenderer={(r) => (rendererRef.current = r)}>
-      <LabDrawer sb={sb} rendererRef={rendererRef} onScene={onScene} />
+      <LabDrawer sb={sb} rendererRef={rendererRef} onScene={onScene} open={drawerOpen} setOpen={setDrawerOpen} />
     </Game>
   );
 }
 
-function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: React.RefObject<BoardRenderer | null>; onScene: () => void }) {
+function LabDrawer({
+  sb,
+  rendererRef,
+  onScene,
+  open,
+  setOpen,
+}: {
+  sb: Sandbox;
+  rendererRef: React.RefObject<BoardRenderer | null>;
+  onScene: () => void;
+  open: boolean;
+  setOpen: (open: boolean) => void;
+}) {
   const view = useSyncExternalStore(sb.subscribe, sb.getView);
   const g = view.game!;
-  const [open, setOpen] = useState(false);
   const [players, setPlayers] = useState(sb.players.length);
   /** 달성 공지를 띄울 자리 (누를 때마다 다음 자리로 돌아 색마다 어떻게 보이는지 본다) */
   const [awardSeat, setAwardSeat] = useState(0);
@@ -92,13 +139,21 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
     });
     rendererRef.current?.playAward(award, p.colorIndex, p.id);
   };
-  const [map, setMap] = useState<MapConfig>(sb.map);
   /** 개수 제한 없음 (길·마을·도시·발전 카드) */
   const [unlimited, setUnlimited] = useState(!!sb.state.unlimited);
   /** 고르게 굴리기 */
   const [fair, setFair] = useState(sb.state.diceMode === 'balanced');
   const diceMode = fair ? ('balanced' as const) : ('random' as const);
   const [dice, setDice] = useState(8);
+  const map = sb.map;
+  /** 맵을 바꾸면 바로 그 맵으로 새 게임을 연다. 인원은 그 맵이 받는 만큼으로 줄인다. */
+  const switchMap = (next: MapConfig) => {
+    const n = Math.min(players, maxPlayersFor(next.shape));
+    setPlayers(n);
+    saveMap(next);
+    sb.reset({ players: n, turnSeconds: sb.turnSeconds, map: next, unlimited, diceMode });
+    showToast(`${MAP_SHAPE_LABEL[next.shape]} 맵(${MAP_ARRANGE_LABEL[next.arrange]})으로 새 게임을 시작했습니다.`, 'info', 2200);
+  };
   const me = sb.you;
   const s = sb.state;
 
@@ -178,6 +233,38 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
       </div>
 
       <section>
+        <h4>맵 (누르면 바로 새 게임)</h4>
+        <div className="lab-maps">
+          {MAP_SHAPES.map((shape) => (
+            <button
+              key={shape}
+              className={`lab-map ${shape === map.shape ? 'is-on' : ''}`}
+              onClick={() => switchMap({ shape, arrange: map.arrange })}
+              aria-pressed={shape === map.shape}
+              title={`${MAP_SHAPE_LABEL[shape]} · 땅 ${mapTileCount(shape)}칸 · ${maxPlayersFor(shape)}명까지`}
+            >
+              <MapPreview map={{ shape, arrange: 'golden' }} />
+              <b>{MAP_SHAPE_LABEL[shape]}</b>
+              <span className="muted">{maxPlayersFor(shape)}명까지</span>
+            </button>
+          ))}
+        </div>
+        <div className="lab-row">
+          {MAP_ARRANGES.map((a) => (
+            <button
+              key={a}
+              className={`lab-seat ${a === map.arrange ? 'is-on' : ''}`}
+              onClick={() => switchMap({ shape: map.shape, arrange: a })}
+              aria-pressed={a === map.arrange}
+              title={a === 'shuffle' ? '누를 때마다 땅과 숫자 패를 새로 섞습니다' : '정해 둔 땅과 숫자 패로 놓습니다'}
+            >
+              {MAP_ARRANGE_LABEL[a]}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section>
         <h4>보는 자리</h4>
         <div className="lab-seats">
           {sb.players.map((p) => (
@@ -222,20 +309,6 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
                 <option value={8}>8명</option>
               </>
             ) : null}
-          </select>
-          <select value={map.shape} onChange={(e) => setMap({ ...map, shape: e.target.value as MapConfig['shape'] })} aria-label="맵 모양">
-            {MAP_SHAPES.map((s) => (
-              <option key={s} value={s}>
-                {MAP_SHAPE_LABEL[s]}
-              </option>
-            ))}
-          </select>
-          <select value={map.arrange} onChange={(e) => setMap({ ...map, arrange: e.target.value as MapConfig['arrange'] })} aria-label="맵 배치">
-            {MAP_ARRANGES.map((a) => (
-              <option key={a} value={a}>
-                {MAP_ARRANGE_LABEL[a]}
-              </option>
-            ))}
           </select>
           <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, unlimited, diceMode })}>
             새 게임

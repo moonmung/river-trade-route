@@ -1,12 +1,14 @@
 // /lab — 실험실. 처음에는 실제 게임 화면을 서버 없이 띄운 모의 게임(lab/LabGame.tsx)이 열리고,
 // 서랍의 '3D 장면 시험'을 누르면 아래의 작은 3D 테스트 장면 (구현 순서 2단계)으로 바뀐다.
 // 광장과 다섯 생산 칸(목재·곡물·양모·벽돌·석재)을 놓고 카메라 이동·확대, 타일 터치, 프레임 시간을 확인한다.
+// 장면은 게임 맵(육각형·마름모·대형·호수, 황금 배치)으로 바꿔 볼 수 있고 고른 장면은 다음에 열 때도 그대로다.
 // 맵을 만들 때 쓰는 칸 코드(A1~E3)와 숫자 패를 함께 보고, 기사단 동상·주사위·달성 연출을 시험한다.
 // 실제 휴대폰에서 이 화면을 열어 측정값을 README 에 기록한다.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { HARBORS, assignNumbers, boardFor, edgeLabel, vertexLabel } from '../../shared/board';
-import { RESOURCES, TILES, TILE_KIND_LABEL } from '../../shared/constants';
-import type { Bundle, DevKind, Harbor, Resource, TileDef } from '../../shared/types';
+import { assignNumbers, boardFor, edgeLabel, vertexLabel } from '../../shared/board';
+import { RESOURCES, TILE_KIND_LABEL } from '../../shared/constants';
+import { MAP_SHAPES, MAP_SHAPE_LABEL, goldenMap, mapTileCount } from '../../shared/maps';
+import type { Bundle, DevKind, Harbor, MapShape, Resource, TileDef } from '../../shared/types';
 import { mulberry32 } from '../board/art/rng';
 import type { ArtReport } from '../board/assets';
 import type { BoardRenderer, BoardSelection, BoardState, QualityMode } from '../board/BoardRenderer';
@@ -38,6 +40,9 @@ const SAMPLE_PLAYERS = [
 ];
 const DEV_DRAW: DevKind[] = ['knight', 'monopoly', 'year_of_plenty', 'victory', 'road_building'];
 
+/** 3D 장면: 작은 7칸 장면이나 게임 맵 하나 */
+type Scene = 'mini' | MapShape;
+
 function fmt(n: number, digits = 1): string {
   return Number.isFinite(n) ? n.toFixed(digits) : '-';
 }
@@ -49,15 +54,19 @@ export default function Lab() {
 }
 
 function SceneLab({ onGame }: { onGame: () => void }) {
-  const [full, setFull] = useState(false);
-  const tiles = full ? TILES : MINI_TILES;
+  const [saved, setScene] = useLocalSetting<Scene>('rr.lab.scene', 'mini');
+  const scene: Scene = saved === 'mini' || MAP_SHAPES.includes(saved) ? saved : 'mini';
+  // 게임 맵은 황금 배치 그대로 (땅·숫자 패·교역로)
+  const map = useMemo(() => (scene === 'mini' ? null : goldenMap(scene)), [scene]);
+  const full = map !== null;
+  const tiles = map ? map.tiles : MINI_TILES;
   // 장면을 바꾸면 꼭짓점·변 ID 가 달라지므로 놓은 조각을 비운다.
   useEffect(() => {
     setBuildings([]);
     setRoads([]);
     setSelected(null);
     setRobber(null);
-  }, [full]);
+  }, [scene]);
   const [selected, setSelected] = useState<BoardSelection | null>(null);
   const [buildings, setBuildings] = useState<BoardState['buildings']>([]);
   const [roads, setRoads] = useState<BoardState['roads']>([]);
@@ -114,16 +123,16 @@ function SceneLab({ onGame }: { onGame: () => void }) {
   }, [playerView]);
 
   const geo = useMemo(() => boardFor(tiles), [tiles]);
-  // 숫자 패는 고정 시드로 놓아 새로고침해도 같은 판이 나온다.
-  const numbers = useMemo(() => assignNumbers(mulberry32(full ? 11 : 5), tiles), [tiles, full]);
+  // 작은 장면의 숫자 패는 고정 시드로 놓아 새로고침해도 같은 판이 나온다.
+  const numbers = useMemo(() => map?.numbers ?? assignNumbers(mulberry32(5), MINI_TILES), [map]);
   const harbors = useMemo<Harbor[]>(() => {
-    if (full) return [...HARBORS];
+    if (map) return map.harbors;
     const coast = geo.edges.filter((e) => e.tiles.length === 1).map((e) => e.id);
     return [
       { edgeId: coast[1], resource: null },
       { edgeId: coast[Math.floor(coast.length / 2)], resource: 'wool' },
     ];
-  }, [geo, full]);
+  }, [geo, map]);
   const state = useMemo<BoardState>(
     () => ({ buildings, roads, highlights: null, selected, numbers, harbors, robber: robber ?? undefined }),
     [buildings, roads, selected, numbers, harbors, robber],
@@ -192,7 +201,7 @@ function SceneLab({ onGame }: { onGame: () => void }) {
   return (
     <div className="lab">
       <BoardView
-        key={full ? 'full' : 'mini'}
+        key={scene}
         tiles={tiles}
         state={state}
         quality={quality}
@@ -245,6 +254,14 @@ function SceneLab({ onGame }: { onGame: () => void }) {
             모의 게임
           </button>
           <b>3D 장면 테스트</b>
+          <select value={scene} onChange={(e) => setScene(e.target.value as Scene)} aria-label="장면">
+            <option value="mini">작은 장면 (7칸)</option>
+            {MAP_SHAPES.map((s) => (
+              <option key={s} value={s}>
+                {MAP_SHAPE_LABEL[s]} 맵 ({mapTileCount(s)}칸)
+              </option>
+            ))}
+          </select>
         </div>
         <div className="lab-row small">
           선택: {selectedText} · 터치 {taps}회
@@ -274,9 +291,6 @@ function SceneLab({ onGame }: { onGame: () => void }) {
           </button>
           <button className="btn btn-small" onClick={() => rendererRef.current?.playAward('largest_army', 1, 'p1')}>
             최강 기사단
-          </button>
-          <button className="btn btn-small" onClick={() => setFull((f) => !f)}>
-            {full ? '작은 장면' : '전체 보드 (19칸)'}
           </button>
         </div>
         <div className="lab-row small">
