@@ -1,7 +1,7 @@
 // 방 채팅. 방마다 최근 메시지를 메모리에 보관하고 길이·간격 제한을 둔다.
 // rooms.ts 의 Room 을 건드리지 않으려고 방 객체를 키로 하는 WeakMap 에 둔다. 방이 사라지면 기록도 함께 사라진다.
 import { boardOf } from '../shared/board';
-import { CHAT_EMOTES, CHAT_HISTORY, PING_LIMIT } from '../shared/constants';
+import { CHAT_EMOTES, CHAT_HISTORY, PING_SLOW_TEXT, takePingToken, type PingBucket } from '../shared/constants';
 import type { ChatEmote, ChatMessage, ChatPing } from '../shared/protocol';
 import { normalizeChatText } from '../shared/validate';
 import type { Room, RoomPlayer } from './rooms';
@@ -23,7 +23,8 @@ interface RoomChat {
   /** 사람마다 최근에 보낸 시각 (글, 이모티콘, 핑 따로) */
   textTimes: Map<string, number[]>;
   emoteTimes: Map<string, number[]>;
-  pingTimes: Map<string, number[]>;
+  /** 사람마다 남은 핑 횟수 */
+  pingBuckets: Map<string, PingBucket>;
   pingSeq: number;
 }
 
@@ -41,7 +42,9 @@ function allow(times: Map<string, number[]>, who: string, now: number, gap: numb
 }
 
 const SLOW: ChatFail = { ok: false, error: '조금 천천히 보내 주세요.', code: 'CHAT_SLOW' };
-const PING_SLOW: ChatFail = { ok: false, error: `핑은 ${PING_LIMIT.windowMs / 1000}초에 ${PING_LIMIT.perWindow}번까지 찍을 수 있습니다.`, code: 'PING_SLOW' };
+const PING_SLOW: ChatFail = { ok: false, error: PING_SLOW_TEXT, code: 'PING_SLOW' };
+/** 화면이 먼저 세고 보내므로, 두 핑의 네트워크 지연이 달라 서버에서 간격이 조금 짧게 보여도 거절하지 않게 둔다 */
+const PING_SLACK_MS = 100;
 const PING_KINDS = ['tile', 'vertex', 'edge'] as const;
 
 export class ChatHub {
@@ -50,7 +53,7 @@ export class ChatHub {
   private of(room: Room): RoomChat {
     let c = this.chats.get(room);
     if (!c) {
-      c = { seq: 0, messages: [], textTimes: new Map(), emoteTimes: new Map(), pingTimes: new Map(), pingSeq: 0 };
+      c = { seq: 0, messages: [], textTimes: new Map(), emoteTimes: new Map(), pingBuckets: new Map(), pingSeq: 0 };
       this.chats.set(room, c);
     }
     return c;
@@ -86,7 +89,7 @@ export class ChatHub {
     return { ok: true, emote: { from: player.id, emote: raw, at: now } };
   }
 
-  /** 보드 한 자리를 가리킨다. 게임 중인 방에서, 그 게임 보드에 있는 칸·꼭짓점·변만 받고 한 사람이 3초에 2번까지. 보관하지 않는다. */
+  /** 보드 한 자리를 가리킨다. 게임 중인 방에서, 그 게임 보드에 있는 칸·꼭짓점·변만 받고 한 사람이 연달아 3번, 그 뒤로는 1초에 한 번씩. 보관하지 않는다. */
   ping(room: Room, player: RoomPlayer, raw: unknown, now = Date.now()): { ok: true; ping: ChatPing } | ChatFail {
     const p = (raw ?? {}) as { kind?: unknown; target?: unknown };
     const kind = PING_KINDS.find((k) => k === p.kind);
@@ -97,7 +100,9 @@ export class ChatHub {
     const exists = !!map && Object.hasOwn(map, target);
     if (!kind || !exists) return { ok: false, error: '보드에 없는 자리입니다.', code: 'PING_BAD_TARGET' };
     const c = this.of(room);
-    if (!allow(c.pingTimes, player.id, now, 0, PING_LIMIT.perWindow, PING_LIMIT.windowMs)) return PING_SLOW;
+    const taken = takePingToken(c.pingBuckets.get(player.id), now, PING_SLACK_MS);
+    c.pingBuckets.set(player.id, taken.bucket);
+    if (!taken.ok) return PING_SLOW;
     c.pingSeq += 1;
     return { ok: true, ping: { id: c.pingSeq, from: player.id, kind, target, at: now } };
   }

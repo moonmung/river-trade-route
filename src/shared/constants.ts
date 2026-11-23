@@ -190,8 +190,32 @@ export const CHAT_HISTORY = 50;
 /** 빠르게 띄우는 이모티콘 (이 목록 밖의 것은 서버가 받지 않는다) */
 export const CHAT_EMOTES = ['👍', '😂', '😮', '😡', '🎉', '🤝'] as const;
 
-/** 핑(보드 한 자리를 가리키기): 한 사람이 windowMs 안에 perWindow 번까지. 난사하지 못하게 서버와 화면이 같이 센다. */
-export const PING_LIMIT = { windowMs: 3000, perWindow: 2 } as const;
+/**
+ * 핑(보드 한 자리를 가리키기) 제한: 처음에는 burst 번을 연달아 찍을 수 있고, 다 쓰면 refillMs 마다 한 번씩 다시 생긴다
+ * (쉬면 최대 burst 번까지 모인다). 난사하지 못하게 서버와 화면이 같은 셈(takePingToken)을 한다.
+ */
+export const PING_LIMIT = { burst: 3, refillMs: 1000 } as const;
+export const PING_SLOW_TEXT = `핑은 연달아 ${PING_LIMIT.burst}번까지, 그 뒤로는 ${PING_LIMIT.refillMs / 1000}초에 한 번씩 찍을 수 있습니다.`;
+
+/** 남은 핑 횟수(소수 포함)와 마지막으로 센 시각 */
+export interface PingBucket {
+  tokens: number;
+  at: number;
+}
+
+/**
+ * now 까지 다시 생긴 만큼 채운 뒤 한 번 찍을 수 있으면 하나를 쓰고 ok. bucket 이 없으면 가득 찬 것으로 본다.
+ * slackMs: 서버가 네트워크 지연 차이만큼 조금 너그럽게 판정할 때 쓴다. 판정에만 쓰고 남은 횟수에는 더하지 않으며,
+ * 여유 덕에 통과하면 남은 횟수가 잠깐 0 아래로 내려가 다음 핑이 그만큼 늦게 생긴다 (거절된 핑을 연타해도 횟수가 늘지 않는다).
+ */
+export function takePingToken(bucket: PingBucket | undefined, now: number, slackMs = 0): { ok: boolean; bucket: PingBucket } {
+  const base = bucket ?? { tokens: PING_LIMIT.burst, at: now };
+  const elapsed = Math.max(0, now - base.at);
+  const tokens = Math.min(PING_LIMIT.burst, base.tokens + elapsed / PING_LIMIT.refillMs);
+  const lenient = Math.min(PING_LIMIT.burst, base.tokens + (elapsed + slackMs) / PING_LIMIT.refillMs);
+  if (lenient < 1) return { ok: false, bucket: { tokens, at: now } };
+  return { ok: true, bucket: { tokens: tokens - 1, at: now } };
+}
 /** 핑 물결이 보드 위에 떠 있는 시간 (CSS 의 ping-mark 와 같다) */
 export const PING_MS = 2600;
 

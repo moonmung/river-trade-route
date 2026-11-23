@@ -98,7 +98,7 @@ describe('ChatHub', () => {
     expect(hub.history(room)).toEqual([]);
   });
 
-  it('핑은 게임 중인 방의 보드에 있는 자리만 받고 한 사람이 3초에 2번까지, 사람마다 따로 센다', () => {
+  it('핑은 게임 중인 방의 보드에 있는 자리만 받고 한 사람이 연달아 3번, 그 뒤로는 1초에 한 번씩, 사람마다 따로 센다', () => {
     const hub = new ChatHub();
     const { room, a, b } = fakeRoom();
     const tile = STANDARD_BOARD.tiles[0].id;
@@ -113,12 +113,23 @@ describe('ChatHub', () => {
     const t0 = 10_000;
     expect(hub.ping(room, a, { kind: 'tile', target: tile }, t0)).toMatchObject({ ok: true, ping: { id: 1, from: 'pa', kind: 'tile', target: tile } });
     expect(hub.ping(room, a, { kind: 'vertex', target: vertex }, t0 + 10)).toMatchObject({ ok: true, ping: { id: 2, kind: 'vertex' } });
-    expect(hub.ping(room, a, { kind: 'edge', target: edge }, t0 + 20)).toMatchObject({ ok: false, code: 'PING_SLOW' });
+    expect(hub.ping(room, a, { kind: 'edge', target: edge }, t0 + 20)).toMatchObject({ ok: true, ping: { id: 3, kind: 'edge' } });
+    // 연달아 3번을 쓰면 네 번째는 막힌다 (서버는 지연 차이로 100ms 를 너그럽게 센다)
+    expect(hub.ping(room, a, { kind: 'edge', target: edge }, t0 + 30)).toMatchObject({ ok: false, code: 'PING_SLOW' });
     // 다른 사람은 따로 센다
-    expect(hub.ping(room, b, { kind: 'edge', target: edge }, t0 + 30)).toMatchObject({ ok: true, ping: { from: 'pb' } });
-    // 첫 핑에서 3초가 지나면 한 번 더 찍을 수 있다
-    expect(hub.ping(room, a, { kind: 'edge', target: edge }, t0 + PING_LIMIT.windowMs - 1)).toMatchObject({ ok: false, code: 'PING_SLOW' });
-    expect(hub.ping(room, a, { kind: 'edge', target: edge }, t0 + PING_LIMIT.windowMs)).toMatchObject({ ok: true });
+    expect(hub.ping(room, b, { kind: 'edge', target: edge }, t0 + 40)).toMatchObject({ ok: true, ping: { from: 'pb' } });
+    // 그 뒤로는 1초에 한 번씩
+    const t1 = t0 + 20 + PING_LIMIT.refillMs;
+    expect(hub.ping(room, a, { kind: 'tile', target: tile }, t1 - 200)).toMatchObject({ ok: false, code: 'PING_SLOW' });
+    expect(hub.ping(room, a, { kind: 'tile', target: tile }, t1)).toMatchObject({ ok: true });
+    expect(hub.ping(room, a, { kind: 'tile', target: tile }, t1 + 300)).toMatchObject({ ok: false, code: 'PING_SLOW' });
+    expect(hub.ping(room, a, { kind: 'tile', target: tile }, t1 + PING_LIMIT.refillMs)).toMatchObject({ ok: true });
+    // 오래 쉬면 다시 연달아 3번까지 모인다 (그 이상은 모이지 않는다)
+    const t2 = t1 + 60_000;
+    for (let i = 0; i < PING_LIMIT.burst; i++) expect(hub.ping(room, a, { kind: 'tile', target: tile }, t2 + i)).toMatchObject({ ok: true });
+    expect(hub.ping(room, a, { kind: 'tile', target: tile }, t2 + 5)).toMatchObject({ ok: false, code: 'PING_SLOW' });
+    // 거절된 핑을 연타해도 횟수가 늘지 않는다 (서버의 지연 여유는 쌓이지 않는다)
+    for (let i = 1; i <= 20; i++) expect(hub.ping(room, a, { kind: 'tile', target: tile }, t2 + 5 + i * 10)).toMatchObject({ ok: false, code: 'PING_SLOW' });
     expect(hub.history(room)).toEqual([]);
   });
 });
@@ -184,7 +195,7 @@ describe('채팅 소켓', () => {
     for (const c of [host, again, stranger, loose]) c.close();
   });
 
-  it('핑은 같은 방 모두에게 가고 3초에 2번을 넘기면 거절한다', async () => {
+  it('핑은 같은 방 모두에게 가고 연달아 3번을 넘기면 거절한다', async () => {
     const { clients } = await startedRoom(url, 2);
     const [host, guest] = clients;
     const tile = host.latest!.game!.tiles[0].id;
@@ -192,6 +203,7 @@ describe('채팅 소켓', () => {
     expect(await host.emit('chat:ping', { kind: 'tile', target: tile })).toEqual({ ok: true });
     const [payload] = (await got) as [{ code: string; ping: ChatPing }];
     expect(payload.ping).toMatchObject({ from: host.id, kind: 'tile', target: tile });
+    expect(await host.emit('chat:ping', { kind: 'tile', target: tile })).toEqual({ ok: true });
     expect(await host.emit('chat:ping', { kind: 'tile', target: tile })).toEqual({ ok: true });
     expect(await host.emit('chat:ping', { kind: 'tile', target: tile })).toMatchObject({ ok: false, code: 'PING_SLOW' });
     expect(await guest.emit('chat:ping', { kind: 'vertex', target: 'nowhere' })).toMatchObject({ ok: false, code: 'PING_BAD_TARGET' });

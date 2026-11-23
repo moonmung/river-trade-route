@@ -105,7 +105,7 @@ function PingIcon({ size = 18 }: { size?: number }) {
 }
 
 /**
- * 핑 단추: 누르면 핑 찍기가 켜지고, 보드에서 누른 자리가 모두의 보드에 내 색 물결로 잠깐 뜬다 (3초에 2번까지).
+ * 핑 단추: 누르면 핑 찍기가 켜지고, 보드에서 누른 자리에 모두의 보드에서 내 색 깃발이 잠깐 꽂힌다 (연달아 3번, 그 뒤로는 1초에 한 번).
  * 마우스로는 Alt 키를 누른 채 보드를 눌러도 바로 찍힌다. compact: 좁은 화면 오른쪽 아래의 둥근 단추 꼴.
  */
 export function PingButton({ active, onToggle, compact = false }: { active: boolean; onToggle: () => void; compact?: boolean }) {
@@ -115,7 +115,7 @@ export function PingButton({ active, onToggle, compact = false }: { active: bool
       className={`${compact ? 'icon-btn chat-toggle ping-toggle' : 'ping-btn'} ${active ? 'is-active' : ''}`}
       aria-pressed={active}
       aria-label="핑 찍기 (보드 한 곳을 모두에게 가리키기)"
-      title={`핑 찍기 · Alt+클릭으로도 찍습니다 (${PING_LIMIT.windowMs / 1000}초에 ${PING_LIMIT.perWindow}번까지)`}
+      title={`핑 찍기 · Alt+클릭으로도 찍습니다 (연달아 ${PING_LIMIT.burst}번, 그 뒤로는 ${PING_LIMIT.refillMs / 1000}초에 한 번)`}
       onClick={onToggle}
     >
       <PingIcon size={compact ? 20 : 17} />
@@ -137,8 +137,8 @@ const PING_SPARKS: readonly [number, number, number][] = [
 
 /**
  * 보드 위 핑: 찍은 자리에 그 사람 색 제비꼬리 깃발이 위에서 떨어져 꽂힌다. 꽂히는 순간 땅에 고리 두 겹이 퍼지고
- * 금빛·그 사람 색 불꽃 조각이 튄 뒤, 천이 바람에 펄럭이고 위에 이름이 붙는다. PING_MS(2.6초) 동안 떠 있다가 옅어진다.
- * 상자 한가운데가 깃대 끝(꽂힌 자리)이다.
+ * 금빛·그 사람 색 불꽃 조각이 튄다. 꽂힌 깃발은 움직이지 않고 서 있다가 PING_MS(2.6초) 뒤 옅어진다.
+ * 이름은 보드에 적지 않고 화면 읽기 프로그램에만 알린다. 상자 한가운데가 깃대 끝(꽂힌 자리)이다.
  */
 export function PingMark({ colorIndex, name }: { colorIndex: number; name: string }) {
   const color = playerColor(colorIndex);
@@ -165,10 +165,6 @@ export function PingMark({ colorIndex, name }: { colorIndex: number; name: strin
         <path className="pf-pole" d="M7.1 5 V57 L8 60.6 L8.9 57 V5 Z" />
         <circle className="pf-knob" cx="8" cy="4.2" r="2.9" />
       </svg>
-      <span className="ping-name">
-        <PersonIcon colorIndex={colorIndex} size={13} />
-        {name}
-      </span>
     </div>
   );
 }
