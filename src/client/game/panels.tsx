@@ -14,8 +14,65 @@ import { TurnTimer, useTurnClock } from './turn';
 import { buildBlocker, buyDevBlocker, isMyTurn, shortfall, turnBlocker, type PlayerInfo } from './derive';
 import { canBankNow, tradeButtonBlocker } from './trade';
 import { ActionButton, sendAction } from './ui';
+import { bragWait, sendChatBrag } from '../net/chat';
 
 type Players = Map<string, PlayerInfo>;
+type Award = 'longest_road' | 'largest_army';
+
+const AWARD_NAME: Record<Award, string> = { longest_road: '최장 교역로', largest_army: '최강 기사단' };
+
+/** 내가 가진 달성 (게임 중일 때만) */
+function myAwards(view: RoomView): Award[] {
+  const g = view.game;
+  if (!g || g.phase !== 'playing') return [];
+  return (['longest_road', 'largest_army'] as const).filter((a) => (a === 'longest_road' ? g.longestRoad.holder : g.largestArmy.holder) === view.you);
+}
+
+/** 자랑하기: 모두의 화면에 달성 연출을 띄운다. 한 번 뽐내면 5초 동안 단추가 흐려진다. */
+function useBrag(): { cooling: boolean; brag: (award: Award) => void } {
+  const [cooling, setCooling] = useState(false);
+  useEffect(() => {
+    if (!cooling) return;
+    const t = window.setTimeout(() => setCooling(false), Math.max(200, bragWait()));
+    return () => window.clearTimeout(t);
+  }, [cooling]);
+  const brag = (award: Award) => {
+    if (bragWait() > 0) return;
+    setCooling(true);
+    void sendChatBrag(award).then((res) => {
+      if (!res.ok && res.code !== 'BRAG_SLOW') showToast(res.error, 'error');
+    });
+  };
+  return { cooling, brag };
+}
+
+/**
+ * 자랑 단추: 최장 교역로·최강 기사단을 가지고 있으면 그 표식 단추가 생기고, 누르면 같은 방 모두의 화면에 달성 연출이 다시 뜬다.
+ * compact: 좁은 화면 오른쪽 아래의 둥근 단추 꼴.
+ */
+export function BragButtons({ view, compact = false }: { view: RoomView; compact?: boolean }) {
+  const awards = myAwards(view);
+  const { cooling, brag } = useBrag();
+  if (!awards.length) return null;
+  return (
+    <>
+      {awards.map((a) => (
+        <button
+          key={a}
+          type="button"
+          className={`${compact ? 'icon-btn chat-toggle brag-toggle' : 'brag-btn'} ${cooling ? 'is-cooling' : ''}`}
+          aria-label={`${AWARD_NAME[a]} 자랑하기`}
+          title={`${AWARD_NAME[a]} 자랑하기 · 모두의 화면에 달성 연출을 띄웁니다 (5초에 한 번)`}
+          aria-disabled={cooling}
+          onClick={() => brag(a)}
+        >
+          <AwardIcon kind={a} size={compact ? 20 : 17} />
+          {!compact && <span>자랑</span>}
+        </button>
+      ))}
+    </>
+  );
+}
 
 /** 주사위 한 개 (점 무늬) */
 export function DieFace({ value, size = 26 }: { value: number; size?: number }) {
@@ -75,6 +132,25 @@ export function PlayersPanel({
   const g = view.game!;
   const held = useHeldCards();
   const clock = useTurnClock(g);
+  const { cooling, brag } = useBrag();
+  const mine = myAwards(view);
+  /** 달성 표식. 내 것이면 눌러서 자랑할 수 있는 단추다. */
+  const awardTag = (id: string, a: Award, title: string) =>
+    id === view.you && mine.includes(a) ? (
+      <button
+        type="button"
+        className={`tag tag-award tag-brag ${cooling ? 'is-cooling' : ''}`}
+        title={`${title} · 눌러서 모두에게 자랑하기`}
+        aria-label={`${AWARD_NAME[a]} 자랑하기`}
+        onClick={() => brag(a)}
+      >
+        <AwardIcon kind={a} />
+      </button>
+    ) : (
+      <span className="tag tag-award" title={title}>
+        <AwardIcon kind={a} />
+      </span>
+    );
   return (
     <ul className={`players ${compact ? 'players-compact' : ''}`} aria-label="플레이어">
       {g.order.map((id) => {
@@ -106,16 +182,8 @@ export function PlayersPanel({
                   </span>
                 )}
               </span>
-              {g.longestRoad.holder === id && (
-                <span className="tag tag-award" title={`최장 교역로 (길 ${g.longestRoad.length}칸, 2점)`}>
-                  <AwardIcon kind="longest_road" />
-                </span>
-              )}
-              {g.largestArmy.holder === id && (
-                <span className="tag tag-award" title={`최강 기사단 (기사 ${g.largestArmy.size}장, 2점)`}>
-                  <AwardIcon kind="largest_army" />
-                </span>
-              )}
+              {g.longestRoad.holder === id && awardTag(id, 'longest_road', `최장 교역로 (길 ${g.longestRoad.length}칸, 2점)`)}
+              {g.largestArmy.holder === id && awardTag(id, 'largest_army', `최강 기사단 (기사 ${g.largestArmy.size}장, 2점)`)}
               {offers > 0 && (
                 <span className="stat-offers" title={`열린 교환 제안 ${offers}개`}>
                   ⇄{offers}

@@ -220,6 +220,9 @@ export function takePingToken(bucket: PingBucket | undefined, now: number, slack
 /** 핑 물결이 보드 위에 떠 있는 시간 (CSS 의 ping-mark 와 같다) */
 export const PING_MS = 2600;
 
+/** 최장 교역로·최강 기사단을 가진 사람이 모두에게 뽐내는 자랑하기의 최소 간격 (달성 공지가 다 사라질 만큼) */
+export const BRAG_GAP_MS = 5000;
+
 export const NICKNAME_MAX = 12;
 export const ROOM_CODE_LENGTH = 4;
 /** 헷갈리기 쉬운 0/O, 1/I/L 을 뺀 방 코드 문자 */

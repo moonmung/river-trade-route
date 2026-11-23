@@ -83,6 +83,8 @@ export interface FlyCard {
   delay: number;
   /** 내 카드면 크게 내 손으로, 아니면 작게 그 사람 상태 창으로 */
   mine: boolean;
+  /** 어떤 자원인지 모르는 카드 (남끼리 빼앗기): 뒷면으로 날린다 */
+  back?: boolean;
 }
 
 const MINE_MS = 760;
@@ -140,13 +142,15 @@ export function flyCards(cards: FlyCard[], opts: { reduced?: boolean } = {}): vo
 
 function launch(card: FlyCard, target: Element, onLand: () => void): void {
   const el = document.createElement('div');
-  el.className = `fly-card fly-${card.resource} ${card.mine ? 'fly-mine' : 'fly-other'}`;
+  el.className = `fly-card ${card.back ? 'fly-back' : `fly-${card.resource}`} ${card.mine ? 'fly-mine' : 'fly-other'}`;
   el.setAttribute('aria-hidden', 'true');
-  const img = document.createElement('img');
-  img.src = RESOURCE_ART[card.resource];
-  img.alt = '';
-  img.draggable = false;
-  el.appendChild(img);
+  if (!card.back) {
+    const img = document.createElement('img');
+    img.src = RESOURCE_ART[card.resource];
+    img.alt = '';
+    img.draggable = false;
+    el.appendChild(img);
+  }
   document.body.appendChild(el);
 
   const to = center(target);
@@ -177,4 +181,37 @@ function launch(card: FlyCard, target: Element, onLand: () => void): void {
   };
   anim.onfinish = finish;
   anim.oncancel = finish;
+}
+
+/**
+ * 빼앗긴 카드 한 장이 뺏긴 사람의 카드 뭉치(내가 뺏겼으면 내 손)에서 튀어나와 가져간 사람 쪽으로 날아간다.
+ * 둘 중 하나가 나라서 자원을 알면 그 자원 그림이, 남끼리면 뒷면이 날아간다. 뺏긴 쪽 뭉치는 움찔하고 가져간 쪽 장수는 카드가 닿을 때 오른다.
+ * 출발 자리를 찾지 못하면(상태 창이 접혀 있음) 보드 가운데에서 날린다.
+ */
+export function stealCard(o: { thief: string; victim: string; resource: Resource | null; me: string; delay: number; reduced?: boolean }): void {
+  const sourceOf = () =>
+    (o.victim === o.me
+      ? (o.resource && document.querySelector(`[data-fly="res-${o.resource}"]`)) || document.querySelector('[data-fly="hand"]')
+      : document.querySelector(`[data-fly="hand-${o.victim}"]`)) ?? null;
+  const card: FlyCard = {
+    player: o.thief,
+    // 남끼리 빼앗기는 자원을 모르지만 장수만 맞추면 되므로 아무 자원으로 센다.
+    resource: o.resource ?? 'wood',
+    from: { x: window.innerWidth / 2, y: window.innerHeight / 2 },
+    delay: o.delay,
+    mine: o.thief === o.me,
+    back: !o.resource,
+  };
+  // 출발 자리는 날아갈 때 잰다 (그사이 화면 배치가 바뀔 수 있다).
+  window.setTimeout(() => {
+    const src = sourceOf();
+    if (src) {
+      card.from = center(src);
+      src.classList.remove('fly-robbed');
+      void (src as HTMLElement).offsetWidth;
+      src.classList.add('fly-robbed');
+      window.setTimeout(() => src.classList.remove('fly-robbed'), 520);
+    }
+  }, Math.max(0, o.delay - 1));
+  flyCards([card], { reduced: o.reduced });
 }

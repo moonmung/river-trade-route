@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { STANDARD_BOARD } from '../src/shared/board';
-import { CHAT_EMOTES, CHAT_HISTORY, CHAT_MAX_LENGTH, PING_LIMIT } from '../src/shared/constants';
-import type { ChatEmote, ChatMessage, ChatPing, SessionInfo } from '../src/shared/protocol';
+import { BRAG_GAP_MS, CHAT_EMOTES, CHAT_HISTORY, CHAT_MAX_LENGTH, PING_LIMIT } from '../src/shared/constants';
+import type { ChatBrag, ChatEmote, ChatMessage, ChatPing, SessionInfo } from '../src/shared/protocol';
 import type { GameState } from '../src/shared/rules';
 import { normalizeChatText } from '../src/shared/validate';
 import { startServer, type RunningServer } from '../src/server/app';
@@ -132,6 +132,32 @@ describe('ChatHub', () => {
     for (let i = 1; i <= 20; i++) expect(hub.ping(room, a, { kind: 'tile', target: tile }, t2 + 5 + i * 10)).toMatchObject({ ok: false, code: 'PING_SLOW' });
     expect(hub.history(room)).toEqual([]);
   });
+
+  it('자랑은 게임 중에 지금 가진 달성만, 한 사람이 5초에 한 번 뽐낼 수 있다', () => {
+    const hub = new ChatHub();
+    const { room, a, b } = fakeRoom();
+    expect(hub.brag(room, a, { award: 'longest_road' }, 0)).toMatchObject({ ok: false, code: 'BRAG_NO_GAME' });
+    room.phase = 'game';
+    room.game = {
+      phase: 'playing',
+      longestRoad: { holder: 'pa', length: 6 },
+      largestArmy: { holder: 'pb', size: 4 },
+    } as unknown as GameState;
+    for (const bad of [{ award: 'biggest_city' }, null, 'longest_road', { award: '__proto__' }]) {
+      expect(hub.brag(room, a, bad, 0)).toMatchObject({ ok: false, code: 'BRAG_BAD' });
+    }
+    // 남의 달성은 뽐낼 수 없다
+    expect(hub.brag(room, a, { award: 'largest_army' }, 0)).toMatchObject({ ok: false, code: 'BRAG_NOT_HOLDER' });
+    const t0 = 100_000;
+    expect(hub.brag(room, a, { award: 'longest_road' }, t0)).toEqual({ ok: true, brag: { from: 'pa', award: 'longest_road', size: 6, at: t0 } });
+    expect(hub.brag(room, a, { award: 'longest_road' }, t0 + 1000)).toMatchObject({ ok: false, code: 'BRAG_SLOW' });
+    // 다른 사람은 따로 센다
+    expect(hub.brag(room, b, { award: 'largest_army' }, t0 + 1000)).toMatchObject({ ok: true, brag: { from: 'pb', size: 4 } });
+    expect(hub.brag(room, a, { award: 'longest_road' }, t0 + BRAG_GAP_MS)).toMatchObject({ ok: true });
+    // 게임이 끝나면 자랑하지 않는다
+    (room.game as unknown as { phase: string }).phase = 'finished';
+    expect(hub.brag(room, a, { award: 'longest_road' }, t0 + BRAG_GAP_MS * 3)).toMatchObject({ ok: false, code: 'BRAG_NO_GAME' });
+  });
 });
 
 describe('채팅 소켓', () => {
@@ -207,6 +233,22 @@ describe('채팅 소켓', () => {
     expect(await host.emit('chat:ping', { kind: 'tile', target: tile })).toEqual({ ok: true });
     expect(await host.emit('chat:ping', { kind: 'tile', target: tile })).toMatchObject({ ok: false, code: 'PING_SLOW' });
     expect(await guest.emit('chat:ping', { kind: 'vertex', target: 'nowhere' })).toMatchObject({ ok: false, code: 'PING_BAD_TARGET' });
+    for (const c of clients) c.close();
+  });
+
+  it('자랑은 같은 방 모두에게 가고, 달성을 가지지 않은 사람은 거절한다', async () => {
+    const { clients, code } = await startedRoom(url, 2);
+    const [host, guest] = clients;
+    expect(await host.emit('chat:brag', { award: 'longest_road' })).toMatchObject({ ok: false });
+    const room = server.rooms.rooms.get(code)!;
+    room.game!.phase = 'playing';
+    room.game!.longestRoad = { holder: host.id!, length: 5 };
+    const got = guest.waitEvent('chat:brag');
+    expect(await host.emit('chat:brag', { award: 'longest_road' })).toEqual({ ok: true });
+    const [payload] = (await got) as [{ code: string; brag: ChatBrag }];
+    expect(payload.brag).toMatchObject({ from: host.id, award: 'longest_road', size: 5 });
+    expect(await host.emit('chat:brag', { award: 'longest_road' })).toMatchObject({ ok: false, code: 'BRAG_SLOW' });
+    expect(await guest.emit('chat:brag', { award: 'longest_road' })).toMatchObject({ ok: false, code: 'BRAG_NOT_HOLDER' });
     for (const c of clients) c.close();
   });
 });

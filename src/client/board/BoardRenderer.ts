@@ -609,6 +609,8 @@ export class BoardRenderer {
   private fitZ = 0;
   /** 기사단 동상과 잠금(사슬·자물쇠, 칸을 무채색으로 칠하는 paintLock) */
   private statue: THREE.Group | null = null;
+  /** 눌러서 동상이 뛰는 중 */
+  private statueHopping = false;
   private statueShadow: THREE.Mesh | null = null;
   private statueTile: string | null = null;
   private lockRoot: THREE.Group | null = null;
@@ -1120,11 +1122,12 @@ export class BoardRenderer {
     shadow.instanceMatrix.needsUpdate = true;
   }
 
-  /** 눌린 자리에 짧은 반응: 타일이면 소품이 톡 튀고, 마을·도시·길이면 그 조각이 한 번 부풀었다 돌아온다. */
+  /** 눌린 자리에 짧은 반응: 타일이면 소품이 톡 튀고(동상이 선 칸이면 동상도 살짝 뛴다), 마을·도시·길이면 그 조각이 한 번 부풀었다 돌아온다. */
   private pokeAt(sel: BoardSelection): void {
     if (!this.ready) return;
     if (sel.kind === 'tile') {
       this.bouncing.set(sel.id, performance.now());
+      if (sel.id === this.statueTile) this.hopStatue();
       this.requestRender();
       return;
     }
@@ -2535,6 +2538,32 @@ export class BoardRenderer {
     this.scene.add(this.lockRoot);
   }
 
+  /** 동상이 제자리에서 살짝 뛰었다가 쿵 내려앉는다 (눌렀을 때). 날아가는 중이거나 이미 뛰는 중이면 겹치지 않는다. */
+  private hopStatue(): void {
+    const statue = this.statue;
+    if (!statue?.visible || this.statueHopping || !this.statueTile) return;
+    this.statueHopping = true;
+    const base = this.statueSpot(this.statueTile);
+    this.addAnim({
+      duration: 520,
+      update: (t) => {
+        // 웅크렸다가(0~0.18) 뛰어올라(0.18~0.8) 내려앉으며 눌린다(0.8~1).
+        const up = t < 0.18 ? 0 : t < 0.8 ? Math.sin(((t - 0.18) / 0.62) * Math.PI) : 0;
+        const squash = t < 0.18 ? Math.sin((t / 0.18) * Math.PI) * 0.6 : t > 0.8 ? Math.sin(((t - 0.8) / 0.2) * Math.PI) : 0;
+        this.placeStatue(base, up * 0.32);
+        statue.scale.set(STATUE_SCALE * (1 + 0.1 * squash), STATUE_SCALE * (1 - 0.14 * squash + 0.06 * up), STATUE_SCALE * (1 + 0.1 * squash));
+        statue.rotation.y = Math.sin(up * Math.PI) * 0.18;
+      },
+      done: () => {
+        this.statueHopping = false;
+        // 그사이 다른 칸으로 옮겨 갔으면 그쪽 연출이 자리를 잡는다.
+        if (this.statueTile && this.statueSpot(this.statueTile).equals(base)) this.placeStatue(base, 0);
+        statue.scale.setScalar(STATUE_SCALE);
+        statue.rotation.y = 0;
+      },
+    });
+  }
+
   private statueSpot(tileId: string): THREE.Vector3 {
     const t = this.tileById.get(tileId)!;
     const c = tileCenter(t, this.metrics);
@@ -2887,15 +2916,24 @@ export class BoardRenderer {
    * 최강 기사단: 기사단 동상이 제자리에서 뛰어올라 한 바퀴 돌며 발밑이 금빛으로 빛나고 그 사람의 마을·도시가
    * 왼쪽부터 차례로 금빛으로 밝아지며 지붕 위에 반짝이가 터진다.
    */
-  private glowArmy(playerId: string): void {
+  /**
+   * 황금 기사단: 최강 기사단을 가진 사람이 기사를 쓰면 동상이 금빛으로 달아올라 높이 뛰어 두 바퀴 돌고,
+   * 둘레에 금빛 반짝이가 크게 터지며 그 사람의 마을·도시가 금빛으로 빛난다 (달성 연출보다 크고 길다).
+   */
+  playGoldenKnight(playerId: string): void {
+    if (!this.ready) return;
+    this.glowArmy(playerId, true);
+  }
+
+  private glowArmy(playerId: string, golden = false): void {
     const mine = this.state.buildings
       .filter((b) => b.owner === playerId)
       .map((b) => ({ b, p: this.vertexWorld(b.vertexId) }))
       .filter((x): x is { b: BoardBuildingView; p: THREE.Vector3 } => !!x.p)
       .sort((x, y) => x.p.x - y.p.x);
-    const each = 230;
+    const each = golden ? 150 : 230;
     const rise = 950;
-    const fadeMs = 650;
+    const fadeMs = golden ? 900 : 650;
     const start = 300;
     const total = start + mine.length * each + rise + fadeMs;
     const sparked = new Set<number>();
@@ -2914,7 +2952,7 @@ export class BoardRenderer {
             this.sparkBurst(p.clone().add(new THREE.Vector3(0, BADGE_LIFT[b.kind] * 0.78, 0)), 0, 5, 0.28);
           }
         });
-        if (statue) this.glow.set('s', Math.min(1, ms / 300) * fade);
+        if (statue) this.glow.set('s', Math.min(1, ms / 300) * fade * (golden ? 1.35 : 1));
         this.updatePieceInstances();
       },
       done: () => {
@@ -2925,18 +2963,34 @@ export class BoardRenderer {
     });
     if (!statue) return;
     const base = statue.position.clone();
+    const tile0 = this.statueTile;
+    this.statueHopping = true;
     this.addAnim({
-      duration: 900,
+      duration: golden ? 1300 : 900,
       update: (t) => {
-        statue.position.y = base.y + Math.sin(Math.PI * t) * 0.45;
-        statue.rotation.y = easeInOut(t) * Math.PI * 2;
+        // 그사이 동상을 다른 칸으로 옮기면 날아가는 연출에 자리를 넘긴다.
+        if (this.statueTile !== tile0) return;
+        statue.position.y = base.y + Math.sin(Math.PI * t) * (golden ? 0.85 : 0.45);
+        statue.rotation.y = easeInOut(t) * Math.PI * (golden ? 4 : 2);
+        if (golden) statue.scale.setScalar(STATUE_SCALE * (1 + 0.28 * Math.sin(Math.PI * t)));
         this.syncGlow();
       },
       done: () => {
-        statue.position.copy(base);
-        statue.rotation.y = 0;
+        if (this.statueTile === tile0) {
+          statue.position.copy(base);
+          statue.rotation.y = 0;
+        }
+        statue.scale.setScalar(STATUE_SCALE);
+        this.statueHopping = false;
       },
     });
+    if (golden) {
+      // 땅에서 한 번, 가장 높이 떴을 때 한 번 더 크게 터진다.
+      this.sparkBurst(base.clone().add(new THREE.Vector3(0, 0.2, 0)), 0, 12, 0.6, 0.13);
+      this.sparkBurst(base.clone().add(new THREE.Vector3(0, 1.3, 0)), 560, 16, 0.55, 0.15);
+      this.spawnFloating(base.clone().add(new THREE.Vector3(0, 1.45, 0)), '황금 기사단', 'float-label float-golden', 450);
+      return;
+    }
     this.sparkBurst(base.clone().add(new THREE.Vector3(0, 0.95, 0)), 380, 7, 0.32, 0.12);
     this.spawnFloating(base.clone().add(new THREE.Vector3(0, 1.0, 0)), '최강 기사단', 'float-label float-award', 300);
   }
@@ -3408,6 +3462,10 @@ export class BoardRenderer {
     if (hl && (hl.vertices.length || hl.edges.length)) {
       const hit = closer(hl.vertices, hl.edges, 1.7, 1.5);
       if (hit) return hit;
+    }
+    // 기사단 동상 몸통을 누르면 (바닥으로는 뒤쪽 칸이 맞더라도) 동상이 선 칸을 고른다. 누르면 동상이 살짝 뛴다.
+    if (this.statue?.visible && this.statueTile && ray.intersectsBox(new THREE.Box3().setFromObject(this.statue).expandByScalar(0.03))) {
+      return { kind: 'tile', id: this.statueTile };
     }
     const hit = closer(
       this.geo.vertices.map((x) => x.id),
