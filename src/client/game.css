@@ -2839,8 +2839,26 @@
   color: var(--ink-soft);
 }
 
-.trade-side-get .trade-side-label b {
+.trade-side-get .trade-side-label b,
+.trade-side-get .trade-dir {
   color: var(--river-dark);
+}
+
+/* 받을 것 ▼, 낼 것 ▲ */
+.trade-dir {
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.trade-side-give .trade-dir {
+  color: var(--vermilion);
+}
+
+/* 은행 탭: 내 비율만 아이콘으로 (4:1, 교역로 3:1·2:1) */
+.trade-rates {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
 }
 
 .trade-side-give .trade-side-label b {
@@ -3000,9 +3018,9 @@
 }
 
 /* ───────── 교환 증서 ─────────
- * 열린 교환 제안을 중세 상인의 거래 내역서처럼 그린다. 누런 종이에 먹으로 그은 두 줄 테두리와 옅은 괘선,
- * 위에는 증서 번호와 제안자, 가운데 장부(위 줄 받을 것, 아래 줄 내가 줄 것), 아래 서명란에 상대별 응답을 적는다.
- * 오른쪽 위에는 제안자 색 밀랍 봉인. 닫히면 결과 글씨(거절됨·취소됨·체결)가 가운데 떠 있다가 제자리에서 옅어지며 사라진다.
+ * 열린 교환 제안을 누런 종이 쪽지로 그린다. 글은 줄이고 위아래 두 줄에 사람 아이콘과 내놓는 자원 아이콘을 놓은 뒤
+ * 가운데 ▼ ▲ 로 주고받는 방향을 보인다. 아래에는 받은 사람마다 아이콘과 응답 딱지(✓·✕·…).
+ * 닫히면 결과 글씨(거절됨·취소됨·체결)가 가운데 떠 있다가 제자리에서 옅어지며 사라진다.
  * 증서는 크기나 자리가 바뀌는 움직임 없이 나타나고 사라진다 (넓은 화면 증서 칸은 가로로 넘치면 잘리므로).
  */
 .deeds {
@@ -3030,8 +3048,8 @@
     inset 0 0 18px rgba(120, 78, 30, 0.24);
   position: relative;
   pointer-events: auto;
-  width: min(284px, 100%);
-  padding: 9px 12px 9px;
+  width: min(248px, 100%);
+  padding: 7px 10px 8px;
   color: var(--ink);
   font-size: 0.82rem;
   background-color: var(--deed-paper);
@@ -3059,219 +3077,158 @@
     0 6px 14px rgba(24, 38, 46, 0.32);
 }
 
-.deed-head {
-  display: flex;
-  align-items: flex-start;
-  padding-right: 32px;
-}
-
-.deed-title {
-  all: unset;
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  cursor: pointer;
-}
-
-.deed-title:focus-visible {
-  outline: 2px solid var(--river);
-  outline-offset: 2px;
-}
-
-.deed-no {
-  font-family: var(--font-title);
-  font-weight: 800;
-  font-size: 0.92rem;
-  letter-spacing: 0.06em;
-  color: #5a2a18;
-}
-
-.deed-from {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.78rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 제안자 색 밀랍 봉인 */
-.deed-seal {
-  position: absolute;
-  top: -9px;
-  right: 9px;
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 52% 47% 50% 46% / 47% 53% 47% 53%;
-  background: radial-gradient(circle at 34% 30%, color-mix(in srgb, var(--pc) 55%, #fff) 0, var(--pc) 48%, color-mix(in srgb, var(--pc) 62%, #000) 100%);
-  box-shadow:
-    inset 0 0 0 3px rgba(0, 0, 0, 0.16),
-    inset 0 0 0 5px rgba(255, 255, 255, 0.12),
-    0 2px 3px rgba(0, 0, 0, 0.35);
-}
-
-.deed-seal svg {
-  opacity: 0.85;
-}
-
-/* 장부: 위 줄은 받을 것, 가운데 ⇅, 아래 줄은 내가 줄 것. 줄마다 왼쪽 제목, 오른쪽 카드.
- * 두 줄이 한 격자를 나눠 써서 제목 칸 폭이 긴 쪽 제목에 맞춰지고 카드가 위아래로 줄을 맞춘다. */
-.deed-ledger {
-  display: grid;
-  grid-template-columns: fit-content(7.5em) minmax(0, 1fr);
-  align-items: center;
-  gap: 2px 8px;
-  margin: 6px 0 5px;
-  padding: 4px 0 4px;
-  border-top: 1px solid rgba(58, 42, 31, 0.5);
-  border-bottom: 1px solid rgba(58, 42, 31, 0.5);
-}
-
-.deed-col {
-  display: contents;
-}
-
-.deed-col h4 {
-  margin: 0;
-  font-size: 0.7rem;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: 0.03em;
-  color: var(--ink-soft);
-  word-break: keep-all;
-  overflow-wrap: anywhere;
-}
-
-.deed-col-theirs h4 {
-  color: var(--river-dark);
-}
-
-.deed-col-mine h4 {
-  color: var(--vermilion);
-}
-
-.deed-col ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+/* 증서 몸통: 위 줄(상대 쪽)과 아래 줄(내 쪽)에 사람 아이콘과 내놓는 자원 아이콘, 가운데 ▼ ▲ */
+.deed-flow {
   display: flex;
   flex-direction: column;
   gap: 1px;
 }
 
-.deed-col li {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 0.8rem;
-}
-
-.deed-item {
-  white-space: nowrap;
-}
-
-/* 품목과 수량 사이 점선 */
-.deed-leader {
-  flex: 1;
-  min-width: 6px;
-  margin: 0 2px;
-  border-bottom: 1px dotted rgba(58, 42, 31, 0.6);
-  transform: translateY(3px);
-}
-
-.deed-col b {
-  font-family: var(--font-title);
-  font-size: 0.95rem;
-}
-
-/* 두 줄 사이 ⇅ 와 점선 (교환 창의 .trade-arrow 와 같은 모양) */
-.deed-swap {
-  grid-column: 1 / -1;
+.flow-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 38px;
+}
+
+.flow-who {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-width: 22px;
+}
+
+.flow-many {
+  display: inline-flex;
+  align-items: center;
+}
+
+.flow-many > span + span {
+  margin-left: -5px;
+}
+
+.flow-many small {
+  margin-left: 2px;
+  font-weight: 700;
   color: var(--ink-soft);
-  font-size: 0.9rem;
+}
+
+.flow-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 9px;
+  padding-top: 5px;
+}
+
+.flow-cards .dcard {
+  width: 36px;
+  padding: 2px;
+}
+
+.flow-cards .dcard .art-img {
+  width: 28px;
+  height: 28px;
+}
+
+/* 가운데 화살표: 위 줄 자원은 아래로(대청색), 아래 줄 자원은 위로(주홍) 건너간다 */
+.flow-arrows,
+.trade-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 0.85rem;
   line-height: 1;
 }
 
-.deed-swap::before,
-.deed-swap::after {
+.flow-arrows::before,
+.flow-arrows::after {
   content: '';
   flex: 1;
   border-top: 1px dashed rgba(58, 42, 31, 0.35);
 }
 
-/* 서명란: 상대마다 이름, 서명 줄, 응답 */
-.deed-signs {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.deed-sign {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 24px;
-  font-size: 0.78rem;
-}
-
-/* 긴 이름은 줄여 써서 서명 줄이 증서 폭을 넘지 않게 한다 */
-.sign-name {
-  min-width: 0;
-  font-family: var(--font-title);
-  font-style: italic;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sign-line {
-  flex: 1;
-  min-width: 8px;
-  border-bottom: 1px solid rgba(58, 42, 31, 0.32);
-  transform: translateY(4px);
-}
-
-.sign-mark {
-  white-space: nowrap;
-  font-weight: 700;
-}
-
-.sign-pending .sign-mark {
-  color: var(--ink-soft);
-  font-weight: 400;
-}
-
-.sign-accepted .sign-mark {
-  color: var(--good);
-}
-
-.sign-rejected .sign-name {
-  text-decoration: line-through;
-  text-decoration-color: rgba(168, 40, 30, 0.85);
-}
-
-.sign-rejected .sign-mark {
-  color: #a8281e;
-}
-
-.sign-won .sign-mark {
+.fa-down {
   color: var(--river-dark);
 }
 
-.deed-pick {
-  min-height: 0;
-  padding: 2px 8px;
+.fa-up {
+  color: var(--vermilion);
+}
+
+/* 응답: 받은 사람마다 아이콘에 ✓·✕·… 딱지. 제안한 사람은 ✓ 아이콘을 눌러 확정한다. */
+.deed-replies {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 5px 0 0;
+  border-top: 1px solid rgba(58, 42, 31, 0.3);
+}
+
+.reply-face {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(58, 42, 31, 0.3);
+  border-radius: 50%;
+  background: rgba(255, 250, 235, 0.75);
+  font: inherit;
+}
+
+.reply-face i {
+  position: absolute;
+  right: -5px;
+  bottom: -4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 2px;
+  border-radius: 8px;
+  background: #8c8577;
+  color: #fff;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 0 0 1.5px var(--deed-paper);
+}
+
+.reply-accepted .reply-face i {
+  background: var(--good);
+}
+
+.reply-rejected .reply-face i {
+  background: #a8281e;
+}
+
+.reply-rejected .person-icon {
+  opacity: 0.45;
+}
+
+.reply-won .reply-face i {
+  background: var(--river-dark);
+}
+
+.reply-pick {
+  cursor: pointer;
+  border: 2px solid var(--good);
+  box-shadow: 0 0 0 3px rgba(74, 140, 72, 0.25);
+  animation: reply-pick 1.4s ease-in-out infinite;
+}
+
+.reply-pick:hover {
+  background: #fff;
+}
+
+@keyframes reply-pick {
+  50% {
+    box-shadow: 0 0 0 5px rgba(74, 140, 72, 0.12);
+  }
 }
 
 .deed-actions {
@@ -3280,35 +3237,15 @@
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 5px;
+  margin-top: 6px;
 }
 
-.deed-actions > .small {
+.deed-hint {
   margin-right: auto;
-}
-
-/* 접은 증서 (좁은 화면에서 내 일이 아닌 것): 머리와 주고받는 것 한 줄만 */
-.deed-folded {
-  padding-bottom: 7px;
-}
-
-.deed-slip {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 6px;
-  margin-top: 3px;
-  color: var(--ink-soft);
-}
-
-.bundle-chips {
   display: inline-flex;
-  flex-wrap: wrap;
-  gap: 2px 6px;
-}
-
-.bundle-chips .res-amount {
-  font-size: 0.8rem;
+  align-items: center;
+  gap: 3px;
+  color: var(--ink-soft);
 }
 
 /* 닫힌 증서: 글씨를 흐리게 하고 결과 글씨를 띄운 채 제자리에 머물다 옅어진다 */
@@ -3318,18 +3255,9 @@
   animation: deed-out 2.8s linear forwards;
 }
 
-.deed-closed .deed-head,
-.deed-closed .deed-ledger,
-.deed-closed .deed-signs,
-.deed-closed .deed-slip {
+.deed-closed .deed-flow,
+.deed-closed .deed-replies {
   opacity: 0.55;
-}
-
-.deed-cancelled .deed-ledger,
-.deed-turn_end .deed-ledger,
-.deed-unaffordable .deed-ledger {
-  text-decoration: line-through;
-  text-decoration-color: rgba(58, 42, 31, 0.6);
 }
 
 .deed-stamp {
@@ -3852,13 +3780,7 @@
   --wash: #dde1e5;
 }
 
-/* 닫힌 증서는 줄 긋기 대신 카드를 흐리게 둔다 */
-.deed-cancelled .deed-ledger,
-.deed-turn_end .deed-ledger,
-.deed-unaffordable .deed-ledger {
-  text-decoration: none;
-}
-
+/* 닫힌 증서는 카드를 흐리게 둔다 */
 .deed-closed .dcard {
   filter: grayscale(0.5);
 }
@@ -4599,7 +4521,7 @@
   font-size: 0.68rem;
 }
 
-/* 좁은 칸은 큰 승점 자리를 남기려고 교환 제안 수(⇄)를 숨긴다. 열린 제안은 증서로 따로 보인다. */
+/* 좁은 칸은 큰 승점 자리를 남기려고 교환 제안 수(⇅)를 숨긴다. 열린 제안은 증서로 따로 보인다. */
 .players-compact .stat-offers {
   display: none;
 }
