@@ -1,16 +1,16 @@
 // 실험실 모의 게임: 서버 없이 브라우저 안에서 규칙 엔진(shared/rules)을 그대로 돌린다.
 // 화면 정보는 서버와 같은 함수(shared/gameView)로 만들어 실제 게임 화면(Game.tsx)에 그대로 넘긴다.
 // 다른 자리는 봇이 두고, 보는 자리를 바꾸면 그 사람이 되어 직접 둘 수 있다. 차례 시간도 서버처럼 잰다.
-import { DEV_CARDS, DISCARD_LIMIT, MAX_PLAYERS, MIN_PLAYERS, RESOURCE_CARDS, TURN_SECONDS, WIN_POINTS } from '../../shared/constants';
+import { DEV_CARDS, DISCARD_LIMIT, MIN_PLAYERS, RESOURCE_CARDS, TURN_SECONDS, WIN_POINTS } from '../../shared/constants';
 import { buildGameView } from '../../shared/gameView';
-import { DEFAULT_MAP } from '../../shared/maps';
+import { DEFAULT_MAP, mapCardDefaults, maxPlayersFor } from '../../shared/maps';
 import type { AckResult, ChatEmote, ChatMessage, ChatPing, RoomView } from '../../shared/protocol';
 import { applyAction, autoPlay, clockKey, createGame, currentPlayer, placementPlayer, type GameState } from '../../shared/rules';
 import type { GameAction, MapConfig } from '../../shared/types';
 import { botSideAction, botTurnAction } from './bot';
 
 export const LAB_CODE = 'LAB1';
-const NAMES = ['나', '버들', '물레', '나루'];
+const NAMES = ['나', '버들', '물레', '나루', '솔이', '바위', '여울', '한별'];
 /** 화면 연출이 끝났는지 다시 보는 간격과, 아무리 길어도 이만큼 지나면 봇이 두는 시간 */
 const BUSY_POLL_MS = 150;
 const BUSY_MAX_MS = 10_000;
@@ -83,12 +83,13 @@ export class Sandbox {
   }
 
   reset(opts: SandboxOptions): void {
-    const n = Math.min(MAX_PLAYERS, Math.max(MIN_PLAYERS, opts.players));
+    this.map = { ...(opts.map ?? this.map) };
+    const n = Math.min(maxPlayersFor(this.map.shape), Math.max(MIN_PLAYERS, opts.players));
     this.players = Array.from({ length: n }, (_, i) => ({ id: `p${i}`, nickname: NAMES[i], colorIndex: i }));
     this.you = 'p0';
     this.turnSeconds = opts.turnSeconds ?? TURN_SECONDS;
-    this.map = { ...(opts.map ?? this.map) };
-    this.devCards = opts.devCards ?? DEV_CARDS;
+    const cards = mapCardDefaults(this.map.shape);
+    this.devCards = opts.devCards ?? cards.devCards;
     this.state = createGame(
       this.players.map((p) => p.id),
       Math.random,
@@ -97,7 +98,7 @@ export class Sandbox {
         handLimit: opts.handLimit ?? DISCARD_LIMIT,
         rollForOrder: opts.rollForOrder ?? true,
         map: this.map,
-        resourceCards: opts.resourceCards ?? RESOURCE_CARDS,
+        resourceCards: opts.resourceCards ?? cards.resourceCards,
         devCards: this.devCards,
       },
     );
@@ -127,7 +128,7 @@ export class Sandbox {
       game: buildGameView(this.state, id, { turnSeconds: this.turnSeconds, deadline: this.clockPaused ? null : (this.clock?.deadline ?? null) }),
       gameNumber: this.gameNumber,
       minPlayers: MIN_PLAYERS,
-      maxPlayers: MAX_PLAYERS,
+      maxPlayers: maxPlayersFor(this.map.shape),
       winPoints: this.state.winPoints,
       handLimit: this.state.handLimit,
       turnSeconds: this.turnSeconds,

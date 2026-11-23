@@ -23,7 +23,7 @@ import {
   devDeckFor,
 } from '../../shared/constants';
 import type { DevKind } from '../../shared/types';
-import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL, mapTileCount } from '../../shared/maps';
+import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL, mapTileCount, maxPlayersFor } from '../../shared/maps';
 import type { MapArrange, MapShape } from '../../shared/types';
 import { MapPreview } from '../ui/MapPreview';
 
@@ -272,13 +272,13 @@ export function Lobby({ view }: { view: RoomView }) {
                 >
                   {MAP_SHAPES.map((s) => (
                     <option key={s} value={s}>
-                      {MAP_SHAPE_LABEL[s]} {mapTileCount(s)}칸
+                      {MAP_SHAPE_LABEL[s]} {mapTileCount(s)}칸 · {maxPlayersFor(s)}명까지
                     </option>
                   ))}
                 </select>
               ) : (
                 <div className="wp-fixed">
-                  <b>{MAP_SHAPE_LABEL[view.map.shape]}</b> {mapTileCount(view.map.shape)}칸
+                  <b>{MAP_SHAPE_LABEL[view.map.shape]}</b> {mapTileCount(view.map.shape)}칸 · {maxPlayersFor(view.map.shape)}명까지
                 </div>
               )}
             </div>
@@ -312,7 +312,8 @@ export function Lobby({ view }: { view: RoomView }) {
             <p className="muted small">
               {view.map.arrange === 'golden'
                 ? '황금 배치는 땅, 숫자 패, 교역로가 정해져 있어 매판 같은 보드로 합니다. 자원마다 나올 확률이 고르게 나뉘도록 짜 두었습니다.'
-                : '섞기는 게임을 시작할 때마다 땅과 숫자 패, 교역로 자원을 새로 섞습니다. 가운데 광장 자리만 그대로입니다.'}
+                : '섞기는 게임을 시작할 때마다 땅과 숫자 패, 교역로 자원을 새로 섞습니다. 광장 자리만 그대로입니다.'}
+              {view.map.shape === 'big' ? ' 대형 맵은 가운데가 바다라 교역로 10곳이 모두 그 둘레에 있고 8명까지 함께 할 수 있습니다.' : ''}
             </p>
           </div>
           <p className="muted small">

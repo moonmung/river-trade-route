@@ -16,7 +16,8 @@ export const TILE_KIND_LABEL: Record<TileKind, string> = {
   plaza: '광장',
 };
 
-export const ROW_LABELS = ['A', 'B', 'C', 'D', 'E'] as const;
+/** 줄 글자. 표준 육각형은 A~E 다섯 줄이고, 대형 맵은 I 까지 아홉 줄이다. */
+export const ROW_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'] as const;
 
 /** 보드 반지름: 가운데 칸에서 가장자리까지 2칸 → 줄마다 3-4-5-4-3칸, 모두 19칸 */
 export const BOARD_RADIUS = 2;
@@ -62,9 +63,9 @@ export function numberPips(n: number): number {
   return 6 - Math.abs(7 - n);
 }
 
-/** 2명이면 일대일 대결로 같은 규칙을 쓴다. */
+/** 2명이면 일대일 대결로 같은 규칙을 쓴다. 보통 맵은 4명까지, 대형 맵은 8명까지 (맵마다 인원은 maps.ts 의 maxPlayersFor). */
 export const MIN_PLAYERS = 2;
-export const MAX_PLAYERS = 4;
+export const MAX_PLAYERS = 8;
 /** 이 승점에 먼저 닿으면 이긴다 (자기 턴에 판정). 방장이 방을 만들 때 WIN_POINTS_MIN~WIN_POINTS_MAX 사이로 바꿀 수 있다. */
 export const WIN_POINTS = 10;
 export const WIN_POINTS_MIN = 10;

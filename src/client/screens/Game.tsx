@@ -361,7 +361,8 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
           </section>
           <BankPanel view={view} />
           <section className="side-players">
-            <PlayersPanel view={view} players={players} emotes={chat.emotes} />
+            {/* 5명이 넘으면(대형 맵) 한 줄에 두 사람씩 작은 꼴로 놓아 오른쪽 칸 안에 다 들어가게 한다 */}
+            <PlayersPanel view={view} players={players} emotes={chat.emotes} compact={g.order.length > 4} />
           </section>
         </aside>
       )}

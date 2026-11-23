@@ -6,6 +6,11 @@ export const PLAYER_COLORS = [
   { name: '푸른', hex: '#2f6fc4', soft: '#d5e3f7', ink: '#173f75' },
   { name: '주황', hex: '#e8901f', soft: '#fbe6c8', ink: '#7a4608' },
   { name: '보라', hex: '#8a4fbd', soft: '#e8daf4', ink: '#4c2470' },
+  // 대형 맵(8인)에서 다섯 번째 사람부터 쓰는 색. 목재·곡물 같은 땅 색과 헷갈리지 않는 색으로 골랐다.
+  { name: '초록', hex: '#3f9a48', soft: '#d6eed8', ink: '#1d5424' },
+  { name: '분홍', hex: '#d24f8f', soft: '#f6d6e6', ink: '#76204d' },
+  { name: '청록', hex: '#1a9aa3', soft: '#cdeef0', ink: '#0b5257' },
+  { name: '검은', hex: '#3d3f47', soft: '#dcdde2', ink: '#16171b' },
 ] as const;
 
 export function playerColor(index: number) {

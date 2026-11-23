@@ -7,7 +7,6 @@ import {
   DISCARD_LIMIT,
   HAND_LIMIT_MAX,
   HAND_LIMIT_MIN,
-  MAX_PLAYERS,
   MIN_PLAYERS,
   RESOURCE_CARDS,
   RESOURCE_CARDS_MAX,
@@ -25,7 +24,7 @@ import {
   normalizeWinPoints,
 } from '../shared/constants';
 import { SEAT_CODE_LENGTH, type AckResult, type RoomListing, type RoomPeek, type SeatHandover } from '../shared/protocol';
-import { DEFAULT_MAP, normalizeMapArrange, normalizeMapShape } from '../shared/maps';
+import { DEFAULT_MAP, mapCardDefaults, maxPlayersFor, normalizeMapArrange, normalizeMapShape } from '../shared/maps';
 import { applyAction, autoPlay, clockKey, createGame, type GameState } from '../shared/rules';
 import type { GameAction, MapConfig } from '../shared/types';
 
@@ -173,8 +172,8 @@ export class RoomManager {
       code: room.code,
       phase: room.phase,
       playerCount: room.players.length,
-      maxPlayers: MAX_PLAYERS,
-      joinable: room.phase === 'lobby' && room.players.length < MAX_PLAYERS,
+      maxPlayers: maxPlayersFor(room.map.shape),
+      joinable: room.phase === 'lobby' && room.players.length < maxPlayersFor(room.map.shape),
       hostNickname: room.players.find((p) => p.id === room.hostId)?.nickname ?? '',
     };
   }
@@ -185,7 +184,8 @@ export class RoomManager {
     if (room.phase !== 'lobby') {
       return { error: '이미 게임이 시작된 방입니다. 참가했던 기기라면 이전 자리로 돌아가기를 누르세요.', code: 'STARTED' };
     }
-    if (room.players.length >= MAX_PLAYERS) return { error: `방이 가득 찼습니다 (최대 ${MAX_PLAYERS}명).`, code: 'FULL' };
+    const max = maxPlayersFor(room.map.shape);
+    if (room.players.length >= max) return { error: `방이 가득 찼습니다 (최대 ${max}명).`, code: 'FULL' };
     const lower = nickname.toLocaleLowerCase('ko');
     if (room.players.some((p) => p.nickname.toLocaleLowerCase('ko') === lower)) {
       return { error: '이 방에서 이미 쓰고 있는 닉네임입니다.', code: 'NICK_TAKEN' };
@@ -247,6 +247,13 @@ export class RoomManager {
     if (p.mapShape !== undefined) {
       const shape = normalizeMapShape(p.mapShape);
       if (!shape) return { error: '맵 모양은 고를 수 있는 것 중에서 정하세요.' };
+      const max = maxPlayersFor(shape);
+      if (room.players.length > max) return { error: `지금 ${room.players.length}명이라 이 맵은 고를 수 없습니다 (최대 ${max}명).` };
+      // 카드 장수를 맵 기본값 그대로 두었으면 새 맵의 기본값으로 바꾼다 (대형 맵은 은행 자원·발전 카드가 더 많다).
+      const was = mapCardDefaults(room.map.shape);
+      const now = mapCardDefaults(shape);
+      if (p.resourceCards === undefined && room.resourceCards === was.resourceCards) next.resourceCards = now.resourceCards;
+      if (p.devCards === undefined && room.devCards === was.devCards) next.devCards = now.devCards;
       next.map.shape = shape;
     }
     if (p.mapArrange !== undefined) {
@@ -284,7 +291,8 @@ export class RoomManager {
     if (room.hostId !== playerId) return { error: '방장만 게임을 시작할 수 있습니다.' };
     if (room.phase !== 'lobby') return { error: '이미 게임이 진행 중입니다.' };
     const n = room.players.length;
-    if (n < MIN_PLAYERS || n > MAX_PLAYERS) return { error: `방장 포함 ${MIN_PLAYERS}~${MAX_PLAYERS}명이 있어야 시작할 수 있습니다.` };
+    const max = maxPlayersFor(room.map.shape);
+    if (n < MIN_PLAYERS || n > max) return { error: `방장 포함 ${MIN_PLAYERS}~${max}명이 있어야 시작할 수 있습니다.` };
     const notReady = room.players.filter((p) => !p.ready || !p.connected);
     if (notReady.length > 0) {
       return { error: `모두 접속해서 준비해야 시작할 수 있습니다: ${notReady.map((p) => p.nickname).join(', ')}` };

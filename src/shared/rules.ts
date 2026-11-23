@@ -4,12 +4,11 @@
 // 주사위·빼앗기·발전 카드 섞기에 쓰는 난수는 바깥에서 넘겨받는다 (서버는 Math.random, 테스트는 고정 값).
 
 import { boardOf, harborVertices, type BoardGeometry, type EdgeDef, type EdgeId, type VertexId } from './board';
-import { buildMap, DEFAULT_MAP } from './maps';
+import { buildMap, DEFAULT_MAP, mapCardDefaults, maxPlayersFor } from './maps';
 import {
   AWARD_POINTS,
   BANK_RATIO,
   DEV_COST,
-  DEV_CARDS,
   DEV_CARDS_MAX,
   DEV_CARDS_MIN,
   DEV_DECK,
@@ -20,7 +19,6 @@ import {
   GENERIC_HARBOR_RATIO,
   LARGEST_ARMY_MIN,
   LONGEST_ROAD_MIN,
-  MAX_PLAYERS,
   MAX_OPEN_TRADES,
   MAX_TRADE_AMOUNT,
   MIN_PLAYERS,
@@ -29,7 +27,6 @@ import {
   PIECE_LIMIT,
   PIECE_POINTS,
   RESOURCES,
-  RESOURCE_CARDS,
   RESOURCE_CARDS_MAX,
   RESOURCE_CARDS_MIN,
   RESOURCE_LABEL,
@@ -201,12 +198,15 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
   const handLimit = o.handLimit ?? DISCARD_LIMIT;
   if (normalizeWinPoints(winPoints) === null) throw new Error(`승리 점수는 ${WIN_POINTS_MIN}~${WIN_POINTS_MAX}점이어야 합니다.`);
   if (normalizeHandLimit(handLimit) === null) throw new Error(`자원 보유 한도는 ${HAND_LIMIT_MIN}~${HAND_LIMIT_MAX}장이어야 합니다.`);
-  const resourceCards = o.resourceCards ?? RESOURCE_CARDS;
-  const devCards = o.devCards ?? DEV_CARDS;
+  const mapConfig = o.map ?? DEFAULT_MAP;
+  const cardDefaults = mapCardDefaults(mapConfig.shape);
+  const resourceCards = o.resourceCards ?? cardDefaults.resourceCards;
+  const devCards = o.devCards ?? cardDefaults.devCards;
   if (normalizeResourceCards(resourceCards) === null) throw new Error(`자원 카드는 종류마다 ${RESOURCE_CARDS_MIN}~${RESOURCE_CARDS_MAX}장이어야 합니다.`);
   if (normalizeDevCards(devCards) === null) throw new Error(`발전 카드는 ${DEV_CARDS_MIN}~${DEV_CARDS_MAX}장이어야 합니다.`);
-  if (playerIds.length < MIN_PLAYERS || playerIds.length > MAX_PLAYERS) {
-    throw new Error(`플레이어는 ${MIN_PLAYERS}~${MAX_PLAYERS}명이어야 합니다.`);
+  const maxPlayers = maxPlayersFor(mapConfig.shape);
+  if (playerIds.length < MIN_PLAYERS || playerIds.length > maxPlayers) {
+    throw new Error(`플레이어는 ${MIN_PLAYERS}~${maxPlayers}명이어야 합니다.`);
   }
   if (new Set(playerIds).size !== playerIds.length) throw new Error('플레이어 ID가 중복되었습니다.');
   const order = o.rollForOrder ? [...playerIds] : shuffle(playerIds, random);
@@ -214,7 +214,7 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
   for (const id of order) players[id] = { id, resources: emptyBundle(), devCards: [], knightsPlayed: 0 };
   const counts = devDeckFor(devCards);
   const deck = (Object.keys(counts) as DevKind[]).flatMap((k) => Array<DevKind>(counts[k]).fill(k));
-  const map = buildMap(o.map ?? DEFAULT_MAP, random);
+  const map = buildMap(mapConfig, random);
   const state: GameState = {
     phase: o.rollForOrder ? 'order' : 'placement',
     order,
