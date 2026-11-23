@@ -1,9 +1,9 @@
 // 실험실 모의 게임의 봇. tests/helpers.ts 의 봇과 같은 규칙에 순서 주사위, 마을 → 길 시작 배치, 교환 응답을 더했다.
 // 화면 정보(RoomView)만 보고 고르므로 실제 참가자가 볼 수 있는 것 이상은 쓰지 않는다.
 import { boardOf } from '../../shared/board';
-import { DEV_COST, PIECE_COST, PIECE_LIMIT, RESOURCES, emptyBundle, hasBundle, numberPips } from '../../shared/constants';
+import { DEV_COST, PIECE_COST, RESOURCES, emptyBundle, hasBundle, numberPips } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
-import { buildableRoads, buildableVillages, pieceCount, placeableVertices, setupRoadEdges, upgradableVillages } from '../../shared/rules';
+import { buildableRoads, buildableVillages, pieceCount, pieceLimit, placeableVertices, setupRoadEdges, upgradableVillages } from '../../shared/rules';
 import type { GameAction } from '../../shared/types';
 
 /** 차례가 아니어도 해야 하는 일 (순서 주사위, 7 버리기, 받은 교환 제안에 답하기). 없으면 null. */
@@ -80,24 +80,24 @@ export function botTurnAction(v: RoomView, seat: number, random: () => number = 
   if (playable('knight') && g.buildings.some((b) => b.owner === me && board.vertexMap[b.vertexId].tiles.includes(g.robber))) {
     return { type: 'play_dev', kind: 'knight' };
   }
-  if (hasBundle(r, PIECE_COST.city) && count('city') < PIECE_LIMIT.city) {
+  if (hasBundle(r, PIECE_COST.city) && count('city') < pieceLimit(g, 'city')) {
     const villages = upgradableVillages(g.buildings, me);
     if (villages.length) return { type: 'build_city', vertexId: villages[0] };
   }
   const villageSpots = buildableVillages(board, g.buildings, g.roads, me);
-  if (hasBundle(r, PIECE_COST.village) && count('village') < PIECE_LIMIT.village && villageSpots.length) {
+  if (hasBundle(r, PIECE_COST.village) && count('village') < pieceLimit(g, 'village') && villageSpots.length) {
     return { type: 'build_village', vertexId: villageSpots[0] };
   }
   if (playable('road_building') && !villageSpots.length && buildableRoads(board, g.buildings, g.roads, me).length) return { type: 'play_dev', kind: 'road_building' };
   if (playable('year_of_plenty')) return { type: 'play_dev', kind: 'year_of_plenty', resources: ['stone', 'grain'] };
   if (playable('monopoly') && random() < 0.5) return { type: 'play_dev', kind: 'monopoly', resource: RESOURCES[Math.floor(random() * RESOURCES.length)] };
-  if (hasBundle(r, DEV_COST) && g.devDeckCount > 0) return { type: 'buy_dev' };
-  if (hasBundle(r, PIECE_COST.road) && count('road') < PIECE_LIMIT.road && !villageSpots.length) {
+  if (hasBundle(r, DEV_COST) && (g.devDeckCount > 0 || g.unlimited)) return { type: 'buy_dev' };
+  if (hasBundle(r, PIECE_COST.road) && count('road') < pieceLimit(g, 'road') && !villageSpots.length) {
     const edges = buildableRoads(board, g.buildings, g.roads, me);
     if (edges.length) return { type: 'build_road', edgeId: edges[(seat * 3 + g.turn) % edges.length] };
   }
   // 다음 목표(도시 → 마을 → 발전 카드)에 모자란 자원 하나를, 목표에 안 쓰는 남는 자원으로 바꾼다 (교역로가 있으면 교역로로).
-  const target = count('village') > 0 && count('city') < PIECE_LIMIT.city ? PIECE_COST.city : villageSpots.length ? PIECE_COST.village : DEV_COST;
+  const target = count('village') > 0 && count('city') < pieceLimit(g, 'city') ? PIECE_COST.city : villageSpots.length ? PIECE_COST.village : DEV_COST;
   const missing = RESOURCES.find((x) => r[x] < target[x]);
   if (missing) {
     const give = RESOURCES.find((x) => x !== missing && r[x] - target[x] >= g.myTradeRatios[x]);

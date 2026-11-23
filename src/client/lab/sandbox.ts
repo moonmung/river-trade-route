@@ -30,6 +30,8 @@ export interface SandboxOptions {
   map?: MapConfig;
   resourceCards?: number;
   devCards?: number;
+  /** 개수 제한 없음 (길·마을·도시·발전 카드) */
+  unlimited?: boolean;
 }
 
 type Listener = () => void;
@@ -101,6 +103,7 @@ export class Sandbox {
         map: this.map,
         resourceCards: opts.resourceCards ?? cards.resourceCards,
         devCards: this.devCards,
+        unlimited: !!opts.unlimited,
       },
     );
     this.gameNumber += 1;
@@ -136,6 +139,7 @@ export class Sandbox {
       map: { ...this.map },
       resourceCards: this.state.bankSize ?? RESOURCE_CARDS,
       devCards: this.devCards,
+      unlimited: !!this.state.unlimited,
     };
   }
 

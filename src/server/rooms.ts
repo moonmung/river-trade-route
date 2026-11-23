@@ -60,6 +60,8 @@ export interface Room {
   resourceCards: number;
   /** 방장이 정한 발전 카드 총 장수 (다음 게임부터 쓴다) */
   devCards: number;
+  /** 방장이 정한 개수 제한 없음: 길·마을·도시 개수 제한과 발전 카드 소진이 없다 (다음 게임부터 쓴다) */
+  unlimited: boolean;
   createdAt: number;
   /** 마지막으로 상태가 바뀐 시각 (오래 비어 있는 방 정리용) */
   touchedAt: number;
@@ -98,6 +100,7 @@ export function blankRoom(code: string, now = Date.now()): Room {
     map: { ...DEFAULT_MAP },
     resourceCards: RESOURCE_CARDS,
     devCards: DEV_CARDS,
+    unlimited: false,
     createdAt: now,
     touchedAt: now,
   };
@@ -228,6 +231,7 @@ export class RoomManager {
       map: { ...room.map },
       resourceCards: room.resourceCards,
       devCards: room.devCards,
+      unlimited: room.unlimited,
     };
     if (p.winPoints !== undefined) {
       const n = normalizeWinPoints(p.winPoints);
@@ -266,6 +270,10 @@ export class RoomManager {
       if (n === null) return { error: `자원 카드는 종류마다 ${RESOURCE_CARDS_MIN}~${RESOURCE_CARDS_MAX}장 사이로 정하세요.` };
       next.resourceCards = n;
     }
+    if (p.unlimited !== undefined) {
+      if (typeof p.unlimited !== 'boolean') return { error: '개수 제한은 있음·없음 중에서 고르세요.' };
+      next.unlimited = p.unlimited;
+    }
     if (p.devCards !== undefined) {
       const n = normalizeDevCards(p.devCards);
       if (n === null) return { error: `발전 카드는 ${DEV_CARDS_MIN}~${DEV_CARDS_MAX}장 사이로 정하세요.` };
@@ -278,7 +286,8 @@ export class RoomManager {
       next.map.shape === room.map.shape &&
       next.map.arrange === room.map.arrange &&
       next.resourceCards === room.resourceCards &&
-      next.devCards === room.devCards;
+      next.devCards === room.devCards &&
+      next.unlimited === room.unlimited;
     if (same) return null;
     Object.assign(room, next);
     // 규칙이 바뀌면 다른 사람은 다시 확인하고 준비하도록 준비를 푼다.
@@ -308,6 +317,7 @@ export class RoomManager {
         map: { ...room.map },
         resourceCards: room.resourceCards,
         devCards: room.devCards,
+        unlimited: room.unlimited,
       },
     );
     room.phase = 'game';

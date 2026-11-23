@@ -5,7 +5,7 @@
 // - 카메라 조작, 크기 변경, 상태 변경, 짧은 연출 중에만 다시 그린다 (정지 화면은 마지막 프레임 유지)
 // - 만화 음영 재질과 수채화 후처리(먹선·종이 결·물감 얼룩)로 손으로 그린 삽화처럼 보이게 한다 (paint.ts)
 import * as THREE from 'three';
-import { boardGeometry, type BoardGeometry, type EdgeDef } from '../../shared/board';
+import { boardGeometry, innerCoastEdges, type BoardGeometry, type EdgeDef } from '../../shared/board';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { RESOURCES, RESOURCE_LABEL, numberPips } from '../../shared/constants';
 import { longestRoadPath } from '../../shared/rules';
@@ -3022,8 +3022,12 @@ export class BoardRenderer {
     const sgn = idx % 4 === 0 ? -1 : 1;
     const side = new THREE.Vector3(spot.n.z, 0, -spot.n.x).multiplyScalar(sgn);
     const berth = spot.dock.clone().addScaledVector(side, 0.14).addScaledVector(spot.n, 0.44).setY(0.02);
-    const sea = berth.clone().addScaledVector(spot.n, 1.9).addScaledVector(side, 0.8);
-    const away = berth.clone().addScaledVector(spot.n, 1.9).addScaledVector(side, -0.8);
+    // 호수·가운데 바다처럼 안쪽 물에 있는 교역로는 물이 좁아 맞은편 땅을 넘지 않게 가까이에서 들어오고 나간다.
+    const inner = innerCoastEdges(this.geo).includes(edgeId);
+    const reach = inner ? 0.75 : 1.9;
+    const swing = inner ? 0.35 : 0.8;
+    const sea = berth.clone().addScaledVector(spot.n, reach).addScaledVector(side, swing);
+    const away = berth.clone().addScaledVector(spot.n, reach).addScaledVector(side, -swing);
     const forward = side.clone().negate();
     const home = this.state.buildings.find((b) => b.owner === playerId && (b.vertexId === e.a || b.vertexId === e.b));
     const colorIndex = home?.colorIndex ?? this.state.buildings.find((b) => b.owner === playerId)?.colorIndex ?? 0;

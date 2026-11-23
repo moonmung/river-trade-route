@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { boardOf, harborVertices } from '../../shared/board';
 import { DEV_LABEL, RESOURCES, RESOURCE_LABEL, TURN_SECONDS_OPTIONS, emptyBundle } from '../../shared/constants';
 import { autoPlay, buildingAt, computeResult, tradeRatios, vertexOpen } from '../../shared/rules';
-import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL } from '../../shared/maps';
+import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL, maxPlayersFor } from '../../shared/maps';
 import type { Bundle, DevKind, MapConfig, Resource } from '../../shared/types';
 import type { BoardRenderer } from '../board/BoardRenderer';
 import { colorWord } from '../game/derive';
@@ -93,6 +93,8 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
     rendererRef.current?.playAward(award, p.colorIndex, p.id);
   };
   const [map, setMap] = useState<MapConfig>(sb.map);
+  /** 개수 제한 없음 (길·마을·도시·발전 카드) */
+  const [unlimited, setUnlimited] = useState(!!sb.state.unlimited);
   const [dice, setDice] = useState(8);
   const me = sb.you;
   const s = sb.state;
@@ -209,7 +211,7 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
             <option value={2}>2명</option>
             <option value={3}>3명</option>
             <option value={4}>4명</option>
-            {map.shape === 'big' ? (
+            {maxPlayersFor(map.shape) > 4 ? (
               <>
                 <option value={5}>5명</option>
                 <option value={6}>6명</option>
@@ -232,13 +234,20 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
               </option>
             ))}
           </select>
-          <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map })}>
+          <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, unlimited })}>
             새 게임
           </button>
-          <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, rollForOrder: false })} title="순서 주사위 없이 바로 시작 배치">
+          <button
+            className="btn btn-small"
+            onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, unlimited, rollForOrder: false })}
+            title="순서 주사위 없이 바로 시작 배치"
+          >
             순서 건너뛰기
           </button>
         </div>
+        <label className="lab-row small">
+          <input type="checkbox" checked={unlimited} onChange={(e) => setUnlimited(e.target.checked)} /> 개수 제한 없음 (새 게임부터)
+        </label>
         <div className="lab-row">
           <button
             className="btn btn-small"

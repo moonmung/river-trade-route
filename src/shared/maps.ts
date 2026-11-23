@@ -2,18 +2,29 @@
 // 모양마다 "황금 배치"를 하나씩 둔다: 땅 종류, 숫자 패, 교역로 자원이 모두 정해진 기준 배치다.
 // 황금 배치는 같은 땅끼리 변을 맞대지 않고 6·8과 같은 숫자끼리 이웃하지 않으며 자원마다 나올 확률(숫자 패의 점)이 고르게 나뉘도록 짰다.
 // 섞기는 같은 모양에서 광장 자리만 두고 땅·숫자·교역로 자원을 게임마다 새로 섞는다.
-import { assignNumbers, boardFor, harborsFor, HARBOR_KINDS, INNER_HARBOR_KINDS, innerHarborsFor } from './board';
+import { assignNumbers, boardFor, harborsFor, HARBOR_KINDS, INNER_HARBOR_KINDS, innerHarborsFor, tileCenterUnit, type Board } from './board';
 import { BOARD_LAYOUT, DEV_CARDS, RESOURCE_CARDS, ROW_LABELS } from './constants';
 import type { Harbor, MapArrange, MapConfig, MapShape, Resource, TileDef, TileId, TileKind } from './types';
 
-export const MAP_SHAPES: readonly MapShape[] = ['hex', 'diamond', 'big'];
+export const MAP_SHAPES: readonly MapShape[] = ['hex', 'diamond', 'big', 'lakes'];
 export const MAP_ARRANGES: readonly MapArrange[] = ['golden', 'shuffle'];
-export const MAP_SHAPE_LABEL: Record<MapShape, string> = { hex: '육각형', diamond: '마름모', big: '대형' };
+export const MAP_SHAPE_LABEL: Record<MapShape, string> = { hex: '육각형', diamond: '마름모', big: '대형', lakes: '호수' };
 export const MAP_ARRANGE_LABEL: Record<MapArrange, string> = { golden: '황금 배치', shuffle: '섞기' };
 export const DEFAULT_MAP: MapConfig = { shape: 'hex', arrange: 'golden' };
 
 /** 줄의 칸: 땅 종류, 바다(null, 칸이 없다) */
 type Cell = TileKind | null;
+
+/** 칸에서 이웃 칸 쪽 방향 (축 좌표 차이). 교역로를 칸의 어느 변에 붙일지 정할 때 쓴다. */
+const DIRS = { E: [1, 0], W: [-1, 0], NE: [1, -1], NW: [0, -1], SE: [0, 1], SW: [-1, 1] } as const;
+
+/** 자리를 정해 둔 교역로: 칸(축 좌표 q, r)의 dir 쪽 변. 그 쪽은 바다(또는 호수)여야 한다. */
+interface FixedHarbor {
+  q: number;
+  r: number;
+  dir: keyof typeof DIRS;
+  resource: Resource | null;
+}
 
 interface MapPreset {
   /** 줄마다 땅 종류 (황금 배치, null 은 칸이 없는 바다). 줄 수와 줄마다 칸 수가 모양을 정한다. */
@@ -26,8 +37,8 @@ interface MapPreset {
   qStart: (row: number) => number;
   /** 이 맵에서 함께 할 수 있는 최대 인원 */
   maxPlayers: number;
-  /** 교역로: 바깥 둘레에 고르게(outer), 가운데 바다 둘레에(inner) */
-  harbors: 'outer' | 'inner';
+  /** 교역로: 바깥 둘레에 고르게(outer), 가운데 바다 둘레에(inner), 정해 둔 자리(목록) */
+  harbors: 'outer' | 'inner' | readonly FixedHarbor[];
   /** 방장이 따로 바꾸지 않았을 때 은행 자원 카드(자원마다)와 발전 카드 장수 */
   resourceCards: number;
   devCards: number;
@@ -106,7 +117,78 @@ const PRESETS: Record<MapShape, MapPreset> = {
     resourceCards: 30,
     devCards: 40,
   },
+  // 호수 맵 (방장이 직접 짠 대형 맵을 그대로 옮겼다). 반지름 4칸 육각형 61칸에서 18칸을 물로 비운 43칸으로,
+  // 가운데 사막(광장) 둘레 네 곳에 두 칸짜리 호수가 있고 바깥 둘레는 군데군데 바다가 파고든다.
+  // 목재·양모·석재 9칸, 벽돌 8칸, 곡물 7칸. 교역로 14곳 중 넷은 호수 안에 있다 (3:1 네 곳, 자원마다 2:1 두 곳씩).
+  // 그림 그대로라 같은 땅·같은 숫자가 맞닿은 곳이 있다. 섞기를 고르면 맞닿지 않게 다시 섞는다.
+  lakes: {
+    kinds: [
+      ['brick', null, 'brick', null, 'stone'],
+      ['grain', 'brick', 'wool', 'wool', 'wool', 'wood'],
+      [null, 'grain', null, 'brick', null, 'wood', null],
+      ['grain', 'brick', null, 'brick', 'stone', null, 'wool', 'grain'],
+      [null, 'stone', 'stone', 'wool', 'plaza', 'wood', 'wood', 'wood', null],
+      ['stone', 'grain', null, 'brick', 'grain', null, 'stone', 'wood'],
+      [null, 'wool', null, 'stone', null, 'wool', null],
+      ['wood', 'wood', 'brick', 'wool', 'wood', 'stone'],
+      ['wool', null, 'stone', null, 'grain'],
+    ],
+    numbers: [
+      [5, null, 4, null, 11],
+      [11, 3, 9, 6, 3, 9],
+      [null, 9, null, 10, null, 10, null],
+      [5, 8, null, 5, 6, null, 2, 6],
+      [null, 10, 3, 4, null, 4, 9, 4, null],
+      [11, 2, null, 10, 6, null, 10, 9],
+      [null, 5, null, 11, null, 8, null],
+      [11, 3, 4, 5, 12, 3],
+      [12, null, 8, null, 8],
+    ],
+    rowR: (i) => i - 4,
+    qStart: (i) => Math.max(-4, -(i - 4) - 4),
+    maxPlayers: 8,
+    harbors: [
+      { q: 0, r: -4, dir: 'W', resource: 'wood' },
+      { q: 4, r: -4, dir: 'E', resource: null },
+      { q: -3, r: -1, dir: 'NW', resource: 'grain' },
+      { q: 4, r: -1, dir: 'NE', resource: 'wool' },
+      { q: -3, r: 0, dir: 'W', resource: 'wood' },
+      { q: 3, r: 0, dir: 'E', resource: 'brick' },
+      { q: -4, r: 1, dir: 'SW', resource: 'brick' },
+      { q: 3, r: 1, dir: 'SE', resource: null },
+      { q: -4, r: 4, dir: 'W', resource: null },
+      { q: 0, r: 4, dir: 'E', resource: null },
+      // 호수 네 곳
+      { q: 0, r: -1, dir: 'W', resource: 'stone' },
+      { q: 1, r: -1, dir: 'E', resource: 'stone' },
+      { q: -1, r: 1, dir: 'W', resource: 'wool' },
+      { q: 0, r: 1, dir: 'E', resource: 'grain' },
+    ],
+    resourceCards: 30,
+    devCards: 40,
+  },
 };
+
+/** 정해 둔 자리의 교역로: 칸에서 dir 쪽 이웃 칸과 맞닿는 바닷가 변을 찾는다. */
+function fixedHarbors(board: Board, list: readonly FixedHarbor[], kinds: readonly (Resource | null)[]): Harbor[] {
+  return list.map((h, i) => {
+    const tile = board.tiles.find((t) => t.q === h.q && t.r === h.r);
+    if (!tile) throw new Error(`교역로 칸이 없습니다: ${h.q},${h.r}`);
+    const [dq, dr] = DIRS[h.dir];
+    const a = tileCenterUnit(tile);
+    const b = tileCenterUnit({ q: h.q + dq, r: h.r + dr });
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    const edge = board.edges.find((e) => {
+      if (e.tiles.length !== 1 || e.tiles[0] !== tile.id) return false;
+      const va = board.vertexMap[e.a];
+      const vb = board.vertexMap[e.b];
+      return Math.hypot((va.x + vb.x) / 2 - mx, (va.y + vb.y) / 2 - my) < 0.05;
+    });
+    if (!edge) throw new Error(`교역로 자리가 바닷가가 아닙니다: ${tile.id} ${h.dir}`);
+    return { edgeId: edge.id, resource: kinds[i] };
+  });
+}
 
 /** 이 맵에서 함께 할 수 있는 최대 인원 (보통 4명, 대형 맵 8명) */
 export function maxPlayersFor(shape: MapShape): number {
@@ -183,7 +265,12 @@ function shuffled<T>(items: readonly T[], random: () => number): T[] {
 /** 교역로 자리: 모양이 정한 바닷가(바깥 둘레·가운데 바다)에 고르게. random 을 주면 자리는 두고 자원만 섞는다. */
 function placeHarbors(shape: MapShape, tiles: readonly TileDef[], random?: () => number): Harbor[] {
   const board = boardFor(tiles);
-  if (PRESETS[shape].harbors === 'inner') return innerHarborsFor(board, random ? shuffled(INNER_HARBOR_KINDS, random) : INNER_HARBOR_KINDS);
+  const spec = PRESETS[shape].harbors;
+  if (typeof spec !== 'string') {
+    const kinds = spec.map((h) => h.resource);
+    return fixedHarbors(board, spec, random ? shuffled(kinds, random) : kinds);
+  }
+  if (spec === 'inner') return innerHarborsFor(board, random ? shuffled(INNER_HARBOR_KINDS, random) : INNER_HARBOR_KINDS);
   return harborsFor(board, random ? shuffled(HARBOR_KINDS, random) : HARBOR_KINDS);
 }
 

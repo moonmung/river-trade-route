@@ -508,6 +508,11 @@
   background: var(--danger);
 }
 
+/* 개수 제한 없음: 남은 수 대신 ∞ */
+.bb-count-inf {
+  font-size: 0.9em;
+}
+
 /* 말풍선 안 재료: 아이콘과 개수를 한 줄로. 모자란 재료는 흐리게 */
 .bb-cost {
   display: flex;

@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { boardOf } from '../../shared/board';
-import { PIECE_LABEL, PIECE_LIMIT, RESOURCES, emptyBundle, hasBundle } from '../../shared/constants';
+import { PIECE_LABEL, RESOURCES, emptyBundle, hasBundle } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
-import { buildableRoads, buildableVillages, longestRoadPath, pieceCount } from '../../shared/rules';
+import { buildableRoads, buildableVillages, longestRoadPath, pieceCount, pieceLimit } from '../../shared/rules';
 import type { BoardRenderer, BoardSelection, BoardState, Insets } from '../board/BoardRenderer';
 import BoardView from '../board/BoardView';
 import { BoardPin } from '../board/BoardPin';
@@ -134,8 +134,8 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     if (!myTurn || g.step !== 'main' || buildMode || wait) return null;
     const me = view.you;
     return {
-      edges: pieceCount(g.buildings, g.roads, me, 'road') < PIECE_LIMIT.road ? buildableRoads(boardOf(g), g.buildings, g.roads, me) : [],
-      vertices: pieceCount(g.buildings, g.roads, me, 'village') < PIECE_LIMIT.village ? buildableVillages(boardOf(g), g.buildings, g.roads, me) : [],
+      edges: pieceCount(g.buildings, g.roads, me, 'road') < pieceLimit(g, 'road') ? buildableRoads(boardOf(g), g.buildings, g.roads, me) : [],
+      vertices: pieceCount(g.buildings, g.roads, me, 'village') < pieceLimit(g, 'village') ? buildableVillages(boardOf(g), g.buildings, g.roads, me) : [],
     };
   }, [myTurn, g.step, buildMode, wait, g.buildings, g.roads, view.you]);
   // 길에 마우스를 올리거나 길을 누르면 그 주인의 가장 긴 교역로를 금빛으로 따라 그린다.

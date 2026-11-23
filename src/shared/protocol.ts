@@ -101,6 +101,8 @@ export interface GameView {
   buildings: Building[];
   roads: Road[];
   devDeckCount: number;
+  /** 개수 제한 없음: 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않는다 */
+  unlimited: boolean;
   devPlayedThisTurn: boolean;
   freeRoads: number;
   longestRoad: { holder: string | null; length: number };
@@ -146,6 +148,8 @@ export interface RoomView {
   resourceCards: number;
   /** 방장이 정한 발전 카드 총 장수 */
   devCards: number;
+  /** 방장이 정한 개수 제한 없음 (길·마을·도시·발전 카드) */
+  unlimited: boolean;
 }
 
 /** 방장이 대기실에서 바꾸는 규칙 (보낸 것만 바뀐다) */
@@ -157,6 +161,7 @@ export interface RoomSettingsPatch {
   mapArrange?: MapArrange;
   resourceCards?: number;
   devCards?: number;
+  unlimited?: boolean;
 }
 
 export interface RoomPeek {

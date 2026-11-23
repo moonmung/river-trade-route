@@ -77,6 +77,7 @@ export function buildGameView(g: GameState, viewer: string, clock: ClockInfo = {
     buildings: g.buildings.map((b) => ({ ...b })),
     roads: g.roads.map((r) => ({ ...r })),
     devDeckCount: g.devDeck.length,
+    unlimited: !!g.unlimited,
     devPlayedThisTurn: g.devPlayedThisTurn,
     freeRoads: g.freeRoads,
     longestRoad: { ...g.longestRoad },
