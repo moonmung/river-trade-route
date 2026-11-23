@@ -79,7 +79,7 @@ export function RulesSummary({ open = false }: { open?: boolean }) {
         </li>
         <li>
           <b>건설</b>: <Cost kind="road" /> <Cost kind="village" /> <Cost kind="city" /> 한 사람이 길 {PIECE_LIMIT.road}개, 마을{' '}
-          {PIECE_LIMIT.village}개, 도시 {PIECE_LIMIT.city}개까지 가집니다. 마을을 도시로 업그레이드하면 그 마을 조각은 다시 쓸 수 있습니다.
+          {PIECE_LIMIT.village}개, 도시 {PIECE_LIMIT.city}개까지 가집니다. 마을을 도시로 업그레이드하면 그 마을 조각은 다시 쓸 수 있습니다. 방장이 개수 제한을 없음으로 고르면 몇 개든 짓고 발전 카드도 떨어지지 않습니다.
         </li>
         <li>
           <b>교환</b>: 은행에는 같은 자원 {BANK_RATIO}장을 내고 원하는 자원 1장을 받습니다. 바닷가 해상 교역로에 마을·도시가 닿아 있으면 아무

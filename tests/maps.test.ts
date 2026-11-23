@@ -29,8 +29,12 @@ const near = (a: TileDef, b: TileDef) => {
 const red = (n: number | undefined) => n === 6 || n === 8;
 
 /** 모양마다 광장 수와 교역로 수 (대형 맵은 광장 2칸, 가운데 바다 둘레 교역로 10곳) */
-const PLAZAS: Record<MapShape, number> = { hex: 1, diamond: 1, big: 2 };
-const HARBOR_COUNT: Record<MapShape, number> = { hex: 9, diamond: 9, big: 10 };
+const PLAZAS: Record<MapShape, number> = { hex: 1, diamond: 1, big: 2, lakes: 1 };
+const HARBOR_COUNT: Record<MapShape, number> = { hex: 9, diamond: 9, big: 10, lakes: 14 };
+/** 3:1 교역로 수 (나머지는 자원마다 2:1) */
+const GENERIC_HARBORS: Record<MapShape, number> = { hex: 4, diamond: 4, big: 5, lakes: 4 };
+/** 방장이 직접 짠 맵: 그림 그대로라 황금 배치의 고르기 검사(같은 땅·숫자 맞닿음, 확률 고르기)는 하지 않는다 */
+const DESIGNED: readonly MapShape[] = ['lakes'];
 
 /**
  * 어느 배치에서나 지켜야 하는 것: 광장 수, 생산 칸마다 숫자 하나, 2~12 숫자가 모두 있음, 6·8 은 이웃하지 않음,
@@ -52,9 +56,10 @@ function expectPlayable(m: BuiltMap, shape: MapShape) {
   expect(vs.every((v) => board.vertexMap[v])).toBe(true);
   expect(new Set(vs).size).toBe(harbors * 2);
   expect(m.harbors.every((h) => board.edgeMap[h.edgeId].tiles.length === 1)).toBe(true);
-  expect(m.harbors.filter((h) => h.resource === null)).toHaveLength(harbors - 5);
-  // 다섯 자원마다 2:1 교역로가 하나씩
-  expect(m.harbors.filter((h) => h.resource !== null).map((h) => h.resource).sort()).toEqual(['brick', 'grain', 'stone', 'wood', 'wool']);
+  expect(m.harbors.filter((h) => h.resource === null)).toHaveLength(GENERIC_HARBORS[shape]);
+  // 다섯 자원마다 2:1 교역로가 같은 수만큼 있다
+  const special = m.harbors.filter((h) => h.resource !== null).map((h) => h.resource!);
+  for (const r of ['brick', 'grain', 'stone', 'wood', 'wool'] as Resource[]) expect(special.filter((x) => x === r)).toHaveLength(special.length / 5);
 }
 
 describe('황금 배치', () => {
@@ -66,7 +71,7 @@ describe('황금 배치', () => {
     expect(Object.values(m.numbers).sort((a, b) => a - b)).toEqual([...NUMBER_TOKENS].sort((a, b) => a - b));
   });
 
-  it.each(MAP_SHAPES)('%s: 같은 땅끼리 맞닿지 않고, 같은 숫자도 이웃하지 않으며, 자원마다 나올 확률이 고르다', (shape) => {
+  it.each(MAP_SHAPES.filter((s) => !DESIGNED.includes(s)))('%s: 같은 땅끼리 맞닿지 않고, 같은 숫자도 이웃하지 않으며, 자원마다 나올 확률이 고르다', (shape) => {
     const m = goldenMap(shape);
     expectPlayable(m, shape);
     expect(sameKindPairs(m.tiles)).toBe(0);
@@ -184,6 +189,108 @@ describe('대형 맵', () => {
     expect(m.setSettings(room, player.id, { mapShape: 'hex' })).toBeNull();
     expect(room.resourceCards).toBe(25);
     expect(room.devCards).toBe(mapCardDefaults('hex').devCards);
+  });
+});
+
+describe('호수 맵', () => {
+  it('보내 준 그림 그대로: 43칸, 가운데 사막, 두 칸짜리 호수 네 곳, 교역로 14곳(호수 안 네 곳)', () => {
+    const m = goldenMap('lakes');
+    expectPlayable(m, 'lakes');
+    expect(m.tiles).toHaveLength(43);
+    const center = m.tiles.find((t) => t.q === 0 && t.r === 0)!;
+    expect(center.kind).toBe('plaza');
+    expect(m.robber).toBe(center.id);
+    const board = boardFor(m.tiles);
+    // 호수는 바깥 바다와 이어지지 않은 물 네 곳이고, 교역로 네 곳이 그 둘레에 있다
+    const inner = innerCoastEdges(board);
+    expect(m.harbors.filter((h) => inner.includes(h.edgeId))).toHaveLength(4);
+    const kinds = (k: string) => m.tiles.filter((t) => t.kind === k).length;
+    expect([kinds('wood'), kinds('wool'), kinds('stone'), kinds('brick'), kinds('grain')]).toEqual([9, 9, 9, 8, 7]);
+    // 그림의 숫자: 가운데 사막 오른쪽 목재 4, 맨 위 왼쪽 벽돌 5, 맨 아래 왼쪽 양모 12
+    const at = (q: number, r: number) => m.tiles.find((t) => t.q === q && t.r === r)!;
+    expect([at(1, 0).kind, m.numbers[at(1, 0).id]]).toEqual(['wood', 4]);
+    expect([at(0, -4).kind, m.numbers[at(0, -4).id]]).toEqual(['brick', 5]);
+    expect([at(-4, 4).kind, m.numbers[at(-4, 4).id]]).toEqual(['wool', 12]);
+    expect(maxPlayersFor('lakes')).toBe(8);
+  });
+
+  it('섞어도 칸 자리와 교역로 자리는 그대로이고 같은 땅이 맞닿지 않는다', () => {
+    const golden = goldenMap('lakes');
+    for (let seed = 1; seed <= 10; seed++) {
+      const m = shuffledMap('lakes', seeded(seed));
+      expectPlayable(m, 'lakes');
+      expect(sameKindPairs(m.tiles)).toBe(0);
+      expect(m.harbors.map((h) => h.edgeId)).toEqual(golden.harbors.map((h) => h.edgeId));
+    }
+  });
+});
+
+describe('개수 제한 없음', () => {
+  it('길·마을·도시를 제한보다 많이 지을 수 있고 발전 카드는 사도 줄지 않는다', () => {
+    const s = createGame(['a', 'b'], seeded(2), { unlimited: true, devCards: 10 });
+    const t = createGame(['a', 'b'], seeded(2), { devCards: 10 });
+    expect(s.unlimited).toBe(true);
+    expect(t.unlimited).toBe(false);
+    for (const g of [s, t]) {
+      // 시작 배치를 건너뛰고 a 의 차례 교환·건설 단계로 둔다
+      g.phase = 'playing';
+      g.turn = 1;
+      g.current = g.order.indexOf('a');
+      g.step = 'main';
+      g.bank = null;
+      g.players.a.resources = { wood: 99, grain: 99, wool: 99, brick: 99, stone: 99 };
+      // 승점 카드로 게임이 끝나지 않게 승리 점수를 높여 둔다
+      g.winPoints = 99;
+    }
+    // 서로 떨어진 꼭짓점에 마을 여섯 채를 세운다 (제한 5)
+    const board = boardOf(s);
+    const spots: string[] = [];
+    for (const v of board.vertices) {
+      if (spots.length >= 6) break;
+      if (spots.every((x) => x !== v.id && !board.vertexMap[x].neighbors.includes(v.id))) spots.push(v.id);
+    }
+    for (const g of [s, t]) {
+      g.buildings = spots.slice(0, 5).map((vertexId) => ({ vertexId, owner: 'a', kind: 'village' as const, builtTurn: 0 }));
+      // 여섯 번째 자리에 길을 이어 둔다
+      const e = board.vertexMap[spots[5]].edges[0];
+      g.roads = [{ edgeId: e, owner: 'a', builtTurn: 0 }];
+    }
+    expect(applyAction(t, 'a', { type: 'build_village', vertexId: spots[5] })).toMatchObject({ ok: false, code: 'LIMIT' });
+    expect(applyAction(s, 'a', { type: 'build_village', vertexId: spots[5] })).toEqual({ ok: true });
+    expect(s.buildings.filter((b) => b.owner === 'a' && b.kind === 'village')).toHaveLength(6);
+    // 발전 카드: 제한 있음은 10장을 사면 떨어지고, 제한 없음은 그보다 많이 사도 더미가 그대로다
+    for (let i = 0; i < 10; i++) expect(applyAction(t, 'a', { type: 'buy_dev' })).toEqual({ ok: true });
+    expect(applyAction(t, 'a', { type: 'buy_dev' })).toMatchObject({ ok: false, code: 'NO_CARD' });
+    const deck = [...s.devDeck];
+    for (let i = 0; i < 15; i++) expect(applyAction(s, 'a', { type: 'buy_dev' })).toEqual({ ok: true });
+    expect(s.devDeck).toEqual(deck);
+    expect(s.players.a.devCards).toHaveLength(15);
+  });
+
+  it('방장이 대기실에서 고르고, 저장했다 되살려도 그대로다 (예전 저장은 제한 있음)', () => {
+    const m = new RoomManager();
+    const made = m.create('방장');
+    if ('error' in made) throw new Error(made.error);
+    const { room, player } = made;
+    expect(room.unlimited).toBe(false);
+    expect(m.setSettings(room, player.id, { unlimited: 'yes' as never })).not.toBeNull();
+    expect(m.setSettings(room, player.id, { unlimited: true })).toBeNull();
+    const joined = m.join(room.code, '손님');
+    if ('error' in joined) throw new Error(joined.error);
+    for (const p of room.players) {
+      p.connected = true;
+      p.ready = true;
+    }
+    expect(m.start(room, player.id)).toBeNull();
+    expect(room.game!.unlimited).toBe(true);
+    m.stopAllClocks();
+    const data = JSON.parse(snapshotRooms(m.rooms.values()));
+    expect(restoreRooms(JSON.stringify(data)).rooms[0].game!.unlimited).toBe(true);
+    delete data.rooms[0].unlimited;
+    delete data.rooms[0].game.unlimited;
+    const back = restoreRooms(JSON.stringify(data)).rooms[0];
+    expect(back.unlimited).toBe(false);
+    expect(back.game!.unlimited).toBe(false);
   });
 });
 

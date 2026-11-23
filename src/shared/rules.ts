@@ -119,8 +119,10 @@ export interface GameState {
   players: Record<string, PlayerGameState>;
   buildings: Building[];
   roads: Road[];
-  /** 남은 발전 카드 (맨 뒤부터 뽑는다) */
+  /** 남은 발전 카드 (맨 뒤부터 뽑는다). 제한 없음이면 줄지 않고 이 구성에서 무작위로 뽑는다. */
   devDeck: DevKind[];
+  /** 개수 제한 없음: 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않는다 (방장이 고른 규칙) */
+  unlimited: boolean;
   /** 이번 턴에 발전 카드를 이미 썼는지 (승점 카드 제외, 한 턴에 1장) */
   devPlayedThisTurn: boolean;
   /** 길 건설 카드로 남은 공짜 길 */
@@ -190,6 +192,13 @@ export interface GameOptions {
   resourceCards?: number;
   /** 발전 카드 더미의 총 장수 (기본 25, 종류 비율은 그대로) */
   devCards?: number;
+  /** 개수 제한 없음: 길·마을·도시 개수 제한과 발전 카드 소진이 없다 (기본 false) */
+  unlimited?: boolean;
+}
+
+/** 한 사람이 가질 수 있는 조각 수. 개수 제한 없음이면 끝이 없다. */
+export function pieceLimit(s: { unlimited?: boolean }, kind: PieceKind): number {
+  return s.unlimited ? Infinity : PIECE_LIMIT[kind];
 }
 
 export function createGame(playerIds: string[], random: () => number = Math.random, opts: number | GameOptions = {}): GameState {
@@ -240,6 +249,7 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     buildings: [],
     roads: [],
     devDeck: shuffle(deck, random),
+    unlimited: !!o.unlimited,
     devPlayedThisTurn: false,
     freeRoads: 0,
     longestRoad: { holder: null, length: 0 },
@@ -490,7 +500,7 @@ export function applyAction(s: GameState, playerId: string, action: GameAction, 
       result = doBuildCity(s, playerId, action.vertexId);
       break;
     case 'buy_dev':
-      result = doBuyDev(s, playerId);
+      result = doBuyDev(s, playerId, random);
       break;
     case 'play_dev':
       result = doPlayDev(s, playerId, action);
@@ -766,7 +776,7 @@ function doSteal(s: GameState, playerId: string, from: string, random: () => num
 
 /** 비용과 보유 한도를 확인한다 */
 function checkPiece(s: GameState, playerId: string, kind: PieceKind, free = false): ActionResult | null {
-  if (pieceCount(s.buildings, s.roads, playerId, kind) >= PIECE_LIMIT[kind]) {
+  if (pieceCount(s.buildings, s.roads, playerId, kind) >= pieceLimit(s, kind)) {
     return fail('LIMIT', `${PIECE_LABEL[kind]}은(는) 최대 ${PIECE_LIMIT[kind]}개까지 가질 수 있습니다.`);
   }
   if (!free && !hasBundle(s.players[playerId].resources, PIECE_COST[kind])) {
@@ -793,7 +803,7 @@ function doBuildRoad(s: GameState, playerId: string, edgeId: EdgeId): ActionResu
     s.freeRoads -= 1;
     const more =
       s.freeRoads > 0 &&
-      pieceCount(s.buildings, s.roads, playerId, 'road') < PIECE_LIMIT.road &&
+      pieceCount(s.buildings, s.roads, playerId, 'road') < pieceLimit(s, 'road') &&
       buildableRoads(boardOf(s), s.buildings, s.roads, playerId).length > 0;
     if (!more) {
       s.freeRoads = 0;
@@ -843,14 +853,15 @@ function afterBuild(s: GameState, playerId: string): void {
   checkWin(s, playerId);
 }
 
-function doBuyDev(s: GameState, playerId: string): ActionResult {
+function doBuyDev(s: GameState, playerId: string, random: () => number): ActionResult {
   const bad = requireTurn(s, playerId, ['main']);
   if (bad) return bad;
   if (!s.devDeck.length) return fail('NO_CARD', '발전 카드가 모두 팔렸습니다.');
   const me = s.players[playerId];
   if (!hasBundle(me.resources, DEV_COST)) return fail('NOT_ENOUGH', `발전 카드는 ${bundleLabel(DEV_COST)}가 필요합니다.`);
   payToBank(s, me.resources, DEV_COST);
-  const kind = s.devDeck.pop()!;
+  // 개수 제한 없음: 더미가 줄지 않고 처음 구성(종류 비율)에서 무작위로 한 장을 뽑는다.
+  const kind = s.unlimited ? s.devDeck[Math.floor(random() * s.devDeck.length)] : s.devDeck.pop()!;
   me.devCards.push({ kind, boughtTurn: s.turn });
   pushEvent(s, { kind: 'buy_dev', player: playerId, detail: kind });
   afterAction(s);
@@ -875,7 +886,7 @@ function doPlayDev(s: GameState, playerId: string, action: Extract<GameAction, {
     return fail('WRONG_STEP', stepHint(s.step));
   }
   if (kind === 'road_building') {
-    const room = Math.min(2, PIECE_LIMIT.road - pieceCount(s.buildings, s.roads, playerId, 'road'));
+    const room = Math.min(2, pieceLimit(s, 'road') - pieceCount(s.buildings, s.roads, playerId, 'road'));
     if (room <= 0 || buildableRoads(boardOf(s), s.buildings, s.roads, playerId).length === 0) return fail('NOT_ALLOWED', '공짜 길을 놓을 자리가 없습니다.');
     me.devCards.splice(idx, 1);
     s.devPlayedThisTurn = true;

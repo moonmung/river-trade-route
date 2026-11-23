@@ -235,6 +235,29 @@ export function Lobby({ view }: { view: RoomView }) {
               )}
             </div>
             <div className="rule-row">
+              <span className="rule-name" title="없음으로 하면 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않습니다">
+                개수 제한
+              </span>
+              {isHost ? (
+                <select
+                  className="rule-select"
+                  value={view.unlimited ? 'off' : 'on'}
+                  aria-label="길·마을·도시·발전 카드 개수 제한"
+                  onChange={async (e) => {
+                    const res = await client.setSettings({ unlimited: e.target.value === 'off' });
+                    if (!res.ok) showToast(res.error, 'error');
+                  }}
+                >
+                  <option value="on">있음 (길 15·마을 5·도시 4, 발전 카드 소진)</option>
+                  <option value="off">없음 (몇 개든 짓기, 발전 카드 무한)</option>
+                </select>
+              ) : (
+                <div className="wp-fixed">
+                  <b>{view.unlimited ? '없음' : '있음'}</b>
+                </div>
+              )}
+            </div>
+            <div className="rule-row">
               <span className="rule-name">차례 시간</span>
               {isHost ? (
                 <select
@@ -322,6 +345,9 @@ export function Lobby({ view }: { view: RoomView }) {
             {view.turnSeconds > 0 ? `한 차례 ${turnSecondsLabel(view.turnSeconds)} 안에 끝내지 못하면 자동으로 진행합니다.` : '차례 시간 제한이 없습니다.'}{' '}
             은행에는 자원마다 {view.resourceCards}장이 있고 다 떨어진 자원은 생산과 교환으로 받을 수 없습니다. 발전 카드 {view.devCards}장은{' '}
             {devDeckText(view.devCards)}입니다.
+            {view.unlimited
+              ? ' 개수 제한이 없어서 길·마을·도시를 몇 개든 지을 수 있고, 발전 카드는 이 비율대로 무작위로 뽑혀 떨어지지 않습니다.'
+              : ''}
           </p>
         </section>
 

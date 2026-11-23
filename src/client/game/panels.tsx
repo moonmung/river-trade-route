@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { DEV_COST, DEV_LABEL, PIECE_COST, PIECE_LIMIT, RESOURCES, RESOURCE_LABEL } from '../../shared/constants';
+import { DEV_COST, DEV_LABEL, PIECE_COST, RESOURCES, RESOURCE_LABEL } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
-import { pieceCount } from '../../shared/rules';
+import { pieceCount, pieceLimit } from '../../shared/rules';
 import type { Bundle, PieceKind } from '../../shared/types';
 import { throwDice } from '../dice';
 import { ArtImg, DEV_BACK_ART, PIECE_ART, RESOURCE_ART } from '../ui/art';
@@ -316,7 +316,9 @@ export function BuildBar({
       {BUILD_ITEMS.map((item) => {
         const active = item.key !== 'dev' && buildMode === item.key;
         const blocker = active ? null : (wait ?? (item.key === 'dev' ? buyDevBlocker(view) : buildBlocker(view, item.key)));
-        const left = item.key === 'dev' ? g.devDeckCount : PIECE_LIMIT[item.key] - pieceCount(g.buildings, g.roads, view.you, item.key);
+        // 개수 제한 없음이면 남은 수가 끝이 없다 (∞ 로 적는다).
+        const left = g.unlimited ? Infinity : item.key === 'dev' ? g.devDeckCount : pieceLimit(g, item.key) - pieceCount(g.buildings, g.roads, view.you, item.key);
+        const leftText = left === Infinity ? '∞' : String(left);
         const unit = item.key === 'dev' ? '장' : '개';
         return (
           <div key={item.key} className="bb-slot">
@@ -325,7 +327,7 @@ export function BuildBar({
               className={`bb-btn bb-${item.key} ${blocker ? 'is-blocked' : ''} ${active ? 'is-active' : ''}`}
               aria-disabled={!!blocker || busy}
               aria-pressed={item.key === 'dev' ? undefined : active}
-              aria-label={`${item.label}${active ? ' 그만두기' : ''}, ${item.key === 'dev' ? '남은 카드' : '남은 수'} ${left}${unit}, 재료 ${costText(item.cost)}${blocker ? ` (${blocker})` : ''}`}
+              aria-label={`${item.label}${active ? ' 그만두기' : ''}, ${item.key === 'dev' ? '남은 카드' : '남은 수'} ${left === Infinity ? '제한 없음' : `${left}${unit}`}, 재료 ${costText(item.cost)}${blocker ? ` (${blocker})` : ''}`}
               onClick={async () => {
                 if (active) return onBuild(null);
                 // 터치 화면에는 마우스 올리기가 없으니 누를 때 재료 말풍선을 잠깐 띄운다.
@@ -348,8 +350,8 @@ export function BuildBar({
                 <ArtImg src={item.key === 'dev' ? DEV_BACK_ART : PIECE_ART[item.key]} size={44} />
               </span>
               <span className="bb-name">{active ? '그만두기' : item.label}</span>
-              <span className={`bb-count ${left <= 0 ? 'bb-count-out' : ''}`} aria-hidden>
-                {left}
+              <span className={`bb-count ${left <= 0 ? 'bb-count-out' : ''} ${left === Infinity ? 'bb-count-inf' : ''}`} aria-hidden>
+                {leftText}
               </span>
             </button>
             <span className={`bb-tip ${tip?.key === item.key ? 'bb-tip-show' : ''}`} aria-hidden>

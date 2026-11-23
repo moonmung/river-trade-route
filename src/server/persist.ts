@@ -120,6 +120,8 @@ function reviveRoom(raw: unknown): Room | null {
     // 자원 카드 장수를 정하기 전에 저장한 게임은 은행이 무제한이었다.
     if (!('bank' in game)) game.bank = null;
     if (!('bankSize' in game)) game.bankSize = null;
+    // 개수 제한 없음 규칙이 생기기 전에 저장한 게임은 제한이 있었다.
+    if (!('unlimited' in game)) game.unlimited = false;
     const keys = requiredGameKeys();
     if (keys && keys.some((k) => !(k in game))) return null;
     const ids = new Set(players.map((p) => p.id));
@@ -143,6 +145,7 @@ function reviveRoom(raw: unknown): Room | null {
     map,
     resourceCards: normalizeResourceCards(raw.resourceCards) ?? base.resourceCards,
     devCards: normalizeDevCards(raw.devCards) ?? base.devCards,
+    unlimited: raw.unlimited === true,
     gameNumber: typeof raw.gameNumber === 'number' ? raw.gameNumber : base.gameNumber,
     touchedAt: typeof raw.touchedAt === 'number' ? raw.touchedAt : base.touchedAt,
   } as Room;

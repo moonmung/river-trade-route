@@ -14,7 +14,7 @@ import {
   hasBundle,
 } from '../../shared/constants';
 import type { GameView, RoomView } from '../../shared/protocol';
-import { buildableRoads, buildableVillages, pieceCount, placeableVertices, setupRoadEdges, upgradableVillages } from '../../shared/rules';
+import { buildableRoads, buildableVillages, pieceCount, pieceLimit, placeableVertices, setupRoadEdges, upgradableVillages } from '../../shared/rules';
 import type { Bundle, DevKind, GameAction, GameEvent, PieceKind, TradeCloseReason } from '../../shared/types';
 import { josa } from '../ui/josa';
 
@@ -58,7 +58,7 @@ export function buildBlocker(view: RoomView, kind: PieceKind): string | null {
     if (turn) return turn;
   }
   if (!g) return '게임이 없습니다.';
-  if (pieceCount(g.buildings, g.roads, view.you, kind) >= PIECE_LIMIT[kind]) return `${PIECE_LABEL[kind]}은(는) 최대 ${PIECE_LIMIT[kind]}개까지입니다.`;
+  if (pieceCount(g.buildings, g.roads, view.you, kind) >= pieceLimit(g, kind)) return `${PIECE_LABEL[kind]}은(는) 최대 ${PIECE_LIMIT[kind]}개까지입니다.`;
   if (!free && !hasBundle(g.myResources, PIECE_COST[kind])) return `${shortfallText(g.myResources, PIECE_COST[kind])} 더 필요합니다.`;
   if (buildSpots(view, kind).length === 0) {
     if (kind === 'road') return '내 마을이나 길과 이어진 빈 변이 없습니다.';
@@ -111,7 +111,7 @@ export function buyDevBlocker(view: RoomView): string | null {
   const turn = turnBlocker(view);
   if (turn) return turn;
   const g = view.game!;
-  if (g.devDeckCount <= 0) return '발전 카드가 모두 팔렸습니다.';
+  if (g.devDeckCount <= 0 && !g.unlimited) return '발전 카드가 모두 팔렸습니다.';
   if (!hasBundle(g.myResources, DEV_COST)) return `${shortfallText(g.myResources, DEV_COST)} 더 필요합니다.`;
   return null;
 }
