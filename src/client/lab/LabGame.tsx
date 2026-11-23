@@ -207,6 +207,14 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
             <option value={2}>2명</option>
             <option value={3}>3명</option>
             <option value={4}>4명</option>
+            {map.shape === 'big' ? (
+              <>
+                <option value={5}>5명</option>
+                <option value={6}>6명</option>
+                <option value={7}>7명</option>
+                <option value={8}>8명</option>
+              </>
+            ) : null}
           </select>
           <select value={map.shape} onChange={(e) => setMap({ ...map, shape: e.target.value as MapConfig['shape'] })} aria-label="맵 모양">
             {MAP_SHAPES.map((s) => (

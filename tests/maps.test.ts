@@ -1,8 +1,8 @@
-// 맵 모양(육각형·마름모)과 땅 배치(황금 배치·섞기)
+// 맵 모양(육각형·마름모·대형)과 땅 배치(황금 배치·섞기)
 import { describe, expect, it } from 'vitest';
-import { boardFor, boardOf, harborVertices, HARBORS, STANDARD_BOARD, tileCenterUnit } from '../src/shared/board';
+import { boardFor, boardOf, harborVertices, HARBORS, innerCoastEdges, STANDARD_BOARD, tileCenterUnit } from '../src/shared/board';
 import { NUMBER_TOKENS, TILES, numberPips } from '../src/shared/constants';
-import { DEFAULT_MAP, MAP_SHAPES, buildMap, goldenMap, mapNumberTokens, sameKindPairs, shuffledMap, type BuiltMap } from '../src/shared/maps';
+import { DEFAULT_MAP, MAP_SHAPES, buildMap, goldenMap, mapCardDefaults, mapNumberTokens, maxPlayersFor, sameKindPairs, shuffledMap, type BuiltMap } from '../src/shared/maps';
 import { applyAction, autoPlay, createGame, placeableVertices, productionFor } from '../src/shared/rules';
 import { parseAction } from '../src/shared/validate';
 import { RoomManager } from '../src/server/rooms';
@@ -28,22 +28,33 @@ const near = (a: TileDef, b: TileDef) => {
 };
 const red = (n: number | undefined) => n === 6 || n === 8;
 
-/** 어느 배치에서나 지켜야 하는 것: 광장 1칸, 생산 칸마다 숫자 하나, 6·8 은 이웃하지 않음, 교역로 9곳은 꼭짓점을 나눠 갖지 않음 */
+/** 모양마다 광장 수와 교역로 수 (대형 맵은 광장 2칸, 가운데 바다 둘레 교역로 10곳) */
+const PLAZAS: Record<MapShape, number> = { hex: 1, diamond: 1, big: 2 };
+const HARBOR_COUNT: Record<MapShape, number> = { hex: 9, diamond: 9, big: 10 };
+
+/**
+ * 어느 배치에서나 지켜야 하는 것: 광장 수, 생산 칸마다 숫자 하나, 2~12 숫자가 모두 있음, 6·8 은 이웃하지 않음,
+ * 교역로는 꼭짓점을 나눠 갖지 않음
+ */
 function expectPlayable(m: BuiltMap, shape: MapShape) {
   const plaza = m.tiles.filter((t) => t.kind === 'plaza');
-  expect(plaza).toHaveLength(1);
+  expect(plaza).toHaveLength(PLAZAS[shape]);
   expect(m.robber).toBe(plaza[0].id);
+  expect([...new Set(Object.values(m.numbers))].sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 6, 8, 9, 10, 11, 12]);
   const prod = m.tiles.filter((t) => t.kind !== 'plaza');
   expect(Object.keys(m.numbers).sort()).toEqual(prod.map((t) => t.id).sort());
   expect(Object.values(m.numbers).sort((a, b) => a - b)).toEqual(mapNumberTokens(shape).sort((a, b) => a - b));
   for (const a of prod) for (const b of prod) if (a !== b && near(a, b)) expect(red(m.numbers[a.id]) && red(m.numbers[b.id])).toBe(false);
   const board = boardFor(m.tiles);
-  expect(m.harbors).toHaveLength(9);
+  const harbors = HARBOR_COUNT[shape];
+  expect(m.harbors).toHaveLength(harbors);
   const vs = m.harbors.flatMap((h) => harborVertices(board, h));
   expect(vs.every((v) => board.vertexMap[v])).toBe(true);
-  expect(new Set(vs).size).toBe(18);
+  expect(new Set(vs).size).toBe(harbors * 2);
   expect(m.harbors.every((h) => board.edgeMap[h.edgeId].tiles.length === 1)).toBe(true);
-  expect(m.harbors.filter((h) => h.resource === null)).toHaveLength(4);
+  expect(m.harbors.filter((h) => h.resource === null)).toHaveLength(harbors - 5);
+  // 다섯 자원마다 2:1 교역로가 하나씩
+  expect(m.harbors.filter((h) => h.resource !== null).map((h) => h.resource).sort()).toEqual(['brick', 'grain', 'stone', 'wood', 'wool']);
 }
 
 describe('황금 배치', () => {
@@ -63,12 +74,13 @@ describe('황금 배치', () => {
     for (const a of prod) for (const b of prod) if (a !== b && near(a, b)) expect(m.numbers[a.id]).not.toBe(m.numbers[b.id]);
     // 자원별 점(나올 경우의 수)이 칸 수에 비례한 몫에서 2점 넘게 벗어나지 않는다
     const total = prod.reduce((n, t) => n + numberPips(m.numbers[t.id]), 0);
+    const reds = prod.filter((t) => red(m.numbers[t.id])).length;
     for (const r of ['wood', 'grain', 'wool', 'brick', 'stone'] as Resource[]) {
       const tiles = prod.filter((t) => t.kind === r);
       const pips = tiles.reduce((n, t) => n + numberPips(m.numbers[t.id]), 0);
       expect(Math.abs(pips - (total * tiles.length) / prod.length)).toBeLessThanOrEqual(2);
       // 빨간 숫자(6·8)는 한 자원에 몰리지 않는다
-      expect(tiles.filter((t) => red(m.numbers[t.id])).length).toBeLessThanOrEqual(1);
+      expect(tiles.filter((t) => red(m.numbers[t.id])).length).toBeLessThanOrEqual(Math.ceil(reds / 5));
     }
     // 한 꼭짓점에 몰리는 점은 11점까지
     const board = boardFor(m.tiles);
@@ -85,6 +97,93 @@ describe('황금 배치', () => {
     for (let i = 1; i < rowX.length; i++) expect(rowX[i]).toBeGreaterThan(rowX[i - 1]);
     // 다섯 자원이 3칸씩
     for (const r of ['wood', 'grain', 'wool', 'brick', 'stone']) expect(m.tiles.filter((t) => t.kind === r)).toHaveLength(3);
+  });
+});
+
+describe('대형 맵', () => {
+  it('반지름 4칸 정육각형에서 가운데 19칸이 바다인 42칸이고, 교역로 10곳은 모두 가운데 바다 둘레에 있다', () => {
+    const m = goldenMap('big');
+    expect(m.tiles).toHaveLength(42);
+    const board = boardFor(m.tiles);
+    expect(board.vertices).toHaveLength(126);
+    // 가운데(0,0)에서 두 칸 안은 바다라 칸이 없고, 바깥 끝은 네 칸 떨어져 있다
+    const d = (t: TileDef) => (Math.abs(t.q) + Math.abs(t.r) + Math.abs(t.q + t.r)) / 2;
+    expect(m.tiles.every((t) => d(t) === 3 || d(t) === 4)).toBe(true);
+    const inner = innerCoastEdges(board);
+    expect(inner).toHaveLength(30);
+    expect(m.harbors.every((h) => inner.includes(h.edgeId))).toBe(true);
+    // 광장에 붙은 교역로는 없다
+    expect(m.harbors.every((h) => board.edgeMap[h.edgeId].tiles.every((t) => board.tileMap[t].kind !== 'plaza'))).toBe(true);
+    // 숫자 패 40개: 2~12 가 모두 있고 2·12 는 두 개씩
+    expect(mapNumberTokens('big')).toHaveLength(40);
+    expect(mapNumberTokens('big').filter((n) => n === 2 || n === 12)).toHaveLength(4);
+    // 가운데 바다가 없는 맵은 안쪽 바닷가도 없다
+    expect(innerCoastEdges(STANDARD_BOARD)).toEqual([]);
+    expect(innerCoastEdges(boardFor(goldenMap('diamond').tiles))).toEqual([]);
+  });
+
+  it('8명까지 함께 하고, 시작 배치부터 여러 턴을 자동으로 진행해도 판 밖의 자리를 쓰지 않는다', () => {
+    expect(maxPlayersFor('hex')).toBe(4);
+    expect(maxPlayersFor('diamond')).toBe(4);
+    expect(maxPlayersFor('big')).toBe(8);
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    expect(() => createGame([...ids, 'i'], seeded(1), { map: { shape: 'big', arrange: 'golden' } })).toThrow();
+    expect(() => createGame(ids.slice(0, 5), seeded(1), { map: { shape: 'hex', arrange: 'golden' } })).toThrow();
+    const random = seeded(5);
+    const s = createGame(ids, random, { map: { shape: 'big', arrange: 'shuffle' } });
+    // 은행과 발전 카드도 사람 수에 맞춰 늘어난다
+    expect(s.bank?.wood).toBe(mapCardDefaults('big').resourceCards);
+    expect(s.devDeck).toHaveLength(mapCardDefaults('big').devCards);
+    const board = boardOf(s);
+    for (let i = 0; i < 1200 && s.phase !== 'finished'; i++) autoPlay(s, random);
+    expect(s.turn).toBeGreaterThan(30);
+    expect(s.buildings.length).toBeGreaterThanOrEqual(16);
+    expect(s.buildings.every((b) => board.vertexMap[b.vertexId])).toBe(true);
+    expect(s.roads.every((r) => board.edgeMap[r.edgeId])).toBe(true);
+    expect(new Set(s.buildings.map((b) => b.owner)).size).toBe(8);
+  });
+
+  it('대기실: 대형 맵이면 8명까지 들어오고, 5명 넘게 있으면 보통 맵으로 바꿀 수 없다', () => {
+    const m = new RoomManager();
+    const made = m.create('방장');
+    if ('error' in made) throw new Error(made.error);
+    const { room, player } = made;
+    for (let i = 1; i < 4; i++) if ('error' in m.join(room.code, '손님' + i)) throw new Error('join');
+    const fifth = m.join(room.code, '손님4');
+    expect('error' in fifth && fifth.code).toBe('FULL');
+    expect(m.peek(room.code)!.maxPlayers).toBe(4);
+    // 대형 맵을 고르면 카드 장수도 대형 맵 기본값으로 바뀐다
+    expect(m.setSettings(room, player.id, { mapShape: 'big' })).toBeNull();
+    expect(room.resourceCards).toBe(mapCardDefaults('big').resourceCards);
+    expect(room.devCards).toBe(mapCardDefaults('big').devCards);
+    expect(m.peek(room.code)!.maxPlayers).toBe(8);
+    for (let i = 4; i < 8; i++) if ('error' in m.join(room.code, '손님' + i)) throw new Error('join');
+    const ninth = m.join(room.code, '손님8');
+    expect('error' in ninth && ninth.code).toBe('FULL');
+    expect(m.setSettings(room, player.id, { mapShape: 'hex' })).not.toBeNull();
+    expect(room.map.shape).toBe('big');
+    for (const p of room.players) {
+      p.connected = true;
+      p.ready = true;
+    }
+    expect(m.start(room, player.id)).toBeNull();
+    expect(room.game!.order).toHaveLength(8);
+    expect(new Set(room.players.map((p) => p.colorIndex)).size).toBe(8);
+    m.stopAllClocks();
+  });
+
+  it('직접 바꾼 카드 장수는 맵을 바꿔도 그대로 둔다', () => {
+    const m = new RoomManager();
+    const made = m.create('방장');
+    if ('error' in made) throw new Error(made.error);
+    const { room, player } = made;
+    expect(m.setSettings(room, player.id, { resourceCards: 25 })).toBeNull();
+    expect(m.setSettings(room, player.id, { mapShape: 'big' })).toBeNull();
+    expect(room.resourceCards).toBe(25);
+    expect(room.devCards).toBe(mapCardDefaults('big').devCards);
+    expect(m.setSettings(room, player.id, { mapShape: 'hex' })).toBeNull();
+    expect(room.resourceCards).toBe(25);
+    expect(room.devCards).toBe(mapCardDefaults('hex').devCards);
   });
 });
 

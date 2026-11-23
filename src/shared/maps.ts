@@ -2,25 +2,35 @@
 // 모양마다 "황금 배치"를 하나씩 둔다: 땅 종류, 숫자 패, 교역로 자원이 모두 정해진 기준 배치다.
 // 황금 배치는 같은 땅끼리 변을 맞대지 않고 6·8과 같은 숫자끼리 이웃하지 않으며 자원마다 나올 확률(숫자 패의 점)이 고르게 나뉘도록 짰다.
 // 섞기는 같은 모양에서 광장 자리만 두고 땅·숫자·교역로 자원을 게임마다 새로 섞는다.
-import { assignNumbers, boardFor, harborsFor, HARBOR_KINDS } from './board';
-import { BOARD_LAYOUT, ROW_LABELS } from './constants';
+import { assignNumbers, boardFor, harborsFor, HARBOR_KINDS, INNER_HARBOR_KINDS, innerHarborsFor } from './board';
+import { BOARD_LAYOUT, DEV_CARDS, RESOURCE_CARDS, ROW_LABELS } from './constants';
 import type { Harbor, MapArrange, MapConfig, MapShape, Resource, TileDef, TileId, TileKind } from './types';
 
-export const MAP_SHAPES: readonly MapShape[] = ['hex', 'diamond'];
+export const MAP_SHAPES: readonly MapShape[] = ['hex', 'diamond', 'big'];
 export const MAP_ARRANGES: readonly MapArrange[] = ['golden', 'shuffle'];
-export const MAP_SHAPE_LABEL: Record<MapShape, string> = { hex: '육각형', diamond: '마름모' };
+export const MAP_SHAPE_LABEL: Record<MapShape, string> = { hex: '육각형', diamond: '마름모', big: '대형' };
 export const MAP_ARRANGE_LABEL: Record<MapArrange, string> = { golden: '황금 배치', shuffle: '섞기' };
 export const DEFAULT_MAP: MapConfig = { shape: 'hex', arrange: 'golden' };
 
+/** 줄의 칸: 땅 종류, 바다(null, 칸이 없다) */
+type Cell = TileKind | null;
+
 interface MapPreset {
-  /** 줄마다 땅 종류 (황금 배치). 줄 수와 줄마다 칸 수가 모양을 정한다. */
-  kinds: readonly (readonly TileKind[])[];
-  /** 줄마다 숫자 패 (황금 배치, 광장은 null). 섞기도 이 숫자 패 묶음을 쓴다. */
+  /** 줄마다 땅 종류 (황금 배치, null 은 칸이 없는 바다). 줄 수와 줄마다 칸 수가 모양을 정한다. */
+  kinds: readonly (readonly Cell[])[];
+  /** 줄마다 숫자 패 (황금 배치, 광장과 바다는 null). 섞기도 이 숫자 패 묶음을 쓴다. */
   numbers: readonly (readonly (number | null)[])[];
   /** 줄 번호 → 축 좌표 r */
   rowR: (row: number) => number;
   /** 줄 번호 → 그 줄 첫 칸의 축 좌표 q */
   qStart: (row: number) => number;
+  /** 이 맵에서 함께 할 수 있는 최대 인원 */
+  maxPlayers: number;
+  /** 교역로: 바깥 둘레에 고르게(outer), 가운데 바다 둘레에(inner) */
+  harbors: 'outer' | 'inner';
+  /** 방장이 따로 바꾸지 않았을 때 은행 자원 카드(자원마다)와 발전 카드 장수 */
+  resourceCards: number;
+  devCards: number;
 }
 
 const PRESETS: Record<MapShape, MapPreset> = {
@@ -36,9 +46,13 @@ const PRESETS: Record<MapShape, MapPreset> = {
     ],
     rowR: (i) => i - 2,
     qStart: (i) => Math.max(-2, -(i - 2) - 2),
+    maxPlayers: 4,
+    harbors: 'outer',
+    resourceCards: RESOURCE_CARDS,
+    devCards: DEV_CARDS,
   },
   // 4칸씩 4줄인 마름모 16칸. 아래 줄로 갈수록 반 칸씩 오른쪽으로 밀려 윗부분이 왼쪽으로 기운다.
-  // 다섯 자원이 3칸씩이고 광장(C2)은 가운데 두 칸 중 하나다. 칸이 적어 숫자 패는 2·12 와 3 하나를 뺀 15개를 쓴다.
+  // 다섯 자원이 3칸씩이고 광장(C2)은 가운데 두 칸 중 하나다. 숫자 패는 2~12 를 모두 하나 이상 쓰고(7 제외) 4·5·6·8·9 를 하나씩 더한 15개다.
   diamond: {
     kinds: [
       ['brick', 'grain', 'wool', 'stone'],
@@ -47,15 +61,62 @@ const PRESETS: Record<MapShape, MapPreset> = {
       ['grain', 'wood', 'stone', 'wood'],
     ],
     numbers: [
-      [9, 10, 4, 10],
-      [5, 11, 8, 11],
-      [6, null, 9, 6],
-      [4, 8, 3, 5],
+      [6, 3, 4, 6],
+      [5, 11, 10, 2],
+      [9, null, 4, 5],
+      [8, 9, 12, 8],
     ],
     rowR: (i) => i - 2,
     qStart: () => -1,
+    maxPlayers: 4,
+    harbors: 'outer',
+    resourceCards: RESOURCE_CARDS,
+    devCards: DEV_CARDS,
+  },
+  // 가운데가 바다인 대형 정육각형 (8인까지). 반지름 4칸 육각형에서 가운데 19칸(반지름 2)을 바다로 비운 두 겹 고리 42칸.
+  // 목재·곡물 9칸, 양모 8칸, 벽돌·석재 7칸에 광장이 왼쪽·오른쪽 끝에 하나씩. 숫자 패 40개는 기본판 두 벌에 5·6·8·9 를 하나씩 더했다.
+  // 교역로 10곳은 모두 가운데 바다 둘레에 있다. 여섯 방향(60도씩) 어느 쪽에나 다섯 자원이 다 있고 나올 확률도 고르다.
+  big: {
+    kinds: [
+      ['wool', 'stone', 'grain', 'stone', 'grain'],
+      ['wood', 'grain', 'wood', 'brick', 'wool', 'wood'],
+      ['brick', 'wool', null, null, null, 'stone', 'wool'],
+      ['stone', 'wood', null, null, null, null, 'grain', 'brick'],
+      ['grain', 'plaza', null, null, null, null, null, 'plaza', 'grain'],
+      ['wood', 'grain', null, null, null, null, 'wool', 'wood'],
+      ['brick', 'stone', null, null, null, 'stone', 'brick'],
+      ['wool', 'brick', 'wood', 'stone', 'wood', 'wool'],
+      ['wood', 'wool', 'grain', 'brick', 'grain'],
+    ],
+    numbers: [
+      [5, 11, 12, 8, 10],
+      [4, 9, 4, 5, 3, 4],
+      [10, 3, null, null, null, 6, 3],
+      [11, 8, null, null, null, null, 5, 6],
+      [8, null, null, null, null, null, null, null, 9],
+      [10, 6, null, null, null, null, 11, 6],
+      [2, 9, null, null, null, 5, 4],
+      [6, 3, 5, 12, 11, 10],
+      [9, 8, 2, 8, 9],
+    ],
+    rowR: (i) => i - 4,
+    qStart: (i) => Math.max(-4, -(i - 4) - 4),
+    maxPlayers: 8,
+    harbors: 'inner',
+    resourceCards: 30,
+    devCards: 40,
   },
 };
+
+/** 이 맵에서 함께 할 수 있는 최대 인원 (보통 4명, 대형 맵 8명) */
+export function maxPlayersFor(shape: MapShape): number {
+  return PRESETS[shape].maxPlayers;
+}
+
+/** 방장이 따로 바꾸지 않았을 때 쓰는 카드 장수. 대형 맵은 사람이 많아 은행 자원과 발전 카드를 늘린다. */
+export function mapCardDefaults(shape: MapShape): { resourceCards: number; devCards: number } {
+  return { resourceCards: PRESETS[shape].resourceCards, devCards: PRESETS[shape].devCards };
+}
 
 export function normalizeMapShape(v: unknown): MapShape | null {
   return typeof v === 'string' && (MAP_SHAPES as readonly string[]).includes(v) ? (v as MapShape) : null;
@@ -65,12 +126,16 @@ export function normalizeMapArrange(v: unknown): MapArrange | null {
   return typeof v === 'string' && (MAP_ARRANGES as readonly string[]).includes(v) ? (v as MapArrange) : null;
 }
 
-/** 모양의 칸 자리에 땅 종류를 채운 타일 묶음 (kinds 를 주지 않으면 황금 배치의 땅) */
-export function mapTiles(shape: MapShape, kinds?: readonly (readonly TileKind[])[]): TileDef[] {
+/**
+ * 모양의 칸 자리에 황금 배치의 땅 종류를 채운 타일 묶음. 바다 자리(null)는 칸이 없다.
+ * 칸 코드는 줄 글자와 그 줄에서 몇 번째 자리인지로 정해, 가운데 바다를 사이에 둔 칸은 번호가 건너뛴다 (대형 맵 E 줄은 E1·E2·E8·E9).
+ */
+export function mapTiles(shape: MapShape): TileDef[] {
   const p = PRESETS[shape];
-  const rows = kinds ?? p.kinds;
   return p.kinds.flatMap((row, i) =>
-    row.map((_, c) => ({ id: `${ROW_LABELS[i]}${c + 1}`, row: i, col: c, q: p.qStart(i) + c, r: p.rowR(i), kind: rows[i][c] })),
+    row.flatMap((kind, c) =>
+      kind === null ? [] : [{ id: `${ROW_LABELS[i]}${c + 1}`, row: i, col: c, q: p.qStart(i) + c, r: p.rowR(i), kind }],
+    ),
   );
 }
 
@@ -115,6 +180,13 @@ function shuffled<T>(items: readonly T[], random: () => number): T[] {
   return a;
 }
 
+/** 교역로 자리: 모양이 정한 바닷가(바깥 둘레·가운데 바다)에 고르게. random 을 주면 자리는 두고 자원만 섞는다. */
+function placeHarbors(shape: MapShape, tiles: readonly TileDef[], random?: () => number): Harbor[] {
+  const board = boardFor(tiles);
+  if (PRESETS[shape].harbors === 'inner') return innerHarborsFor(board, random ? shuffled(INNER_HARBOR_KINDS, random) : INNER_HARBOR_KINDS);
+  return harborsFor(board, random ? shuffled(HARBOR_KINDS, random) : HARBOR_KINDS);
+}
+
 /** 황금 배치: 정해진 땅·숫자·교역로 */
 export function goldenMap(shape: MapShape): BuiltMap {
   const p = PRESETS[shape];
@@ -124,7 +196,7 @@ export function goldenMap(shape: MapShape): BuiltMap {
     const n = p.numbers[t.row][t.col];
     if (n !== null) numbers[t.id] = n;
   }
-  return { tiles, numbers, harbors: harborsFor(boardFor(tiles)), robber: tiles.find((t) => t.kind === 'plaza')!.id };
+  return { tiles, numbers, harbors: placeHarbors(shape, tiles), robber: tiles.find((t) => t.kind === 'plaza')!.id };
 }
 
 /**
@@ -162,7 +234,7 @@ function shuffleKinds(golden: readonly TileDef[], random: () => number): TileDef
 export function shuffledMap(shape: MapShape, random: () => number): BuiltMap {
   const best = shuffleKinds(mapTiles(shape), random);
   const numbers = assignNumbers(random, best, mapNumberTokens(shape));
-  const harbors = harborsFor(boardFor(best), shuffled(HARBOR_KINDS, random));
+  const harbors = placeHarbors(shape, best, random);
   return { tiles: best, numbers, harbors, robber: best.find((t) => t.kind === 'plaza')!.id };
 }
 
@@ -170,7 +242,7 @@ export function buildMap(config: MapConfig, random: () => number): BuiltMap {
   return config.arrange === 'shuffle' ? shuffledMap(config.shape, random) : goldenMap(config.shape);
 }
 
-/** 대기실 안내용: 모양의 칸 수 */
+/** 대기실 안내용: 모양의 칸 수 (바다 자리는 빼고) */
 export function mapTileCount(shape: MapShape): number {
-  return PRESETS[shape].kinds.reduce((n, row) => n + row.length, 0);
+  return PRESETS[shape].kinds.reduce((n, row) => n + row.filter((k) => k !== null).length, 0);
 }

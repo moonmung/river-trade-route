@@ -251,6 +251,72 @@ export function harborsFor(board: BoardGeometry, kinds: readonly (Resource | nul
   return kinds.map((resource, i) => ({ edgeId: coast[Math.round((i * coast.length) / kinds.length + 1) % coast.length], resource }));
 }
 
+/**
+ * 가운데가 바다인 판에서 안쪽 바다에 닿은 바닷가 변 (보드 가운데에서 본 위쪽에서 시작해 시계 방향).
+ * 바닷가 변은 꼭짓점으로 이어진 고리 몇 개로 나뉘는데, 보드 가운데에서 가장 먼 변이 든 고리가 바깥 둘레이고 나머지가 안쪽 바다다.
+ * 가운데 바다가 없는 판이면 빈 목록.
+ */
+export function innerCoastEdges(board: BoardGeometry): EdgeId[] {
+  const coast = coastEdges(board);
+  if (!coast.length) return [];
+  // 꼭짓점을 나눠 가진 바닷가 변끼리 한 고리로 묶는다.
+  const group = new Map<EdgeId, number>();
+  let groups = 0;
+  for (const start of coast) {
+    if (group.has(start)) continue;
+    const g = groups++;
+    const stack = [start];
+    group.set(start, g);
+    while (stack.length) {
+      const e = board.edgeMap[stack.pop()!];
+      for (const v of [e.a, e.b]) {
+        for (const next of board.vertexMap[v].edges) {
+          if (!group.has(next) && board.edgeMap[next].tiles.length === 1) {
+            group.set(next, g);
+            stack.push(next);
+          }
+        }
+      }
+    }
+  }
+  if (groups < 2) return [];
+  const vs = board.vertices;
+  const cx = vs.reduce((n, v) => n + v.x, 0) / vs.length;
+  const cy = vs.reduce((n, v) => n + v.y, 0) / vs.length;
+  const far = (id: EdgeId) => {
+    const e = board.edgeMap[id];
+    const a = board.vertexMap[e.a];
+    const b = board.vertexMap[e.b];
+    return Math.hypot((a.x + b.x) / 2 - cx, (a.y + b.y) / 2 - cy);
+  };
+  const outer = group.get(coast.reduce((a, b) => (far(b) > far(a) ? b : a)));
+  return coast.filter((id) => group.get(id) !== outer);
+}
+
+/** 가운데 바다 둘레 교역로 10곳 (대형 맵): 3:1 다섯 곳과 자원마다 2:1 한 곳씩, 번갈아 놓는다. */
+export const INNER_HARBOR_KINDS: readonly (Resource | null)[] = [null, 'wool', null, 'stone', null, 'grain', null, 'brick', null, 'wood'];
+
+/**
+ * 가운데 바다 둘레에 교역로를 고르게 나눠 놓는다. 안쪽 바닷가가 30변이면 세 변마다 하나라 이웃한 교역로가 꼭짓점을 나눠 갖지 않는다.
+ * 고르게 놓는 출발점 몇 가지 중 광장(아무것도 나지 않는 땅)에 붙는 교역로가 가장 적은 것을 쓴다.
+ */
+export function innerHarborsFor(board: Board, kinds: readonly (Resource | null)[] = INNER_HARBOR_KINDS): Harbor[] {
+  const coast = innerCoastEdges(board);
+  const step = coast.length / kinds.length;
+  const onPlaza = (id: EdgeId) => board.edgeMap[id].tiles.some((t) => board.tileMap[t]?.kind === 'plaza');
+  let best: EdgeId[] = [];
+  let bestBad = Infinity;
+  for (let start = 0; start < Math.max(1, Math.floor(step)); start++) {
+    const edges = kinds.map((_, i) => coast[Math.round(i * step + start) % coast.length]);
+    const bad = edges.filter(onPlaza).length;
+    if (bad < bestBad) {
+      best = edges;
+      bestBad = bad;
+    }
+  }
+  return kinds.map((resource, i) => ({ edgeId: best[i], resource }));
+}
+
 /** 표준 육각 보드의 황금 배치 교역로 9곳 */
 export const HARBORS: readonly Harbor[] = harborsFor(STANDARD_BOARD);
 

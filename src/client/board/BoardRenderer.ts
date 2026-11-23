@@ -5,7 +5,7 @@
 // - 카메라 조작, 크기 변경, 상태 변경, 짧은 연출 중에만 다시 그린다 (정지 화면은 마지막 프레임 유지)
 // - 만화 음영 재질과 수채화 후처리(먹선·종이 결·물감 얼룩)로 손으로 그린 삽화처럼 보이게 한다 (paint.ts)
 import * as THREE from 'three';
-import { boardGeometry, type BoardGeometry } from '../../shared/board';
+import { boardGeometry, type BoardGeometry, type EdgeDef } from '../../shared/board';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { RESOURCES, RESOURCE_LABEL, numberPips } from '../../shared/constants';
 import { longestRoadPath } from '../../shared/rules';
@@ -1161,14 +1161,17 @@ export class BoardRenderer {
     // 보드 바깥은 무늬 없는 물이다. 장면 배경색(WATER_COLOR)이 그 역할을 하므로 따로 그리지 않는다.
 
     // 땅: 바깥 타일 둘레(바닷가 변)를 따라 조금 넓힌 흙 땅. 타일 사이 틈은 흙 땅 위로 샛길이 나고, 둘레는 모래밭과 얕은 물로 이어진다.
-    const coast = this.coastLoop();
-    const shapeOf = (pts: Pt[]) => new THREE.Shape(pts.map((q) => new THREE.Vector2(q.x, -q.z)));
+    // 바닷가 고리: 첫 고리가 바깥 둘레이고, 대형 맵처럼 가운데가 바다인 판은 그 바다 둘레 고리가 더 있다.
+    const coasts = this.coastLoops();
+    const toV2 = (pts: Pt[]) => pts.map((q) => new THREE.Vector2(q.x, -q.z));
     // 바다: 흙 땅 → 물 밑으로 비스듬히 잠기는 모래밭 → 옥빛 얕은 물 → 차츰 짙어지는 깊은 물.
     // 높이가 뚝 끊기는 곳이 없어야 후처리 먹선이 바닷가에 울퉁불퉁한 테두리를 긋지 않는다.
-    this.buildBeachSlope(coast);
-    this.buildSea(coast);
-    const land = offsetLoop(coast, LAND_MARGIN);
-    const landGeo = this.own(new THREE.ExtrudeGeometry(shapeOf(land), { depth: PLATFORM_TOP, bevelEnabled: false }).rotateX(-Math.PI / 2));
+    for (const c of coasts) this.buildBeachSlope(c);
+    this.buildSea(coasts);
+    const landShape = new THREE.Shape(toV2(offsetLoop(coasts[0], LAND_MARGIN)));
+    // 가운데 바다는 흙 땅에 뚫린 구멍이다 (안쪽 고리도 바다 쪽으로 같은 폭만큼 넓힌다).
+    for (const hole of coasts.slice(1)) landShape.holes.push(new THREE.Path(toV2(offsetLoop(hole, LAND_MARGIN))));
+    const landGeo = this.own(new THREE.ExtrudeGeometry(landShape, { depth: PLATFORM_TOP, bevelEnabled: false }).rotateX(-Math.PI / 2));
     scaleUV(landGeo, 0.5);
     // 윗면에는 빈 변마다 희끄무레한 샛길을 함께 칠한다 (따로 그리는 띠가 없어 그리기 호출이 늘지 않는다).
     const dirtTop = this.withFootpaths(this.groundMaterial('ground_dirt', GROUND_FALLBACK.dirt));
@@ -1246,8 +1249,9 @@ export class BoardRenderer {
    * 물가에서 바깥으로 갈수록 젖은 모래빛 → 옥빛 → 얕은 물 → 장면 배경과 같은 깊은 물로 부드럽게 짙어진다.
    * 빛을 받지 않는 재질이라 가장 바깥 색이 배경색과 똑같아 경계가 보이지 않는다.
    */
-  private buildSea(coast: CoastLoop): void {
-    const shore = chaikin(offsetLoop(coast, WATERLINE), 3);
+  private buildSea(coasts: CoastLoop[]): void {
+    const shores = coasts.map((c) => chaikin(offsetLoop(c, WATERLINE), 3));
+    const shore = shores[0];
     const pad = SEA_REACH + 0.6;
     let minX = Infinity;
     let maxX = -Infinity;
@@ -1269,9 +1273,12 @@ export class BoardRenderer {
     canvas.height = ch;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // 바닷가 고리를 한 경로에 모두 담는다. 채울 때는 짝홀 규칙이라 가운데 바다(안쪽 고리 안)는 물로 남는다.
     const path = new Path2D();
-    shore.forEach((p, i) => (i ? path.lineTo((p.x - minX) * ppu, (p.z - minZ) * ppu) : path.moveTo((p.x - minX) * ppu, (p.z - minZ) * ppu)));
-    path.closePath();
+    for (const s of shores) {
+      s.forEach((p, i) => (i ? path.lineTo((p.x - minX) * ppu, (p.z - minZ) * ppu) : path.moveTo((p.x - minX) * ppu, (p.z - minZ) * ppu)));
+      path.closePath();
+    }
     ctx.fillStyle = WATER_COLOR;
     ctx.fillRect(0, 0, cw, ch);
     ctx.lineJoin = 'round';
@@ -1283,7 +1290,7 @@ export class BoardRenderer {
       ctx.fillStyle = ctx.strokeStyle = seaColor(d);
       ctx.lineWidth = Math.max(0.5, d * 2 * ppu);
       ctx.stroke(path);
-      ctx.fill(path);
+      ctx.fill(path, 'evenodd');
     }
     // 물가의 흰 물거품과 조금 떨어진 잔물결
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
@@ -1292,10 +1299,12 @@ export class BoardRenderer {
     ctx.lineWidth = 0.045 * ppu;
     ctx.setLineDash([0.55 * ppu, 0.35 * ppu]);
     [0.3, 0.62].forEach((d, k) => {
-      const ring = chaikin(offsetLoop(coast, WATERLINE + d), 3);
       const p2 = new Path2D();
-      ring.forEach((p, i) => (i ? p2.lineTo((p.x - minX) * ppu, (p.z - minZ) * ppu) : p2.moveTo((p.x - minX) * ppu, (p.z - minZ) * ppu)));
-      p2.closePath();
+      for (const c of coasts) {
+        const ring = chaikin(offsetLoop(c, WATERLINE + d), 3);
+        ring.forEach((p, i) => (i ? p2.lineTo((p.x - minX) * ppu, (p.z - minZ) * ppu) : p2.moveTo((p.x - minX) * ppu, (p.z - minZ) * ppu)));
+        p2.closePath();
+      }
       ctx.lineDashOffset = k * 0.4 * ppu;
       ctx.strokeStyle = `rgba(255, 255, 255, ${k ? 0.14 : 0.24})`;
       ctx.stroke(p2);
@@ -2276,17 +2285,31 @@ export class BoardRenderer {
 
   // ───────────────────────── 바닷가·교역로 ─────────────────────────
 
-  /** 바닷가 변(타일 하나에만 닿은 변)을 이어 만든 보드 둘레 고리. 변마다 바깥 방향(그 타일 중심에서 멀어지는 쪽)을 함께 준다. */
-  private coastLoop(): CoastLoop {
+  /**
+   * 바닷가 변(타일 하나에만 닿은 변)을 이어 만든 고리들. 변마다 바다 쪽 방향(그 타일 중심에서 멀어지는 쪽)을 함께 준다.
+   * 첫 고리가 보드 바깥 둘레이고, 가운데가 바다인 판이면 그 바다 둘레 고리가 뒤에 온다.
+   */
+  private coastLoops(): CoastLoop[] {
     const coast = this.geo.edges.filter((e) => e.tiles.length === 1);
     const byVertex = new Map<string, typeof coast>();
     for (const e of coast) for (const v of [e.a, e.b]) byVertex.set(v, [...(byVertex.get(v) ?? []), e]);
+    const used = new Set<string>();
+    const loops: CoastLoop[] = [];
+    for (const start of coast) {
+      if (used.has(start.id)) continue;
+      loops.push(this.traceCoast(start, byVertex, used));
+    }
+    // 가장 넓게 퍼진 고리(바깥 둘레)를 앞에 둔다.
+    const reach = (l: CoastLoop) => Math.max(0, ...l.pts.map((p) => Math.hypot(p.x, p.z)));
+    loops.sort((a, b) => reach(b) - reach(a));
+    return loops.length ? loops : [{ pts: [], normals: [] }];
+  }
+
+  private traceCoast(start: EdgeDef, byVertex: Map<string, EdgeDef[]>, used: Set<string>): CoastLoop {
     const pts: Pt[] = [];
     const normals: Pt[] = [];
-    if (!coast.length) return { pts, normals };
-    let edge = coast[0];
+    let edge = start;
     let from = edge.a;
-    const used = new Set<string>();
     while (!used.has(edge.id)) {
       used.add(edge.id);
       const to = edge.a === from ? edge.b : edge.a;
