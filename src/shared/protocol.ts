@@ -168,6 +168,20 @@ export interface RoomPeek {
   hostNickname: string;
 }
 
+/** 서버를 켠 PC 의 처음 화면에 보이는 남은 방 한 줄 */
+export interface RoomListing {
+  code: string;
+  phase: 'lobby' | 'game';
+  /** 게임이 끝나 결과만 남은 방 */
+  finished: boolean;
+  /** 자리에 앉은 사람 닉네임 (방장이 맨 앞) */
+  players: string[];
+  /** 지금 접속해 있는 사람 수 */
+  connected: number;
+  /** 마지막으로 상태가 바뀐 시각 (ms) */
+  touchedAt: number;
+}
+
 export interface SessionInfo {
   roomCode: string;
   playerId: string;
@@ -230,8 +244,8 @@ export interface ServerToClientEvents {
   'session:invalid': (info: { reason: string }) => void;
   'session:replaced': () => void;
   kicked: () => void;
-  /** 방장이 방을 닫았다 (방에 있던 다른 사람에게만 보낸다) */
-  'room:closed': () => void;
+  /** 방이 닫혔다. 방장이 닫았으면 남은 사람에게, 서버를 켠 PC 에서 지웠으면 접속해 있던 모두에게 보낸다. */
+  'room:closed': (info?: { by: 'host' | 'server' }) => void;
   /** 방에 붙을 때(참가·재접속) 그 방의 최근 채팅 */
   'chat:history': (p: { code: string; messages: ChatMessage[] }) => void;
   'chat:message': (p: { code: string; message: ChatMessage }) => void;
@@ -254,6 +268,10 @@ export interface ClientToServerEvents {
   'room:kick': (p: { playerId: string }, ack: Ack) => void;
   'room:rematch': (p: Record<string, never>, ack: Ack) => void;
   'room:close': (p: Record<string, never>, ack: Ack) => void;
+  /** 서버를 켠 PC 에서만: 남은 방 목록 */
+  'rooms:list': (p: Record<string, never>, ack: Ack<{ rooms: RoomListing[] }>) => void;
+  /** 서버를 켠 PC 에서만: 고른 방들을 지운다 (방장이 아니어도) */
+  'rooms:remove': (p: { codes: string[] }, ack: Ack<{ removed: string[] }>) => void;
   'game:action': (p: { requestId: string; action: GameAction }, ack: Ack) => void;
   'chat:send': (p: { text: string }, ack: Ack) => void;
   'chat:emote': (p: { emote: string }, ack: Ack) => void;

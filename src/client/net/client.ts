@@ -4,6 +4,7 @@ import type {
   AckResult,
   ClientToServerEvents,
   HandshakeAuth,
+  RoomListing,
   RoomPeek,
   RoomSettingsPatch,
   RoomView,
@@ -93,13 +94,17 @@ export class GameClient {
         },
       });
     });
-    this.socket.on('room:closed', () => {
+    this.socket.on('room:closed', (info?: { by?: 'host' | 'server' }) => {
       const code = this.snap.session?.roomCode ?? null;
       if (code) clearSession(code);
       this.set({
         session: null,
         view: null,
-        interruption: { kind: 'closed', message: '방장이 방을 닫았습니다.', roomCode: code },
+        interruption: {
+          kind: 'closed',
+          message: info?.by === 'server' ? '서버를 켠 PC에서 이 방을 지웠습니다.' : '방장이 방을 닫았습니다.',
+          roomCode: code,
+        },
       });
     });
     this.socket.on('kicked', () => {
@@ -166,6 +171,23 @@ export class GameClient {
 
   peek(code: string): Promise<AckResult<RoomPeek>> {
     return this.emit<RoomPeek>('room:peek', { code });
+  }
+
+  /** 서버를 켠 PC 에서만: 남은 방 목록. 다른 기기에서는 서버가 거절한다. */
+  listRooms(): Promise<AckResult<{ rooms: RoomListing[] }>> {
+    return this.emit<{ rooms: RoomListing[] }>('rooms:list', {});
+  }
+
+  /** 서버를 켠 PC 에서만: 고른 방들을 지운다. 이 기기에 남아 있던 그 방의 참가 토큰도 지운다. */
+  async removeRooms(codes: string[]): Promise<AckResult<{ removed: string[] }>> {
+    const res = await this.emit<{ removed: string[] }>('rooms:remove', { codes });
+    if (res.ok) {
+      for (const code of res.removed) clearSession(code);
+      // 내가 들어가 있던 방을 지웠으면 '방이 닫혔다'는 안내는 띄우지 않는다 (내가 지운 것이므로).
+      const it = this.snap.interruption;
+      if (it?.roomCode && res.removed.includes(it.roomCode)) this.set({ interruption: null });
+    }
+    return res;
   }
 
   /** 방장: 연결이 끊긴 자리를 다른 기기로 넘길 일회용 코드를 받는다. */

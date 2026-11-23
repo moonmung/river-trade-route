@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { VERTICES } from '../src/shared/board';
 import { RESOURCES, WIN_POINTS, bundleTotal, emptyBundle } from '../src/shared/constants';
-import type { RoomView, SessionInfo } from '../src/shared/protocol';
+import type { RoomListing, RoomView, SessionInfo } from '../src/shared/protocol';
 import type { Bundle, GameEvent } from '../src/shared/types';
 import { startServer, type RunningServer } from '../src/server/app';
+import { isLoopbackAddress } from '../src/server/net';
 import { TestClient, byId, chooseAction, startedRoom, sync } from './helpers';
 
 let server: RunningServer;
@@ -486,5 +487,43 @@ describe('재접속', () => {
     await late.connected();
     expect(await late.emit('room:join', { code, nickname: '늦은사람' })).toMatchObject({ ok: false, code: 'STARTED' });
     [...clients, late].forEach((c) => c.close());
+  });
+});
+
+describe('남은 방 정리 (서버를 켠 PC)', () => {
+  it('남은 방 목록을 보고, 고른 방을 지우면 접속해 있던 사람에게 알리고 방이 사라진다', async () => {
+    const { clients, code } = await startedRoom(url, 2);
+    const lone = new TestClient(url);
+    await lone.connected();
+    const lobby = await lone.emit<SessionInfo>('room:create', { nickname: '혼자' });
+    if (!lobby.ok) throw new Error(lobby.error);
+    const admin = new TestClient(url);
+    await admin.connected();
+
+    const listed = await admin.emit<{ rooms: RoomListing[] }>('rooms:list', {});
+    if (!listed.ok) throw new Error(listed.error);
+    const game = listed.rooms.find((r) => r.code === code)!;
+    expect(game).toMatchObject({ phase: 'game', finished: false, connected: 2 });
+    expect(game.players).toHaveLength(2);
+    expect(listed.rooms.find((r) => r.code === lobby.roomCode)).toMatchObject({ phase: 'lobby', players: ['혼자'], connected: 1 });
+
+    const notified = [...clients, lone].map((c) => c.waitEvent('room:closed'));
+    const res = await admin.emit<{ removed: string[] }>('rooms:remove', { codes: [code, lobby.roomCode.toLowerCase(), 'ZZZZ', 42] });
+    expect(res).toEqual({ ok: true, removed: [code, lobby.roomCode] });
+    const infos = await Promise.all(notified);
+    for (const args of infos) expect(args[0]).toEqual({ by: 'server' });
+    expect(await admin.emit('room:peek', { code })).toMatchObject({ ok: false });
+    expect(await admin.emit('room:peek', { code: lobby.roomCode })).toMatchObject({ ok: false });
+    const after = await admin.emit<{ rooms: RoomListing[] }>('rooms:list', {});
+    if (!after.ok) throw new Error(after.error);
+    expect(after.rooms.map((r) => r.code)).not.toContain(code);
+
+    expect(await admin.emit('rooms:remove', { codes: 'all' })).toMatchObject({ ok: false, code: 'BAD_REQUEST' });
+    [...clients, lone, admin].forEach((c) => c.close());
+  });
+
+  it('이 PC 자신에서 온 연결만 서버를 켠 PC로 본다', () => {
+    for (const a of ['127.0.0.1', '::1', '::ffff:127.0.0.1', '127.0.1.1']) expect(isLoopbackAddress(a)).toBe(true);
+    for (const a of ['192.168.30.141', '::ffff:192.168.0.5', '10.0.0.2', 'fe80::1', '', undefined]) expect(isLoopbackAddress(a)).toBe(false);
   });
 });

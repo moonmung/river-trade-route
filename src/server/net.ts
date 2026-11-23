@@ -10,6 +10,13 @@ function isPrivate(ip: string): boolean {
   return !!m && Number(m[1]) >= 16 && Number(m[1]) <= 31;
 }
 
+/** 이 PC 자신에서 온 연결인지 (서버를 켠 PC 에서만 쓰는 기능용). IPv4·IPv6·IPv4 매핑 IPv6 루프백을 모두 본다. */
+export function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  const a = address.replace(/^::ffff:/i, '');
+  return a === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(a);
+}
+
 /**
  * 휴대폰이 접속할 수 있는 이 PC의 IPv4 주소 목록.
  * 가상 어댑터(WSL, Hyper-V, VirtualBox 등)는 뒤로 미루고, 와이파이·이더넷의 사설 IP를 앞에 둔다.
