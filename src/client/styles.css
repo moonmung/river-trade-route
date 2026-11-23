@@ -388,6 +388,19 @@ h2 {
   }
 }
 
+/* 화면에는 보이지 않고 화면 읽기 프로그램만 읽는 글 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /*
  * 게임 화면과 알림: 주사위 값·알림·패널 글자가 끌기나 길게 누르기로 파랗게 선택되거나
  * 그림·링크가 끌려 나오지 않게 한다. 채팅처럼 글을 쓰는 칸만 예외로 둔다.
