@@ -41,31 +41,26 @@ export function clockText(ms: number): string {
   return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s}`;
 }
 
-/** 모래시계 고리: 남은 시간만큼 테두리가 줄고, 10초 아래면 붉게 뛴다 */
+/**
+ * 차례 시계: 모래시계와 남은 시간 숫자(45, 1:30)를 담은 납작한 먹색 패. 폭은 숫자 길이에 맞춰 늘어난다.
+ * 패 아래쪽 가는 띠가 남은 시간만큼 줄고(내 차례면 황토색), 10초 아래면 패가 붉어지고 내 차례면 뛴다.
+ * size 는 패 크기의 기준(옛 고리 지름과 같은 값)이다.
+ */
 export function TurnTimer({ clock, size = 30, mine }: { clock: TurnClock; size?: number; mine?: boolean }) {
   const frac = Math.max(0, Math.min(1, clock.left / clock.total));
   const low = clock.left <= 10_000;
-  const r = size / 2 - 2.5;
-  const c = 2 * Math.PI * r;
   return (
     <span
       className={`turn-timer ${low ? 'turn-timer-low' : ''} ${mine ? 'turn-timer-mine' : ''}`}
-      style={{ width: size, height: size } as CSSProperties}
+      style={{ '--tt': size, '--f': frac } as CSSProperties}
       role="timer"
       aria-label={`남은 시간 ${Math.ceil(clock.left / 1000)}초`}
       title={`남은 시간 ${Math.ceil(clock.left / 1000)}초`}
     >
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
-        <circle cx={size / 2} cy={size / 2} r={r} className="tt-track" />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          className="tt-fill"
-          strokeDasharray={c}
-          strokeDashoffset={c * (1 - frac)}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        />
+      <svg className="tt-glass" viewBox="0 0 12 14" aria-hidden>
+        <path d="M2 1.2h8M2 12.8h8" />
+        <path d="M3 1.4c0 3.4 3 3.6 3 5.6s-3 2.2-3 5.6M9 1.4c0 3.4-3 3.6-3 5.6s3 2.2 3 5.6" />
+        <path className="tt-sand" d="M4 12.2c.6-1.6 1.3-2.4 2-2.4s1.4.8 2 2.4z" />
       </svg>
       <b>{clockText(clock.left)}</b>
     </span>
