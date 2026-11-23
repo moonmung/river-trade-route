@@ -1,5 +1,5 @@
 import type { Resource, TileKind } from '../../shared/types';
-import { EMBLEMS, playerColor } from '../theme';
+import { playerColor } from '../theme';
 import { ArtImg, RESOURCE_ART } from './art';
 
 interface IconProps {
@@ -53,28 +53,12 @@ export function AnyResourceIcon({ size = 20, title, className }: IconProps) {
   );
 }
 
-/** 플레이어 문양: 색 + 모양 */
-export function Emblem({ colorIndex, size = 18, title }: { colorIndex: number; size?: number; title?: string }) {
-  const color = playerColor(colorIndex);
-  const shape = EMBLEMS[((colorIndex % EMBLEMS.length) + EMBLEMS.length) % EMBLEMS.length];
-  const common = { fill: color.hex, stroke: '#1d1a16', strokeWidth: 1.6, strokeLinejoin: 'round' as const };
-  return (
-    <svg width={size} height={size} viewBox="0 0 20 20" role="img" aria-label={title} aria-hidden={title ? undefined : true} className="emblem">
-      {title ? <title>{title}</title> : null}
-      {shape === 'circle' && <circle cx="10" cy="10" r="7.6" {...common} />}
-      {shape === 'triangle' && <path d="M10 2.2 L18.2 17 L1.8 17 Z" {...common} />}
-      {shape === 'square' && <rect x="2.8" y="2.8" width="14.4" height="14.4" rx="1.5" {...common} />}
-      {shape === 'diamond' && <path d="M10 1.5 L18.5 10 L10 18.5 L1.5 10 Z" {...common} />}
-    </svg>
-  );
-}
-
-/** 사람 모양 (머리와 어깨). 플레이어 색으로 칠하고 먹선을 두른다. 플레이어 상태 창에서 이름 앞에 쓴다. */
+/** 플레이어 아이콘: 사람 모양(머리와 어깨)을 그 사람 색으로 칠하고 먹선을 두른다. 이름 앞, 증서, 대화, 대기실 자리 등 사람을 가리키는 곳마다 쓴다. */
 export function PersonIcon({ colorIndex, size = 22, title }: { colorIndex: number; size?: number; title?: string }) {
   const color = playerColor(colorIndex);
   const common = { fill: color.hex, stroke: '#1d1a16', strokeWidth: 1.5, strokeLinejoin: 'round' as const };
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" role="img" aria-label={title} aria-hidden={title ? undefined : true} className="person-icon">
+    <svg width={size} height={size} viewBox="0 0 24 24" role="img" aria-label={title} aria-hidden={title ? undefined : true} className="emblem person-icon">
       {title ? <title>{title}</title> : null}
       <circle cx="12" cy="7.4" r="4.5" {...common} />
       <path d="M3.4 21.4c0-5.1 3.9-8.4 8.6-8.4s8.6 3.3 8.6 8.4z" {...common} />

@@ -10,7 +10,7 @@ import type { RoomView, TradeView } from '../../shared/protocol';
 import { bankTradeProblem, bankUnits, validateTradeBundles } from '../../shared/rules';
 import type { Bundle, Resource, TradeCloseReason } from '../../shared/types';
 import { playerColor } from '../theme';
-import { AnyResourceIcon, Emblem, ResourceIcon } from '../ui/icons';
+import { AnyResourceIcon, PersonIcon, ResourceIcon } from '../ui/icons';
 import { josa } from '../ui/josa';
 import { showToast } from '../ui/toast';
 import { bundleText, isMyTurn, tradeBlocker, turnBlocker, type PlayerInfo } from './derive';
@@ -301,7 +301,7 @@ export function TradePanel({
                 >
                   {id ? (
                     <>
-                      <Emblem colorIndex={players.get(id)?.colorIndex ?? 0} size={12} /> {name(id)}
+                      <PersonIcon colorIndex={players.get(id)?.colorIndex ?? 0} size={12} /> {name(id)}
                     </>
                   ) : (
                     '모두'
@@ -472,13 +472,13 @@ export function TradeDeed({
         <button type="button" className="deed-title" onClick={() => setFolded((f) => !f)} aria-expanded={!folded}>
           <span className="deed-no">교역 증서 제{t.id}호</span>
           <span className="deed-from">
-            <Emblem colorIndex={from?.colorIndex ?? 0} size={14} />
+            <PersonIcon colorIndex={from?.colorIndex ?? 0} size={14} />
             {mineOffer ? '내 제안' : fromName}
             <span className="muted"> · {t.to.length > 1 ? '모두에게' : `${name(t.to[0])}에게`}</span>
           </span>
         </button>
         <span className="deed-seal" aria-hidden>
-          <Emblem colorIndex={from?.colorIndex ?? 0} size={18} />
+          <PersonIcon colorIndex={from?.colorIndex ?? 0} size={18} />
         </span>
       </header>
 
@@ -504,7 +504,7 @@ export function TradeDeed({
               const won = closed?.outcome === 'accepted' && closed.partner === id;
               return (
                 <li key={id} className={`deed-sign sign-${resp} ${won ? 'sign-won' : ''}`}>
-                  <Emblem colorIndex={p?.colorIndex ?? 0} size={13} />
+                  <PersonIcon colorIndex={p?.colorIndex ?? 0} size={13} />
                   <span className="sign-name">{name(id)}</span>
                   <i className="sign-line" aria-hidden />
                   {canPick ? (

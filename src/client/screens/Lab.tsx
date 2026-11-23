@@ -15,7 +15,7 @@ import type { PerfRecording, PerfStats } from '../board/perf';
 import { Hand, MiniHand } from '../game/hand';
 import { navigate } from '../router';
 import { playerColor } from '../theme';
-import { Emblem } from '../ui/icons';
+import { PersonIcon } from '../ui/icons';
 import { LabGame } from '../lab/LabGame';
 import { useLocalSetting } from '../game/ui';
 
@@ -212,7 +212,7 @@ function SceneLab({ onGame }: { onGame: () => void }) {
           <ul className="players lab-players" style={{ right: insets.right + 8 }} aria-label="다른 플레이어 (미리보기)">
             {SAMPLE_PLAYERS.map((p) => (
               <li key={p.name} className="player">
-                <Emblem colorIndex={p.colorIndex} size={16} />
+                <PersonIcon colorIndex={p.colorIndex} size={16} />
                 <span className="player-name">{p.name}</span>
                 <span className="player-stats">
                   <span className="stat-score">★{p.score}</span>

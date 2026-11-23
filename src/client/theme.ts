@@ -1,6 +1,6 @@
 import type { Resource, TileKind } from '../shared/types';
 
-/** 플레이어 깃발 색. 색만으로 구분하지 않도록 문양(EMBLEMS)을 함께 쓴다. */
+/** 플레이어 색. 사람 아이콘(PersonIcon), 지붕, 길 판자, 상태 창 띠를 이 색으로 칠한다. */
 export const PLAYER_COLORS = [
   { name: '붉은', hex: '#d1453b', soft: '#f7d6d2', ink: '#7d1f18' },
   { name: '푸른', hex: '#2f6fc4', soft: '#d5e3f7', ink: '#173f75' },
@@ -8,33 +8,15 @@ export const PLAYER_COLORS = [
   { name: '보라', hex: '#8a4fbd', soft: '#e8daf4', ink: '#4c2470' },
 ] as const;
 
-export type EmblemShape = 'circle' | 'triangle' | 'square' | 'diamond';
-export const EMBLEMS: readonly EmblemShape[] = ['circle', 'triangle', 'square', 'diamond'];
-export const EMBLEM_LABEL: Record<EmblemShape, string> = {
-  circle: '원',
-  triangle: '삼각',
-  square: '사각',
-  diamond: '마름모',
-};
-
 export function playerColor(index: number) {
   return PLAYER_COLORS[((index % PLAYER_COLORS.length) + PLAYER_COLORS.length) % PLAYER_COLORS.length];
 }
 
-/** React 밖(3D 보드 위 HTML 표식)에서 쓰는 문양 SVG 문자열 */
-export function emblemSvgMarkup(colorIndex: number, size = 18): string {
+/** 사람 아이콘(머리와 어깨) SVG 문자열. React 밖(3D 보드 위 마을·도시 주인 표식)에서 쓴다. ui/icons.tsx 의 PersonIcon 과 같은 그림. */
+export function personSvgMarkup(colorIndex: number, size = 18): string {
   const color = playerColor(colorIndex).hex;
-  const shape = EMBLEMS[((colorIndex % EMBLEMS.length) + EMBLEMS.length) % EMBLEMS.length];
-  const attrs = `fill="${color}" stroke="#1d1a16" stroke-width="1.6" stroke-linejoin="round"`;
-  const body =
-    shape === 'circle'
-      ? `<circle cx="10" cy="10" r="7.6" ${attrs}/>`
-      : shape === 'triangle'
-        ? `<path d="M10 2.2 L18.2 17 L1.8 17 Z" ${attrs}/>`
-        : shape === 'square'
-          ? `<rect x="2.8" y="2.8" width="14.4" height="14.4" rx="1.5" ${attrs}/>`
-          : `<path d="M10 1.5 L18.5 10 L10 18.5 L1.5 10 Z" ${attrs}/>`;
-  return `<svg width="${size}" height="${size}" viewBox="0 0 20 20" aria-hidden="true">${body}</svg>`;
+  const attrs = `fill="${color}" stroke="#1d1a16" stroke-width="1.5" stroke-linejoin="round"`;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7.4" r="4.5" ${attrs}/><path d="M3.4 21.4c0-5.1 3.9-8.4 8.6-8.4s8.6 3.3 8.6 8.4z" ${attrs}/></svg>`;
 }
 
 export const RESOURCE_COLOR: Record<Resource, string> = {

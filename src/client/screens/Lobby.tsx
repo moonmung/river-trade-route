@@ -7,7 +7,7 @@ import { playerColor } from '../theme';
 import { useChat } from '../net/chat';
 import { ChatBox, EmoteBar } from '../ui/chat';
 import { AsyncButton, Brand, CloseRoomButton, copyText } from '../ui/common';
-import { Emblem } from '../ui/icons';
+import { PersonIcon } from '../ui/icons';
 import { RulesSummary } from '../ui/RulesSummary';
 import { showToast } from '../ui/toast';
 import { NumberStepper, WinPointsStepper, saveWinPoints, turnSecondsLabel } from '../ui/WinPoints';
@@ -332,7 +332,7 @@ export function Lobby({ view }: { view: RoomView }) {
             {slots.map((p, i) =>
               p ? (
                 <li key={p.id} className={`seat ${p.connected ? '' : 'seat-off'}`} style={{ borderColor: playerColor(p.colorIndex).hex }}>
-                  <Emblem colorIndex={p.colorIndex} size={22} title={`${playerColor(p.colorIndex).name} 깃발`} />
+                  <PersonIcon colorIndex={p.colorIndex} size={22} title={`${playerColor(p.colorIndex).name} 플레이어`} />
                   <span className="seat-name">
                     {p.nickname}
                     {p.id === view.you && <span className="tag">나</span>}

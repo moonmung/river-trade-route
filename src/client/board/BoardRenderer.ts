@@ -88,7 +88,7 @@ export interface Insets {
 export interface BoardOptions {
   tiles: readonly TileDef[];
   playerColors: readonly string[];
-  emblemMarkup: (colorIndex: number) => string;
+  ownerMarkup: (colorIndex: number) => string;
   onTap?: (sel: BoardSelection) => void;
   /** 마우스가 올라간 자리 (마우스만). x·y 는 캔버스 안 좌표로, 자리 가운데 위쪽 */
   onHover?: (sel: BoardSelection | null, x: number, y: number) => void;
@@ -1818,7 +1818,7 @@ export class BoardRenderer {
       if (item.el.dataset.key !== key) {
         item.el.dataset.key = key;
         // 안쪽 조각이 톡 떠오른다 (바깥 상자의 transform 은 화면 위치에 쓴다).
-        item.el.innerHTML = `<div class="owner-badge-chip">${this.options.emblemMarkup(picked.colorIndex)}</div>`;
+        item.el.innerHTML = `<div class="owner-badge-chip">${this.options.ownerMarkup(picked.colorIndex)}</div>`;
         item.el.title = picked.label;
         item.el.classList.toggle('owner-badge-city', picked.kind === 'city');
       }
