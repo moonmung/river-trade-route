@@ -18,7 +18,7 @@ export interface BoardViewProps {
   motion?: boolean;
   /** 소품·조각이 드리우는 그림자 (기본 켬) */
   shadows?: boolean;
-  onTap?: (sel: BoardSelection) => void;
+  onTap?: (sel: BoardSelection, info: { alt: boolean }) => void;
   /** 마우스가 올라간 자리 (캔버스 좌표) */
   onHover?: (sel: BoardSelection | null, x: number, y: number) => void;
   onPerf?: (s: PerfStats) => void;
@@ -65,7 +65,7 @@ export default function BoardView(props: BoardViewProps) {
         showTileLabels: propsRef.current.showTileLabels,
         motion: propsRef.current.motion ?? true,
         shadows: propsRef.current.shadows ?? true,
-        onTap: (sel) => propsRef.current.onTap?.(sel),
+        onTap: (sel, info) => propsRef.current.onTap?.(sel, info),
         onHover: (sel, x, y) => propsRef.current.onHover?.(sel, x, y),
         onPerf: (s) => propsRef.current.onPerf?.(s),
         onLoadProgress: (p) => setProgress(p),

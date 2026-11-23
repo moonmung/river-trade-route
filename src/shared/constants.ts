@@ -190,6 +190,11 @@ export const CHAT_HISTORY = 50;
 /** 빠르게 띄우는 이모티콘 (이 목록 밖의 것은 서버가 받지 않는다) */
 export const CHAT_EMOTES = ['👍', '😂', '😮', '😡', '🎉', '🤝'] as const;
 
+/** 핑(보드 한 자리를 가리키기): 한 사람이 windowMs 안에 perWindow 번까지. 난사하지 못하게 서버와 화면이 같이 센다. */
+export const PING_LIMIT = { windowMs: 3000, perWindow: 2 } as const;
+/** 핑 물결이 보드 위에 떠 있는 시간 (CSS 의 ping-mark 와 같다) */
+export const PING_MS = 2600;
+
 export const NICKNAME_MAX = 12;
 export const ROOM_CODE_LENGTH = 4;
 /** 헷갈리기 쉬운 0/O, 1/I/L 을 뺀 방 코드 문자 */

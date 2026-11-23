@@ -4,7 +4,7 @@
 import { DEV_CARDS, DISCARD_LIMIT, MAX_PLAYERS, MIN_PLAYERS, RESOURCE_CARDS, TURN_SECONDS, WIN_POINTS } from '../../shared/constants';
 import { buildGameView } from '../../shared/gameView';
 import { DEFAULT_MAP } from '../../shared/maps';
-import type { AckResult, ChatEmote, ChatMessage, RoomView } from '../../shared/protocol';
+import type { AckResult, ChatEmote, ChatMessage, ChatPing, RoomView } from '../../shared/protocol';
 import { applyAction, autoPlay, clockKey, createGame, currentPlayer, placementPlayer, type GameState } from '../../shared/rules';
 import type { GameAction, MapConfig } from '../../shared/types';
 import { botSideAction, botTurnAction } from './bot';
@@ -62,6 +62,8 @@ export class Sandbox {
   /** 바깥(모의 채팅)으로 보내는 대화·이모티콘 */
   onChat: ((m: ChatMessage) => void) | null = null;
   onEmote: ((e: ChatEmote) => void) | null = null;
+  onPing: ((p: ChatPing) => void) | null = null;
+  private pingSeq = 0;
 
   constructor(opts: SandboxOptions) {
     this.reset(opts);
@@ -281,5 +283,10 @@ export class Sandbox {
 
   emote(from: string, emote: string): void {
     this.onEmote?.({ from, emote, at: Date.now() });
+  }
+
+  ping(from: string, kind: ChatPing['kind'], target: string): void {
+    this.pingSeq += 1;
+    this.onPing?.({ id: this.pingSeq, from, kind, target, at: Date.now() });
   }
 }

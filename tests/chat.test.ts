@@ -1,11 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { CHAT_EMOTES, CHAT_HISTORY, CHAT_MAX_LENGTH } from '../src/shared/constants';
-import type { ChatEmote, ChatMessage, SessionInfo } from '../src/shared/protocol';
+import { STANDARD_BOARD } from '../src/shared/board';
+import { CHAT_EMOTES, CHAT_HISTORY, CHAT_MAX_LENGTH, PING_LIMIT } from '../src/shared/constants';
+import type { ChatEmote, ChatMessage, ChatPing, SessionInfo } from '../src/shared/protocol';
+import type { GameState } from '../src/shared/rules';
 import { normalizeChatText } from '../src/shared/validate';
 import { startServer, type RunningServer } from '../src/server/app';
 import { CHAT_LIMITS, ChatHub } from '../src/server/chat';
 import type { Room, RoomPlayer } from '../src/server/rooms';
-import { NAMES, TestClient } from './helpers';
+import { NAMES, TestClient, startedRoom } from './helpers';
 
 function fakeRoom(): { room: Room; a: RoomPlayer; b: RoomPlayer } {
   const player = (id: string, nickname: string, colorIndex: number): RoomPlayer => ({
@@ -95,6 +97,30 @@ describe('ChatHub', () => {
     expect(hub.emote(room, a, CHAT_EMOTES[1], 1000 + CHAT_LIMITS.emoteGapMs - 1)).toMatchObject({ ok: false, code: 'CHAT_SLOW' });
     expect(hub.history(room)).toEqual([]);
   });
+
+  it('핑은 게임 중인 방의 보드에 있는 자리만 받고 한 사람이 3초에 2번까지, 사람마다 따로 센다', () => {
+    const hub = new ChatHub();
+    const { room, a, b } = fakeRoom();
+    const tile = STANDARD_BOARD.tiles[0].id;
+    const vertex = STANDARD_BOARD.vertices[0].id;
+    const edge = STANDARD_BOARD.edges[0].id;
+    expect(hub.ping(room, a, { kind: 'tile', target: tile }, 0)).toMatchObject({ ok: false, code: 'PING_NO_GAME' });
+    room.phase = 'game';
+    room.game = { tiles: STANDARD_BOARD.tiles } as unknown as GameState;
+    for (const bad of [{ kind: 'tile', target: 'ZZ' }, { kind: 'vertex', target: '__proto__' }, { kind: 'road', target: edge }, null, 'x']) {
+      expect(hub.ping(room, a, bad, 0)).toMatchObject({ ok: false, code: 'PING_BAD_TARGET' });
+    }
+    const t0 = 10_000;
+    expect(hub.ping(room, a, { kind: 'tile', target: tile }, t0)).toMatchObject({ ok: true, ping: { id: 1, from: 'pa', kind: 'tile', target: tile } });
+    expect(hub.ping(room, a, { kind: 'vertex', target: vertex }, t0 + 10)).toMatchObject({ ok: true, ping: { id: 2, kind: 'vertex' } });
+    expect(hub.ping(room, a, { kind: 'edge', target: edge }, t0 + 20)).toMatchObject({ ok: false, code: 'PING_SLOW' });
+    // 다른 사람은 따로 센다
+    expect(hub.ping(room, b, { kind: 'edge', target: edge }, t0 + 30)).toMatchObject({ ok: true, ping: { from: 'pb' } });
+    // 첫 핑에서 3초가 지나면 한 번 더 찍을 수 있다
+    expect(hub.ping(room, a, { kind: 'edge', target: edge }, t0 + PING_LIMIT.windowMs - 1)).toMatchObject({ ok: false, code: 'PING_SLOW' });
+    expect(hub.ping(room, a, { kind: 'edge', target: edge }, t0 + PING_LIMIT.windowMs)).toMatchObject({ ok: true });
+    expect(hub.history(room)).toEqual([]);
+  });
 });
 
 describe('채팅 소켓', () => {
@@ -156,5 +182,19 @@ describe('채팅 소켓', () => {
     await loose.connected();
     expect(await loose.emit('chat:send', { text: '누구세요' })).toMatchObject({ ok: false });
     for (const c of [host, again, stranger, loose]) c.close();
+  });
+
+  it('핑은 같은 방 모두에게 가고 3초에 2번을 넘기면 거절한다', async () => {
+    const { clients } = await startedRoom(url, 2);
+    const [host, guest] = clients;
+    const tile = host.latest!.game!.tiles[0].id;
+    const got = guest.waitEvent('chat:ping');
+    expect(await host.emit('chat:ping', { kind: 'tile', target: tile })).toEqual({ ok: true });
+    const [payload] = (await got) as [{ code: string; ping: ChatPing }];
+    expect(payload.ping).toMatchObject({ from: host.id, kind: 'tile', target: tile });
+    expect(await host.emit('chat:ping', { kind: 'tile', target: tile })).toEqual({ ok: true });
+    expect(await host.emit('chat:ping', { kind: 'tile', target: tile })).toMatchObject({ ok: false, code: 'PING_SLOW' });
+    expect(await guest.emit('chat:ping', { kind: 'vertex', target: 'nowhere' })).toMatchObject({ ok: false, code: 'PING_BAD_TARGET' });
+    for (const c of clients) c.close();
   });
 });
