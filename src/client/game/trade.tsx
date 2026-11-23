@@ -1,7 +1,8 @@
 // 교환 창과 교환 증서.
 // 교환 창은 손에 든 카드 바로 위에 붙어 열리고 위 줄 "받을 것"과 손 쪽 아래 줄 "낼 것"에서 카드를 눌러 고른다.
 // 은행·교역로 탭은 내 비율(4:1, 교역로 3:1·2:1)만큼 한 묶음씩 고르고 플레이어 탭은 한 장씩 골라 모두에게(또는 한 사람에게) 제안한다.
-// 열린 제안은 화면 왼쪽 위에 중세 거래 증서처럼 쌓이고 모두에게 보인다 (차례인 사람이 동시에 3개까지).
+// 열린 제안은 보드 오른쪽 위에 작은 증서로 쌓이고 모두에게 보인다 (차례인 사람이 동시에 3개까지). 증서는 글을 줄여
+// 사람 아이콘·자원 아이콘과 위아래 화살표(▼ ▲)로 누가 무엇을 내는지 보여 준다.
 // 교환 창과 증서 모두 보는 사람 기준으로 내 쪽(내가 줄 것)을 아래, 상대 쪽(내가 받을 것)을 위에 둔다.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { boardOf, harborVertices } from '../../shared/board';
@@ -11,10 +12,9 @@ import { bankTradeProblem, bankUnits, validateTradeBundles } from '../../shared/
 import type { Bundle, Resource, TradeCloseReason } from '../../shared/types';
 import { playerColor } from '../theme';
 import { AnyResourceIcon, PersonIcon, ResourceIcon } from '../ui/icons';
-import { josa } from '../ui/josa';
 import { showToast } from '../ui/toast';
 import { bundleText, isMyTurn, tradeBlocker, turnBlocker, type PlayerInfo } from './derive';
-import { ActionButton, ResourceAmount, sendAction } from './ui';
+import { ActionButton, sendAction } from './ui';
 
 type Players = Map<string, PlayerInfo>;
 
@@ -91,11 +91,14 @@ interface SlotSpec {
   onRemove: () => void;
 }
 
-/** 낼 것·받을 것 한 줄: 자원 다섯 장. 누르면 하나 더, 왼쪽 위 − 로 하나 빼기 */
+/** 낼 것·받을 것 한 줄: 자원 다섯 장. 누르면 하나 더, 왼쪽 위 − 로 하나 빼기. 받을 것은 ▼(손으로 들어온다), 낼 것은 ▲(손에서 나간다). */
 function CardRow({ label, hint, side, slots }: { label: string; hint?: ReactNode; side: 'give' | 'get'; slots: SlotSpec[] }) {
   return (
     <section className={`trade-side trade-side-${side}`} aria-label={label}>
       <div className="trade-side-label">
+        <span className="trade-dir" aria-hidden>
+          {side === 'get' ? '▼' : '▲'}
+        </span>
         <b>{label}</b>
         {hint && <small>{hint}</small>}
       </div>
@@ -258,75 +261,49 @@ export function TradePanel({
       <CardRow
         label="받을 것"
         side="get"
-        hint={bank ? (units > 0 ? `${units}장 고를 수 있음` : '낼 묶음 수만큼') : '원하는 카드를 고르세요'}
+        hint={bank ? (units > 0 ? `${units}장` : '') : ''}
         slots={getSlots}
       />
       <div className="trade-arrow" aria-hidden>
-        <span>⇅</span>
+        <span className="fa-down">▼</span>
+        <span className="fa-up">▲</span>
       </div>
-      <CardRow label="낼 것" side="give" hint={bank ? '비율만큼 한 묶음씩' : '내 카드에서 고르세요'} slots={giveSlots} />
+      <CardRow label="낼 것" side="give" slots={giveSlots} />
 
       <p className="trade-note small">
         {bank ? (
-          <>
-            교역로가 없어도 같은 자원 {BANK_RATIO}장이면 은행에서 1장으로 바꿉니다.{' '}
-            {myHarbors.length > 0 ? (
-              <>
-                내 교역로:{' '}
-                {myHarbors.map((h) => (
-                  <span key={h.edgeId} className="cost-inline">
-                    {h.resource ? <ResourceIcon kind={h.resource} size={14} /> : <AnyResourceIcon size={14} />}
-                    {h.resource ? '2:1' : '3:1'}
-                  </span>
-                ))}
-              </>
-            ) : (
-              '마을이 교역로에 닿으면 3:1·2:1이 됩니다.'
-            )}
-          </>
-        ) : others.length === 1 ? (
-          <>
-            일대일 대결입니다. {josa(name(others[0]), '이/가')} 수락하면 확정할 때 카드가 옮겨집니다. 증서는 {MAX_OPEN_TRADES}장까지 함께 열 수 있습니다.
-          </>
-        ) : (
-          <>
-            <span className="trade-to" role="group" aria-label="제안할 상대">
-              {[undefined, ...others].map((id) => (
-                <button
-                  key={id ?? 'all'}
-                  type="button"
-                  className={`chip ${draft.to === id ? 'chip-on' : ''}`}
-                  aria-pressed={draft.to === id}
-                  onClick={() => onDraft({ ...draft, to: id })}
-                >
-                  {id ? (
-                    <>
-                      <PersonIcon colorIndex={players.get(id)?.colorIndex ?? 0} size={12} /> {name(id)}
-                    </>
-                  ) : (
-                    '모두'
-                  )}
-                </button>
-              ))}
+          <span className="trade-rates" title={`교역로가 없으면 같은 자원 ${BANK_RATIO}장을 1장으로 바꿉니다. 교역로에 마을이 닿으면 3:1·2:1`}>
+            <span className="cost-inline">
+              <AnyResourceIcon size={14} />
+              {BANK_RATIO}:1
             </span>
-            수락한 사람 중 한 명을 골라 확정하면 그때 카드가 옮겨집니다. 증서는 {MAX_OPEN_TRADES}장까지 함께 열 수 있습니다.
-          </>
-        )}
+            {myHarbors.map((h) => (
+              <span key={h.edgeId} className="cost-inline">
+                {h.resource ? <ResourceIcon kind={h.resource} size={14} /> : <AnyResourceIcon size={14} />}
+                {h.resource ? '2:1' : '3:1'}
+              </span>
+            ))}
+          </span>
+        ) : others.length > 1 ? (
+          <span className="trade-to" role="group" aria-label="제안할 상대">
+            {[undefined, ...others].map((id) => (
+              <button
+                key={id ?? 'all'}
+                type="button"
+                className={`chip ${draft.to === id ? 'chip-on' : ''}`}
+                aria-pressed={draft.to === id}
+                title={id ? `${name(id)}에게만` : '모두에게'}
+                aria-label={id ? `${name(id)}에게만` : '모두에게'}
+                onClick={() => onDraft({ ...draft, to: id })}
+              >
+                {id ? <PersonIcon colorIndex={players.get(id)?.colorIndex ?? 0} size={16} /> : '모두'}
+              </button>
+            ))}
+          </span>
+        ) : null}
       </p>
       {submit}
     </div>
-  );
-}
-
-/** 작은 자원 묶음 (아이콘 + 수) */
-function BundleChips({ bundle }: { bundle: Bundle }) {
-  const items = RESOURCES.filter((r) => bundle[r] > 0);
-  return (
-    <span className="bundle-chips">
-      {items.map((r) => (
-        <ResourceAmount key={r} resource={r} amount={bundle[r]} size={16} />
-      ))}
-    </span>
   );
 }
 
@@ -398,31 +375,29 @@ const STAMP_TEXT: Record<DeedOutcome, string> = {
   unaffordable: '무효',
 };
 
-/** 장부 한 줄: 왼쪽에 제목, 오른쪽에 자원 그림 카드 (장수는 밀랍) */
-function LedgerColumn({ title, bundle, side }: { title: string; bundle: Bundle; side: 'theirs' | 'mine' }) {
+/** 증서의 자원 줄: 자원 아이콘마다 장수 (글자 없이) */
+function FlowCards({ bundle }: { bundle: Bundle }) {
   const items = RESOURCES.filter((r) => bundle[r] > 0);
   return (
-    <div className={`deed-col deed-col-${side}`}>
-      <h4>{title}</h4>
-      <div className="deed-cards">
-        {items.map((r) => (
-          <span key={r} className={`dcard dcard-${r}`} title={`${RESOURCE_LABEL[r]} ${bundle[r]}장`}>
-            <ResourceIcon kind={r} size={34} title={RESOURCE_LABEL[r]} />
-            <span className="dcard-name">{RESOURCE_LABEL[r]}</span>
-            <b className="dcard-n">×{bundle[r]}</b>
-          </span>
-        ))}
-      </div>
-    </div>
+    <span className="flow-cards">
+      {items.map((r) => (
+        <span key={r} className={`dcard dcard-${r}`} title={`${RESOURCE_LABEL[r]} ${bundle[r]}장`}>
+          <ResourceIcon kind={r} size={28} title={RESOURCE_LABEL[r]} />
+          <b className="dcard-n">×{bundle[r]}</b>
+        </span>
+      ))}
+    </span>
   );
 }
 
+/** 응답 표시: 사람 아이콘에 ✓(수락)·✕(거절)·…(생각 중) 딱지 */
+const REPLY_MARK = { pending: '…', accepted: '✓', rejected: '✕' } as const;
 const RESP_LABEL = { pending: '생각 중', accepted: '수락', rejected: '거절' } as const;
 
 /**
- * 교환 증서 한 장: 중세 상인의 거래 내역서처럼 번호·제안자·내놓는 것·받는 것을 장부에 적고, 아래 서명란에 상대별 응답을 적는다.
- * 장부는 위아래 두 줄로, 보는 사람 기준으로 위에는 상대에게서 받을 것, 아래에는 내가 줄 것을 적는다.
- * 받은 사람은 수락·거절(수락 뒤에도 거절로 바꿀 수 있다), 제안한 사람은 수락한 사람 옆 확정 버튼이나 취소를 누른다.
+ * 교환 증서 한 장: 글을 줄이고 아이콘으로 보여 준다. 위아래 두 줄에 사람 아이콘과 그 사람이 내놓는 자원을 놓고,
+ * 가운데 ▼ ▲ 화살표로 위 줄 자원이 아래로, 아래 줄 자원이 위로 건너간다는 것을 보인다. 보는 사람 기준으로 내 쪽은 아래 줄이다
+ * (구경하는 사람은 제안한 사람이 아래). 그 아래에 받은 사람마다 아이콘과 응답 딱지를 놓고, 제안한 사람은 수락한 사람 아이콘을 눌러 확정한다.
  * closed 가 있으면 결과 글씨(거절됨·취소됨·체결)를 단 채 움직이지 않고 잠깐 남았다가 옅어지며 사라진다.
  */
 export function TradeDeed({
@@ -430,7 +405,6 @@ export function TradeDeed({
   players,
   trade,
   closed,
-  compact = false,
 }: {
   view: RoomView;
   players: Players;
@@ -446,114 +420,108 @@ export function TradeDeed({
   const targeted = t.to.includes(me);
   const myResp = targeted ? t.responses[me] : null;
   const needsMe = !closed && targeted && myResp === 'pending';
-  const [folded, setFolded] = useState(compact && !closed && !needsMe && !mineOffer);
   const name = (id: string) => (id === me ? '나' : (players.get(id)?.nickname ?? '?'));
   const lacking = targeted ? RESOURCES.filter((r) => g.myResources[r] < t.get[r]) : [];
   const accepted = t.to.filter((id) => t.responses[id] === 'accepted');
   const fromName = from?.nickname ?? '?';
   const outcome = closed?.outcome;
+  const icon = (id: string, size = 18) => <PersonIcon colorIndex={players.get(id)?.colorIndex ?? 0} size={size} title={name(id)} />;
 
-  // 화면 주인 기준으로 위에는 상대 쪽(받을 것), 아래에는 내 쪽(줄 것)을 적는다.
-  // 받은 사람에게는 제안자가 내놓는 것(give)이 받을 것이다. 구경하는 사람은 제안한 사람 화면처럼 제안자가 내는 것을 아래에 둔다.
+  // 위 줄과 아래 줄: 받은 사람이면 위가 제안자(내놓는 give), 아래가 나(내가 낼 get). 제안자·구경꾼은 위가 상대들(get), 아래가 제안자(give).
   const receiver = targeted && !mineOffer;
-  const theirs = receiver
-    ? { title: '내가 받을 것', bundle: t.give }
-    : { title: mineOffer ? '내가 받을 것' : `${fromName} 받을 것`, bundle: t.get };
-  const ours = receiver ? { title: '내가 줄 것', bundle: t.get } : { title: mineOffer ? '내가 줄 것' : `${fromName} 줄 것`, bundle: t.give };
+  const top = receiver ? { who: [t.from], bundle: t.give } : { who: t.to, bundle: t.get };
+  const bottom = receiver ? { who: [me], bundle: t.get } : { who: [t.from], bundle: t.give };
+  const whoIcons = (ids: string[]) =>
+    ids.length > 3 ? (
+      <span className="flow-many" title={ids.map(name).join(', ')}>
+        {ids.slice(0, 3).map((id) => (
+          <span key={id}>{icon(id, 16)}</span>
+        ))}
+        <small>+{ids.length - 3}</small>
+      </span>
+    ) : (
+      ids.map((id) => <span key={id}>{icon(id)}</span>)
+    );
 
   return (
     <article
-      className={`deed ${needsMe ? 'deed-incoming' : ''} ${mineOffer ? 'deed-mine' : ''} ${closed ? `deed-closed deed-${outcome}` : ''} ${folded ? 'deed-folded' : ''}`}
+      className={`deed ${needsMe ? 'deed-incoming' : ''} ${mineOffer ? 'deed-mine' : ''} ${closed ? `deed-closed deed-${outcome}` : ''}`}
       role={needsMe ? 'alertdialog' : 'region'}
-      aria-label={`${fromName}의 교환 증서 제${t.id}호${closed ? ` (${STAMP_TEXT[closed.outcome]})` : ''}`}
+      aria-label={`${fromName}의 교환 제안: ${bundleText(t.give)} 주고 ${bundleText(t.get)} 받기${closed ? ` (${STAMP_TEXT[closed.outcome]})` : ''}`}
       style={{ ['--pc' as string]: playerColor(from?.colorIndex ?? 0).hex } as CSSProperties}
     >
-      <header className="deed-head">
-        <button type="button" className="deed-title" onClick={() => setFolded((f) => !f)} aria-expanded={!folded}>
-          <span className="deed-no">교역 증서 제{t.id}호</span>
-          <span className="deed-from">
-            <PersonIcon colorIndex={from?.colorIndex ?? 0} size={14} />
-            {mineOffer ? '내 제안' : fromName}
-            <span className="muted"> · {t.to.length > 1 ? '모두에게' : `${name(t.to[0])}에게`}</span>
-          </span>
-        </button>
-        <span className="deed-seal" aria-hidden>
-          <PersonIcon colorIndex={from?.colorIndex ?? 0} size={18} />
-        </span>
-      </header>
-
-      {folded ? (
-        <div className="deed-slip">
-          <BundleChips bundle={theirs.bundle} /> <span aria-hidden>⇄</span> <BundleChips bundle={ours.bundle} />
+      <div className="deed-flow">
+        <div className="flow-row flow-top">
+          <span className="flow-who">{whoIcons(top.who)}</span>
+          <FlowCards bundle={top.bundle} />
         </div>
-      ) : (
-        <>
-          <div className="deed-ledger">
-            <LedgerColumn title={theirs.title} bundle={theirs.bundle} side="theirs" />
-            <span className="deed-swap" aria-hidden>
-              <span>⇅</span>
-            </span>
-            <LedgerColumn title={ours.title} bundle={ours.bundle} side="mine" />
-          </div>
+        <div className="flow-arrows" aria-hidden>
+          <span className="fa-down">▼</span>
+          <span className="fa-up">▲</span>
+        </div>
+        <div className="flow-row flow-bottom">
+          <span className="flow-who">{whoIcons(bottom.who)}</span>
+          <FlowCards bundle={bottom.bundle} />
+        </div>
+      </div>
 
-          <ol className="deed-signs" aria-label="응답">
-            {t.to.map((id) => {
-              const p = players.get(id);
-              const resp = t.responses[id];
-              const canPick = !closed && mineOffer && resp === 'accepted';
-              const won = closed?.outcome === 'accepted' && closed.partner === id;
-              return (
-                <li key={id} className={`deed-sign sign-${resp} ${won ? 'sign-won' : ''}`}>
-                  <PersonIcon colorIndex={p?.colorIndex ?? 0} size={13} />
-                  <span className="sign-name">{name(id)}</span>
-                  <i className="sign-line" aria-hidden />
-                  {canPick ? (
-                    <ActionButton
-                      className="btn btn-small btn-primary deed-pick"
-                      label="확정"
-                      blocker={null}
-                      onClick={() => sendAction({ type: 'trade_confirm', tradeId: t.id, with: id })}
-                    />
-                  ) : (
-                    <span className="sign-mark">
-                      {won ? '✓ 체결' : resp === 'accepted' ? '✓ 수락' : resp === 'rejected' ? RESP_LABEL.rejected : `… ${RESP_LABEL.pending}`}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-
-          {!closed && mineOffer && (
-            <div className="deed-actions">
-              <span className="small muted">{accepted.length ? '확정할 상대를 고르세요' : '응답을 기다리는 중'}</span>
-              <ActionButton className="btn btn-small" label="제안 취소" blocker={null} onClick={() => sendAction({ type: 'trade_cancel', tradeId: t.id })} />
-            </div>
-          )}
-          {!closed && targeted && (
-            <>
-              {myResp !== 'accepted' && lacking.length > 0 && <div className="warn-text small">{lacking.map((r) => RESOURCE_LABEL[r]).join(', ')}이(가) 모자라 수락할 수 없습니다.</div>}
-              <div className="deed-actions">
-                {myResp === 'accepted' ? (
-                  <>
-                    <span className="small">{josa(fromName, '이/가')} 고르는 중</span>
-                    <ActionButton className="btn btn-small" label="수락 취소" blocker={null} onClick={() => sendAction({ type: 'trade_reject', tradeId: t.id })} />
-                  </>
+      {!receiver && (
+        <ol className="deed-replies" aria-label="응답">
+          {t.to.map((id) => {
+            const resp = t.responses[id];
+            const canPick = !closed && mineOffer && resp === 'accepted';
+            const won = closed?.outcome === 'accepted' && closed.partner === id;
+            const label = `${name(id)}: ${won ? '체결' : RESP_LABEL[resp]}`;
+            return (
+              <li key={id} className={`reply reply-${resp} ${won ? 'reply-won' : ''}`}>
+                {canPick ? (
+                  <button
+                    type="button"
+                    className="reply-face reply-pick"
+                    title={`${name(id)}와(과) 확정`}
+                    aria-label={`${name(id)}와(과) 교환 확정`}
+                    onClick={() => void sendAction({ type: 'trade_confirm', tradeId: t.id, with: id })}
+                  >
+                    {icon(id)}
+                    <i aria-hidden>✓</i>
+                  </button>
                 ) : (
-                  <>
-                    <ActionButton
-                      className="btn btn-small btn-primary"
-                      label={myResp === 'rejected' ? '다시 수락' : '수락'}
-                      blocker={lacking.length ? '요청받은 자원이 모자랍니다.' : null}
-                      onClick={() => sendAction({ type: 'trade_accept', tradeId: t.id })}
-                    />
-                    {myResp === 'pending' && <ActionButton className="btn btn-small" label="거절" blocker={null} onClick={() => sendAction({ type: 'trade_reject', tradeId: t.id })} />}
-                  </>
+                  <span className="reply-face" title={label} aria-label={label}>
+                    {icon(id)}
+                    <i aria-hidden>{won ? '✓' : REPLY_MARK[resp]}</i>
+                  </span>
                 )}
-              </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {!closed && mineOffer && (
+        <div className="deed-actions">
+          {accepted.length > 0 && <span className="small deed-hint">✓ 아이콘을 눌러 확정</span>}
+          <ActionButton className="btn btn-small" label="취소" blocker={null} onClick={() => sendAction({ type: 'trade_cancel', tradeId: t.id })} />
+        </div>
+      )}
+      {!closed && targeted && (
+        <div className="deed-actions">
+          {myResp === 'accepted' ? (
+            <>
+              <span className="small deed-hint">{icon(t.from, 14)} 확정 기다리는 중</span>
+              <ActionButton className="btn btn-small" label="수락 취소" blocker={null} onClick={() => sendAction({ type: 'trade_reject', tradeId: t.id })} />
+            </>
+          ) : (
+            <>
+              <ActionButton
+                className="btn btn-small btn-primary"
+                label={myResp === 'rejected' ? '다시 수락' : '수락'}
+                blocker={lacking.length ? `${lacking.map((r) => RESOURCE_LABEL[r]).join(', ')}이(가) 모자랍니다.` : null}
+                onClick={() => sendAction({ type: 'trade_accept', tradeId: t.id })}
+              />
+              {myResp === 'pending' && <ActionButton className="btn btn-small" label="거절" blocker={null} onClick={() => sendAction({ type: 'trade_reject', tradeId: t.id })} />}
             </>
           )}
-        </>
+        </div>
       )}
 
       {closed && (

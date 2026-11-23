@@ -186,7 +186,7 @@ export function PlayersPanel({
               {g.largestArmy.holder === id && awardTag(id, 'largest_army', `최강 기사단 (기사 ${g.largestArmy.size}장, 2점)`)}
               {offers > 0 && (
                 <span className="stat-offers" title={`열린 교환 제안 ${offers}개`}>
-                  ⇄{offers}
+                  ⇅{offers}
                 </span>
               )}
               {ticking && clock && <TurnTimer clock={clock} size={22} mine={id === view.you} />}
@@ -377,7 +377,7 @@ export function TradeButton({ view, tradeOpen, wait = null, onTrade }: { view: R
         onClick={onTrade}
         icon={
           <span className="act-ico">
-            ⇄{bankable && <i className="act-dot" title="은행·교역로와 바로 바꿀 수 있는 자원이 있습니다" aria-label="은행 교환 가능" />}
+            ⇅{bankable && <i className="act-dot" title="은행·교역로와 바로 바꿀 수 있는 자원이 있습니다" aria-label="은행 교환 가능" />}
           </span>
         }
       />
