@@ -95,6 +95,9 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
   const [map, setMap] = useState<MapConfig>(sb.map);
   /** 개수 제한 없음 (길·마을·도시·발전 카드) */
   const [unlimited, setUnlimited] = useState(!!sb.state.unlimited);
+  /** 고르게 굴리기 */
+  const [fair, setFair] = useState(sb.state.diceMode === 'balanced');
+  const diceMode = fair ? ('balanced' as const) : ('random' as const);
   const [dice, setDice] = useState(8);
   const me = sb.you;
   const s = sb.state;
@@ -234,12 +237,12 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
               </option>
             ))}
           </select>
-          <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, unlimited })}>
+          <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, unlimited, diceMode })}>
             새 게임
           </button>
           <button
             className="btn btn-small"
-            onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, unlimited, rollForOrder: false })}
+            onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, unlimited, diceMode, rollForOrder: false })}
             title="순서 주사위 없이 바로 시작 배치"
           >
             순서 건너뛰기
@@ -247,6 +250,9 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
         </div>
         <label className="lab-row small">
           <input type="checkbox" checked={unlimited} onChange={(e) => setUnlimited(e.target.checked)} /> 개수 제한 없음 (새 게임부터)
+        </label>
+        <label className="lab-row small">
+          <input type="checkbox" checked={fair} onChange={(e) => setFair(e.target.checked)} /> 주사위 고르게 굴리기 (새 게임부터)
         </label>
         <div className="lab-row">
           <button

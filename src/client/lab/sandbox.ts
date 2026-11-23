@@ -7,6 +7,7 @@ import { DEFAULT_MAP, mapCardDefaults, maxPlayersFor } from '../../shared/maps';
 import type { AckResult, ChatBrag, ChatEmote, ChatMessage, ChatPing, RoomView } from '../../shared/protocol';
 import { applyAction, autoPlay, clockKey, createGame, currentPlayer, placementPlayer, type GameState } from '../../shared/rules';
 import type { GameAction, MapConfig } from '../../shared/types';
+import type { DiceMode } from '../../shared/fairDice';
 import { botSideAction, botTurnAction } from './bot';
 
 export const LAB_CODE = 'LAB1';
@@ -32,6 +33,8 @@ export interface SandboxOptions {
   devCards?: number;
   /** 개수 제한 없음 (길·마을·도시·발전 카드) */
   unlimited?: boolean;
+  /** 주사위 방식 (실험실 기본은 무작위. 주사위 정하기는 어느 방식에서나 그 눈이 나온다) */
+  diceMode?: DiceMode;
 }
 
 type Listener = () => void;
@@ -104,6 +107,7 @@ export class Sandbox {
         resourceCards: opts.resourceCards ?? cards.resourceCards,
         devCards: this.devCards,
         unlimited: !!opts.unlimited,
+        diceMode: opts.diceMode ?? 'random',
       },
     );
     this.gameNumber += 1;
@@ -140,6 +144,7 @@ export class Sandbox {
       resourceCards: this.state.bankSize ?? RESOURCE_CARDS,
       devCards: this.devCards,
       unlimited: !!this.state.unlimited,
+      diceMode: this.state.diceMode ?? 'random',
     };
   }
 
@@ -166,7 +171,19 @@ export class Sandbox {
 
   /** 내가 둔 행동 (화면 버튼). 굴리기는 정해 둔 주사위 값을 쓴다. */
   actMine(action: GameAction): AckResult {
-    return this.act(this.you, action, action.type === 'roll' ? this.diceRandom() : Math.random);
+    return action.type === 'roll' ? this.roll(this.you, action) : this.act(this.you, action, Math.random);
+  }
+
+  /** 주사위 굴리기. 정해 둔 눈이 있으면 고르게 굴리기여도 그 눈이 나오게 이번 한 번만 그냥 굴린다. */
+  private roll(playerId: string, action: GameAction): AckResult {
+    const forced = !!this.nextDice;
+    const mode = this.state.diceMode;
+    if (forced) this.state.diceMode = 'random';
+    try {
+      return this.act(playerId, action, this.diceRandom());
+    } finally {
+      this.state.diceMode = mode;
+    }
   }
 
   /** 행동을 규칙 엔진에 넣는다. random 을 넘기면 주사위·빼앗기 값을 정할 수 있다. */
@@ -267,7 +284,7 @@ export class Sandbox {
       a = { type: 'end_turn' };
     }
     this.idle = 0;
-    const res = this.act(turnId, a, a.type === 'roll' ? this.diceRandom() : Math.random);
+    const res = a.type === 'roll' ? this.roll(turnId, a) : this.act(turnId, a, Math.random);
     // 봇이 고른 수가 막히면 (규칙이 바뀌었을 때 등) 턴을 넘겨 멈추지 않게 한다.
     if (!res.ok && s.phase === 'playing' && s.step === 'main') this.act(turnId, { type: 'end_turn' });
     else this.maybeChat(p, a);
