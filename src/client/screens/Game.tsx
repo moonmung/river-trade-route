@@ -31,7 +31,7 @@ import { OrderRollPanel, TurnStatus } from '../game/turn';
 import { sendAction, useLocalSetting, useMediaQuery } from '../game/ui';
 import { useChat } from '../net/chat';
 import { ChatBox, ChatDock, EmoteBar } from '../ui/chat';
-import { Emblem } from '../ui/icons';
+import { PersonIcon } from '../ui/icons';
 import { showToast } from '../ui/toast';
 import { SpectacleHost } from '../ui/spectacle';
 import { DiceTray } from '../dice/DiceTray';
@@ -271,7 +271,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       {hoverRoad && traceOwner && trace && (
         <div className="road-tip" style={{ left: hoverRoad.x, top: hoverRoad.y }} role="tooltip">
           <div className="road-tip-head">
-            <Emblem colorIndex={players.get(traceOwner)?.colorIndex ?? 0} size={14} />
+            <PersonIcon colorIndex={players.get(traceOwner)?.colorIndex ?? 0} size={14} />
             {traceOwner === view.you ? '내 교역로' : `${players.get(traceOwner)?.nickname ?? '?'}의 교역로`}
           </div>
           <div>

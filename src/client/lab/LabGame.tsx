@@ -13,7 +13,7 @@ import { setActionSink } from '../game/ui';
 import { injectChat, injectEmote, setChatSink } from '../net/chat';
 import Game from '../screens/Game';
 import { navigate } from '../router';
-import { Emblem } from '../ui/icons';
+import { PersonIcon } from '../ui/icons';
 import { showAward } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
 import { turnSecondsLabel } from '../ui/WinPoints';
@@ -170,7 +170,7 @@ function LabDrawer({ sb, rendererRef, onScene }: { sb: Sandbox; rendererRef: Rea
         <div className="lab-seats">
           {sb.players.map((p) => (
             <button key={p.id} className={`lab-seat ${p.id === me ? 'is-on' : ''}`} onClick={() => sb.setYou(p.id)} title={`${colorWord(p.colorIndex)} 자리로 보기`}>
-              <Emblem colorIndex={p.colorIndex} size={14} /> {p.nickname}
+              <PersonIcon colorIndex={p.colorIndex} size={14} /> {p.nickname}
             </button>
           ))}
         </div>

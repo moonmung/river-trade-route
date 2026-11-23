@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { CHAT_EMOTES, CHAT_MAX_LENGTH } from '../../shared/constants';
 import type { ChatMessage } from '../../shared/protocol';
 import { markChatRead, sendChatEmote, sendChatText, useChat } from '../net/chat';
-import { Emblem } from './icons';
+import { PersonIcon } from './icons';
 import { showToast } from './toast';
 
 function clock(at: number): string {
@@ -42,7 +42,7 @@ export function ChatBox({ code, you, autoFocus = false }: { code: string; you: s
         {chat.messages.length === 0 && <li className="chat-empty">아직 대화가 없습니다. 인사를 건네 보세요.</li>}
         {chat.messages.map((m) => (
           <li key={m.id} className={`chat-msg ${m.from === you ? 'chat-mine' : ''}`}>
-            <Emblem colorIndex={m.colorIndex} size={12} />
+            <PersonIcon colorIndex={m.colorIndex} size={12} />
             <b className="chat-who">{m.from === you ? '나' : m.nickname}</b>
             <span className="chat-text">{m.text}</span>
             <time className="chat-time" dateTime={new Date(m.at).toISOString()}>

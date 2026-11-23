@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { GameView, RoomView } from '../../shared/protocol';
 import { useDiceUi } from '../dice';
-import { Emblem } from '../ui/icons';
+import { PersonIcon } from '../ui/icons';
 import { josa } from '../ui/josa';
 import { DieFace } from './panels';
 import { isMyTurn, type PlayerInfo } from './derive';
@@ -75,7 +75,7 @@ function statusText(view: RoomView, players: Players, wait: string | null): Reac
     const p = id ? players.get(id) : null;
     return (
       <>
-        <Emblem colorIndex={p?.colorIndex ?? 0} size={13} /> {p?.nickname ?? '?'}
+        <PersonIcon colorIndex={p?.colorIndex ?? 0} size={13} /> {p?.nickname ?? '?'}
       </>
     );
   };
@@ -253,7 +253,7 @@ export function OrderRollPanel({ view, players, done = false, onClose }: { view:
           return (
             <li key={id} className={`order-row ${id === me ? 'order-me' : ''} ${tied.has(id) ? 'order-tied' : ''}`}>
               <span className="order-rank">{done || (rolledAll(id) && g.phase !== 'order') ? `${i + 1}` : ''}</span>
-              <Emblem colorIndex={p?.colorIndex ?? 0} size={18} />
+              <PersonIcon colorIndex={p?.colorIndex ?? 0} size={18} />
               <span className="order-name">
                 {p?.nickname ?? '?'}
                 {id === me && <span className="tag">나</span>}

@@ -6,7 +6,7 @@ import { client } from '../net/client';
 import { navigate } from '../router';
 import { playerColor } from '../theme';
 import { CloseRoomButton } from '../ui/common';
-import { CrownIcon, Emblem, ResourceIcon } from '../ui/icons';
+import { CrownIcon, PersonIcon, ResourceIcon } from '../ui/icons';
 import { josa } from '../ui/josa';
 import { RulesSummary } from '../ui/RulesSummary';
 import { showToast } from '../ui/toast';
@@ -143,7 +143,7 @@ export function StealDialog({ view, players }: { view: RoomView; players: Player
                   label={`${p?.nickname ?? '?'} · 자원 ${info?.resourceTotal ?? 0}장`}
                   blocker={null}
                   onClick={() => sendAction({ type: 'steal', from: id })}
-                  icon={<Emblem colorIndex={p?.colorIndex ?? 0} size={20} />}
+                  icon={<PersonIcon colorIndex={p?.colorIndex ?? 0} size={20} />}
                 />
               );
             })}
@@ -351,7 +351,7 @@ export function ResultOverlay({ view, players, onClose }: { view: RoomView; play
                 <tr key={e.playerId} className={e.rank === 1 ? 'winner' : ''}>
                   <td>{e.rank}위</td>
                   <td>
-                    <Emblem colorIndex={p?.colorIndex ?? 0} size={16} /> {p?.nickname}
+                    <PersonIcon colorIndex={p?.colorIndex ?? 0} size={16} /> {p?.nickname}
                     {e.playerId === view.you && <span className="tag">나</span>}
                   </td>
                   <td>
@@ -424,7 +424,7 @@ export function PlacementBanner({ view, players, picked }: { view: RoomView; pla
           return (
             <Fragment key={`${id}-${i}`}>
               <span className={`po ${done ? 'po-done' : ''} ${now ? 'po-now' : ''}`}>
-                <Emblem colorIndex={p?.colorIndex ?? 0} size={12} /> {p?.nickname}
+                <PersonIcon colorIndex={p?.colorIndex ?? 0} size={12} /> {p?.nickname}
               </span>
               {i < g.placementOrder.length - 1 ? ' → ' : ''}
             </Fragment>

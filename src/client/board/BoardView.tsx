@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { TileDef } from '../../shared/types';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Resource } from '../../shared/types';
-import { PLAYER_COLORS, emblemSvgMarkup } from '../theme';
+import { PLAYER_COLORS, personSvgMarkup } from '../theme';
 import { AnyResourceIcon, ResourceIcon } from '../ui/icons';
 import type { ArtReport, LoadProgress } from './assets';
 import { BoardRenderer, type BoardSelection, type BoardState, type Insets, type QualityMode } from './BoardRenderer';
@@ -59,7 +59,7 @@ export default function BoardView(props: BoardViewProps) {
       renderer = new BoardRenderer(host, {
         tiles: props.tiles,
         playerColors: PLAYER_COLORS.map((c) => c.hex),
-        emblemMarkup: (i) => emblemSvgMarkup(i, 15),
+        ownerMarkup: (i) => personSvgMarkup(i, 16),
         harborIcon,
         quality: propsRef.current.quality,
         showTileLabels: propsRef.current.showTileLabels,
