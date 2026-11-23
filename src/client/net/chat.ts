@@ -1,6 +1,6 @@
 // 방 채팅 저장소. 서버가 보낸 최근 대화와 이모티콘, 핑을 방 코드와 함께 들고 있다가 React 에 알린다.
 import { useSyncExternalStore } from 'react';
-import { CHAT_HISTORY, PING_LIMIT, PING_MS } from '../../shared/constants';
+import { CHAT_HISTORY, PING_MS, PING_SLOW_TEXT, takePingToken, type PingBucket } from '../../shared/constants';
 import type { AckResult, ChatEmote, ChatMessage, ChatPing } from '../../shared/protocol';
 import { client } from './client';
 
@@ -20,8 +20,8 @@ export interface ChatState {
 
 let state: ChatState = { code: null, messages: [], emotes: {}, seen: 0, pings: [] };
 let pingKey = 0;
-/** 내가 최근에 핑을 찍은 시각 (서버와 같은 제한을 화면에서도 미리 센다) */
-let myPingTimes: number[] = [];
+/** 내 남은 핑 횟수 (서버와 같은 제한을 화면에서도 미리 센다) */
+let myPingBucket: PingBucket | undefined;
 const listeners = new Set<() => void>();
 let emoteKey = 0;
 
@@ -52,13 +52,11 @@ export function sendChatEmote(emote: string): Promise<AckResult> {
   return sink ? sink.emote(emote) : client.sendEmote(emote);
 }
 
-/** 보드 한 자리를 가리킨다. 3초에 2번을 넘기면 서버에 묻지 않고 바로 거절한다 (서버도 같은 제한을 둔다). */
+/** 보드 한 자리를 가리킨다. 연달아 3번을 쓴 뒤 1초가 안 지났으면 서버에 묻지 않고 바로 거절한다 (서버도 같은 제한을 둔다). */
 export function sendChatPing(kind: ChatPing['kind'], target: string, now = Date.now()): Promise<AckResult> {
-  myPingTimes = myPingTimes.filter((t) => now - t < PING_LIMIT.windowMs);
-  if (myPingTimes.length >= PING_LIMIT.perWindow) {
-    return Promise.resolve({ ok: false, error: `핑은 ${PING_LIMIT.windowMs / 1000}초에 ${PING_LIMIT.perWindow}번까지 찍을 수 있습니다.`, code: 'PING_SLOW' });
-  }
-  myPingTimes.push(now);
+  const taken = takePingToken(myPingBucket, now);
+  myPingBucket = taken.bucket;
+  if (!taken.ok) return Promise.resolve({ ok: false, error: PING_SLOW_TEXT, code: 'PING_SLOW' });
   return sink ? sink.ping(kind, target) : client.sendPing(kind, target);
 }
 
