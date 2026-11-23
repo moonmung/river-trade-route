@@ -4,12 +4,14 @@ import type {
   AckResult,
   ClientToServerEvents,
   HandshakeAuth,
+  RoomListing,
   ServerToClientEvents,
   SessionInfo,
 } from '../shared/protocol';
 import { SEAT_CODE_LENGTH, normalizeSeatCode } from '../shared/protocol';
 import { isRequestId, normalizeNickname, normalizeRoomCode, parseAction } from '../shared/validate';
 import { ChatHub } from './chat';
+import { isLoopbackAddress } from './net';
 import { isRoomError, type Room, type RoomManager, type RoomPlayer } from './rooms';
 import { buildRoomView } from './view';
 
@@ -269,10 +271,43 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
         const s = io.sockets.sockets.get(id);
         if (!s) continue;
         unbind(s);
-        s.emit('room:closed');
+        s.emit('room:closed', { by: 'host' });
       }
       unbind(socket);
       reply({ ok: true });
+    });
+
+    // 서버를 켠 PC(이 컴퓨터의 브라우저)에서만: 남은 방 목록과 지우기. 휴대폰 등 다른 기기의 요청은 거절한다.
+    socket.on('rooms:list', (_payload, ack) => {
+      const reply = safeAck(ack);
+      if (!isLoopbackAddress(socket.handshake.address)) return reply(fail('서버를 켠 PC에서만 볼 수 있습니다.', 'NOT_ALLOWED'));
+      const res: AckResult<{ rooms: RoomListing[] }> = { ok: true, rooms: rooms.list() };
+      reply(res);
+    });
+
+    socket.on('rooms:remove', (payload, ack) => {
+      const reply = safeAck(ack);
+      if (!isLoopbackAddress(socket.handshake.address)) return reply(fail('서버를 켠 PC에서만 지울 수 있습니다.', 'NOT_ALLOWED'));
+      const raw = (payload ?? {}) as { codes?: unknown };
+      if (!Array.isArray(raw.codes) || raw.codes.length > 200) return reply(fail('잘못된 요청입니다.', 'BAD_REQUEST'));
+      const removed: string[] = [];
+      for (const c of raw.codes) {
+        const code = normalizeRoomCode(c);
+        const room = code ? rooms.rooms.get(code) : undefined;
+        if (!room) continue;
+        const online = room.players.filter((p) => p.socketId).map((p) => p.socketId!);
+        if (!rooms.remove(room.code)) continue;
+        removed.push(room.code);
+        // 그 방에 접속해 있던 사람(이 PC 자신도 포함)은 처음 화면 안내로 넘어간다.
+        for (const id of online) {
+          const s = io.sockets.sockets.get(id);
+          if (!s) continue;
+          unbind(s);
+          s.emit('room:closed', { by: 'server' });
+        }
+      }
+      const res: AckResult<{ removed: string[] }> = { ok: true, removed };
+      reply(res);
     });
 
     socket.on('room:rematch', (_payload, ack) => {

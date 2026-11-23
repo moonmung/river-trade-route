@@ -24,7 +24,7 @@ import {
   normalizeTurnSeconds,
   normalizeWinPoints,
 } from '../shared/constants';
-import { SEAT_CODE_LENGTH, type AckResult, type RoomPeek, type SeatHandover } from '../shared/protocol';
+import { SEAT_CODE_LENGTH, type AckResult, type RoomListing, type RoomPeek, type SeatHandover } from '../shared/protocol';
 import { DEFAULT_MAP, normalizeMapArrange, normalizeMapShape } from '../shared/maps';
 import { applyAction, autoPlay, clockKey, createGame, type GameState } from '../shared/rules';
 import type { GameAction, MapConfig } from '../shared/types';
@@ -335,6 +335,32 @@ export class RoomManager {
     // 방장이 나가면 지금 접속해 있는 사람 중 가장 먼저 들어온 사람이 방장이 된다.
     // (연결이 끊긴 사람에게 넘기면 남은 사람들이 시작도 내보내기도 못 하게 된다.)
     if (room.hostId === playerId) room.hostId = (room.players.find((p) => p.connected) ?? room.players[0]).id;
+  }
+
+  /** 남은 방 목록 (최근에 바뀐 방부터). 서버를 켠 PC 의 처음 화면에서 지난 게임 방이나 빈 대기실을 지울 때 쓴다. */
+  list(): RoomListing[] {
+    return [...this.rooms.values()]
+      .sort((a, b) => b.touchedAt - a.touchedAt)
+      .map((r) => {
+        const host = r.players.find((p) => p.id === r.hostId);
+        const players = host ? [host, ...r.players.filter((p) => p !== host)] : r.players;
+        return {
+          code: r.code,
+          phase: r.phase,
+          finished: r.game?.phase === 'finished',
+          players: players.map((p) => p.nickname),
+          connected: r.players.filter((p) => p.connected).length,
+          touchedAt: r.touchedAt,
+        };
+      });
+  }
+
+  /** 방장이 아니어도 방을 지운다 (서버를 켠 PC 에서만 부른다). 없는 방이면 false. */
+  remove(code: string): boolean {
+    if (!this.rooms.has(code)) return false;
+    this.deleteRoom(code);
+    this.changed();
+    return true;
   }
 
   /** 방장이 방을 닫는다 (대기실·게임 중 언제든). 방과 게임 기록이 모두 사라지고, 남은 사람은 처음 화면으로 돌아간다. */
