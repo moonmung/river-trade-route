@@ -26,6 +26,7 @@ import type { DevKind } from '../../shared/types';
 import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL, mapTileCount, maxPlayersFor } from '../../shared/maps';
 import type { MapArrange, MapShape } from '../../shared/types';
 import { MapPreview } from '../ui/MapPreview';
+import { DICE_MODE_LABEL, type DiceMode } from '../../shared/fairDice';
 
 /** 발전 카드 더미 구성: "기사 14 · 승점 5 · 길 건설 2 · 풍년 2 · 독점 2" */
 function devDeckText(total: number): string {
@@ -235,6 +236,29 @@ export function Lobby({ view }: { view: RoomView }) {
               )}
             </div>
             <div className="rule-row">
+              <span className="rule-name" title="고르게: 숫자마다 확률대로 고르게 나오고 같은 숫자 연타·오랜 가뭄·한 사람에게 몰리는 7을 줄입니다">
+                주사위
+              </span>
+              {isHost ? (
+                <select
+                  className="rule-select"
+                  value={view.diceMode}
+                  aria-label="주사위 방식"
+                  onChange={async (e) => {
+                    const res = await client.setSettings({ diceMode: e.target.value as DiceMode });
+                    if (!res.ok) showToast(res.error, 'error');
+                  }}
+                >
+                  <option value="balanced">고르게 (확률대로 고르게, 가뭄·연타 줄이기)</option>
+                  <option value="random">무작위 (그냥 굴리기)</option>
+                </select>
+              ) : (
+                <div className="wp-fixed">
+                  <b>{DICE_MODE_LABEL[view.diceMode]}</b>
+                </div>
+              )}
+            </div>
+            <div className="rule-row">
               <span className="rule-name" title="없음으로 하면 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않습니다">
                 개수 제한
               </span>
@@ -347,6 +371,9 @@ export function Lobby({ view }: { view: RoomView }) {
             {devDeckText(view.devCards)}입니다.
             {view.unlimited
               ? ' 개수 제한이 없어서 길·마을·도시를 몇 개든 지을 수 있고, 발전 카드는 이 비율대로 무작위로 뽑혀 떨어지지 않습니다.'
+              : ''}
+            {view.diceMode === 'balanced'
+              ? ' 주사위는 고르게 굴립니다: 36가지 눈을 카드처럼 뽑아 숫자마다 확률대로 나오고, 같은 숫자가 연달아 나오거나 한 사람만 오래 자원을 못 받거나 한 사람이 7을 몰아 굴리는 일을 줄입니다.'
               : ''}
           </p>
         </section>

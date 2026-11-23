@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DISCARD_LIMIT, TILES, WIN_POINTS, normalizeDevCards, normalizeResourceCards } from '../shared/constants';
 import { normalizeMapArrange, normalizeMapShape } from '../shared/maps';
+import { normalizeDiceMode } from '../shared/fairDice';
 import type { AckResult } from '../shared/protocol';
 import { createGame } from '../shared/rules';
 import { normalizeRoomCode } from '../shared/validate';
@@ -122,6 +123,9 @@ function reviveRoom(raw: unknown): Room | null {
     if (!('bankSize' in game)) game.bankSize = null;
     // 개수 제한 없음 규칙이 생기기 전에 저장한 게임은 제한이 있었다.
     if (!('unlimited' in game)) game.unlimited = false;
+    // 주사위 방식이 생기기 전에 저장한 게임은 그냥 굴렸다.
+    if (!('diceMode' in game)) game.diceMode = 'random';
+    if (!('fairDice' in game)) game.fairDice = null;
     const keys = requiredGameKeys();
     if (keys && keys.some((k) => !(k in game))) return null;
     const ids = new Set(players.map((p) => p.id));
@@ -146,6 +150,7 @@ function reviveRoom(raw: unknown): Room | null {
     resourceCards: normalizeResourceCards(raw.resourceCards) ?? base.resourceCards,
     devCards: normalizeDevCards(raw.devCards) ?? base.devCards,
     unlimited: raw.unlimited === true,
+    diceMode: normalizeDiceMode(raw.diceMode) ?? base.diceMode,
     gameNumber: typeof raw.gameNumber === 'number' ? raw.gameNumber : base.gameNumber,
     touchedAt: typeof raw.touchedAt === 'number' ? raw.touchedAt : base.touchedAt,
   } as Room;

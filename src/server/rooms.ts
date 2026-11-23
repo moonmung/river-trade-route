@@ -25,6 +25,7 @@ import {
 } from '../shared/constants';
 import { SEAT_CODE_LENGTH, type AckResult, type RoomListing, type RoomPeek, type SeatHandover } from '../shared/protocol';
 import { DEFAULT_MAP, mapCardDefaults, maxPlayersFor, normalizeMapArrange, normalizeMapShape } from '../shared/maps';
+import { normalizeDiceMode, type DiceMode } from '../shared/fairDice';
 import { applyAction, autoPlay, clockKey, createGame, type GameState } from '../shared/rules';
 import type { GameAction, MapConfig } from '../shared/types';
 
@@ -62,6 +63,8 @@ export interface Room {
   devCards: number;
   /** 방장이 정한 개수 제한 없음: 길·마을·도시 개수 제한과 발전 카드 소진이 없다 (다음 게임부터 쓴다) */
   unlimited: boolean;
+  /** 방장이 정한 주사위 방식 (기본 고르게, 다음 게임부터 쓴다) */
+  diceMode: DiceMode;
   createdAt: number;
   /** 마지막으로 상태가 바뀐 시각 (오래 비어 있는 방 정리용) */
   touchedAt: number;
@@ -101,6 +104,7 @@ export function blankRoom(code: string, now = Date.now()): Room {
     resourceCards: RESOURCE_CARDS,
     devCards: DEV_CARDS,
     unlimited: false,
+    diceMode: 'balanced',
     createdAt: now,
     touchedAt: now,
   };
@@ -232,6 +236,7 @@ export class RoomManager {
       resourceCards: room.resourceCards,
       devCards: room.devCards,
       unlimited: room.unlimited,
+      diceMode: room.diceMode,
     };
     if (p.winPoints !== undefined) {
       const n = normalizeWinPoints(p.winPoints);
@@ -270,6 +275,11 @@ export class RoomManager {
       if (n === null) return { error: `자원 카드는 종류마다 ${RESOURCE_CARDS_MIN}~${RESOURCE_CARDS_MAX}장 사이로 정하세요.` };
       next.resourceCards = n;
     }
+    if (p.diceMode !== undefined) {
+      const mode = normalizeDiceMode(p.diceMode);
+      if (!mode) return { error: '주사위 방식은 고르게·무작위 중에서 고르세요.' };
+      next.diceMode = mode;
+    }
     if (p.unlimited !== undefined) {
       if (typeof p.unlimited !== 'boolean') return { error: '개수 제한은 있음·없음 중에서 고르세요.' };
       next.unlimited = p.unlimited;
@@ -287,7 +297,8 @@ export class RoomManager {
       next.map.arrange === room.map.arrange &&
       next.resourceCards === room.resourceCards &&
       next.devCards === room.devCards &&
-      next.unlimited === room.unlimited;
+      next.unlimited === room.unlimited &&
+      next.diceMode === room.diceMode;
     if (same) return null;
     Object.assign(room, next);
     // 규칙이 바뀌면 다른 사람은 다시 확인하고 준비하도록 준비를 푼다.
@@ -318,6 +329,7 @@ export class RoomManager {
         resourceCards: room.resourceCards,
         devCards: room.devCards,
         unlimited: room.unlimited,
+        diceMode: room.diceMode,
       },
     );
     room.phase = 'game';

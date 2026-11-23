@@ -5,6 +5,7 @@
 
 import { boardOf, harborVertices, type BoardGeometry, type EdgeDef, type EdgeId, type VertexId } from './board';
 import { buildMap, DEFAULT_MAP, mapCardDefaults, maxPlayersFor } from './maps';
+import { drawFairDice, newFairDice, recordProduction, type DiceMode, type FairDiceState } from './fairDice';
 import {
   AWARD_POINTS,
   BANK_RATIO,
@@ -123,6 +124,10 @@ export interface GameState {
   devDeck: DevKind[];
   /** 개수 제한 없음: 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않는다 (방장이 고른 규칙) */
   unlimited: boolean;
+  /** 주사위 방식: random 은 그냥 굴리기, balanced 는 고르게 굴리기 (fairDice.ts) */
+  diceMode: DiceMode;
+  /** 고르게 굴리기의 남은 눈 카드와 기록 (random 이면 null). 화면에는 보내지 않는다. */
+  fairDice: FairDiceState | null;
   /** 이번 턴에 발전 카드를 이미 썼는지 (승점 카드 제외, 한 턴에 1장) */
   devPlayedThisTurn: boolean;
   /** 길 건설 카드로 남은 공짜 길 */
@@ -194,6 +199,8 @@ export interface GameOptions {
   devCards?: number;
   /** 개수 제한 없음: 길·마을·도시 개수 제한과 발전 카드 소진이 없다 (기본 false) */
   unlimited?: boolean;
+  /** 주사위 방식 (기본 random: 규칙 테스트가 난수로 눈을 정한다. 방은 balanced 가 기본) */
+  diceMode?: DiceMode;
 }
 
 /** 한 사람이 가질 수 있는 조각 수. 개수 제한 없음이면 끝이 없다. */
@@ -250,6 +257,8 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     roads: [],
     devDeck: shuffle(deck, random),
     unlimited: !!o.unlimited,
+    diceMode: o.diceMode ?? 'random',
+    fairDice: o.diceMode === 'balanced' ? newFairDice(order) : null,
     devPlayedThisTurn: false,
     freeRoads: 0,
     longestRoad: { holder: null, length: 0 },
@@ -694,10 +703,19 @@ function stepHint(step: TurnStep): string {
 function doRoll(s: GameState, playerId: string, random: () => number): ActionResult {
   const bad = requireTurn(s, playerId, ['roll']);
   if (bad) return bad;
-  const dice: [number, number] = [1 + Math.floor(random() * 6), 1 + Math.floor(random() * 6)];
+  // 고르게 굴리기: 눈 카드 더미에서 무게를 준 한 장을 뽑는다. 그 합으로 자원을 받을 사람은 지금 보드로 센다.
+  const fair = s.diceMode === 'balanced' ? (s.fairDice ??= newFairDice(s.order)) : null;
+  const producers = (t: number) => {
+    const g = productionFor(s, t, s.order).gains;
+    return s.order.filter((id) => bundleTotal(g[id]) > 0);
+  };
+  const dice: [number, number] = fair
+    ? drawFairDice(fair, playerId, s.order, producers, random)
+    : [1 + Math.floor(random() * 6), 1 + Math.floor(random() * 6)];
   s.dice = dice;
   const total = dice[0] + dice[1];
   if (total === 7) {
+    if (fair) recordProduction(fair, s.order, () => false);
     s.discards = {};
     for (const id of s.order) {
       const n = bundleTotal(s.players[id].resources);
@@ -716,6 +734,7 @@ function doRoll(s: GameState, playerId: string, random: () => number): ActionRes
     takeFromBank(s, s.players[id].resources, gains[id]);
     totals[id] = bundleTotal(gains[id]);
   }
+  if (fair) recordProduction(fair, s.order, (id) => totals[id] > 0);
   pushEvent(s, { kind: 'roll', player: playerId, dice, gains: totals, tiles, blocked, detail: gains, ...(short.length ? { short } : {}) });
   s.step = 'main';
   return OK;

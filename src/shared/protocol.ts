@@ -1,4 +1,5 @@
 // 브라우저 ↔ 서버 Socket.IO 메시지 형식.
+import type { DiceMode } from './fairDice';
 import type {
   Building,
   Bundle,
@@ -103,6 +104,8 @@ export interface GameView {
   devDeckCount: number;
   /** 개수 제한 없음: 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않는다 */
   unlimited: boolean;
+  /** 주사위 방식 (고르게·무작위) */
+  diceMode: DiceMode;
   devPlayedThisTurn: boolean;
   freeRoads: number;
   longestRoad: { holder: string | null; length: number };
@@ -150,6 +153,8 @@ export interface RoomView {
   devCards: number;
   /** 방장이 정한 개수 제한 없음 (길·마을·도시·발전 카드) */
   unlimited: boolean;
+  /** 방장이 정한 주사위 방식 */
+  diceMode: DiceMode;
 }
 
 /** 방장이 대기실에서 바꾸는 규칙 (보낸 것만 바뀐다) */
@@ -162,6 +167,7 @@ export interface RoomSettingsPatch {
   resourceCards?: number;
   devCards?: number;
   unlimited?: boolean;
+  diceMode?: DiceMode;
 }
 
 export interface RoomPeek {
