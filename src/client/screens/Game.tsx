@@ -192,11 +192,10 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
 
   const onTap = (sel: BoardSelection, info?: { alt: boolean }) => {
     // 핑: 핑 단추를 켰거나 Alt 키를 누른 채 누르면 그 자리를 모두에게 가리킨다 (고르기·짓기는 하지 않는다).
+    // 횟수 제한에 걸리면 알림 없이 그냥 찍히지 않는다.
     if (pingMode || info?.alt) {
       setPingMode(false);
-      void sendChatPing(sel.kind, sel.id).then((res) => {
-        if (!res.ok) showToast(res.error, 'warn');
-      });
+      void sendChatPing(sel.kind, sel.id);
       return;
     }
     // 연출이 끝나기 전에는 동상 칸·공짜 길 자리를 고를 수 없다.
