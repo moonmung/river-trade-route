@@ -918,6 +918,232 @@
   padding: 4px 7px;
 }
 
+/*
+ * 이번 턴 기록 (보드 왼쪽 위): 맨 위 [기록] 단추를 누르면 전체 기록이 화면 가득 열린다. 그 아래로 이번 턴에 한 일이
+ * 한 줄씩 쌓이는데, 한 줄마다 12초쯤 떠 있다가 마지막 4초 동안 천천히 옅어진다. 다음 차례가 되면 지난 턴 줄은 빨리 걷힌다.
+ */
+.hud-feed {
+  position: absolute;
+  top: calc(8px + var(--safe-top));
+  left: 8px;
+  z-index: 11;
+  width: min(380px, calc(100% - var(--side-w) - 330px));
+  min-width: 220px;
+  pointer-events: none;
+}
+
+.turn-feed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.feed-open {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 3px 7px;
+  border: 1.5px solid rgba(58, 42, 31, 0.7);
+  border-radius: 999px;
+  background-color: var(--parchment-hi);
+  background-image: var(--tex-grain);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(30, 20, 10, 0.25);
+}
+
+.feed-open:hover {
+  background-color: #fff6e0;
+}
+
+.feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  max-width: 100%;
+}
+
+.feed-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 9px 3px 6px;
+  border-left: 3px solid var(--pc);
+  border-radius: 4px;
+  background: rgba(250, 243, 226, 0.88);
+  box-shadow: 0 1px 4px rgba(30, 20, 10, 0.22);
+  color: var(--ink);
+  font-size: 0.78rem;
+  line-height: 1.3;
+  animation: feed-life 12s linear forwards;
+}
+
+.feed-line > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feed-line .person-icon {
+  flex: none;
+}
+
+.feed-out {
+  animation: feed-out 0.9s ease-in forwards;
+}
+
+.turn-feed-compact {
+  pointer-events: none;
+}
+
+.turn-feed-compact .feed-open {
+  padding: 2px 8px 2px 5px;
+  font-size: 0.72rem;
+}
+
+.turn-feed-compact .feed-line {
+  font-size: 0.68rem;
+  padding: 2px 7px 2px 5px;
+}
+
+/* 좁은 화면은 보드를 덜 가리게 최근 세 줄만 */
+.turn-feed-compact .feed-line:nth-last-child(n + 4) {
+  display: none;
+}
+
+@keyframes feed-life {
+  0% {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  3% {
+    opacity: 1;
+    transform: none;
+  }
+  66% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes feed-out {
+  from {
+    opacity: var(--feed-from, 0.9);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-line {
+    animation-name: feed-life-still;
+  }
+  @keyframes feed-life-still {
+    0%,
+    66% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+}
+
+/* 전체 기록: 화면 가득 덮는 창. 턴마다 그 턴을 둔 사람 색 띠를 두른 묶음으로, 최근 턴이 위에 온다. */
+.log-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 42;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--parchment);
+  background-image: var(--paper);
+  outline: none;
+  padding: calc(10px + var(--safe-top)) 14px calc(10px + var(--safe-bottom));
+}
+
+.log-overlay-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(58, 42, 31, 0.25);
+}
+
+.log-overlay-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.log-overlay-head .icon-btn {
+  margin-left: auto;
+}
+
+.log-overlay-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 2px 4px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+  align-content: start;
+  gap: 10px;
+}
+
+.log-turn {
+  border-left: 4px solid var(--pc);
+  border-radius: 6px;
+  background: rgba(255, 250, 238, 0.6);
+  padding: 6px 8px 8px;
+  min-width: 0;
+}
+
+.log-turn-now {
+  box-shadow: 0 0 0 2px var(--pc);
+}
+
+.log-turn h3 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 5px;
+  font-size: 0.9rem;
+}
+
+.log-turn-who {
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.log-turn .log li {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.log-turn .log li .person-icon {
+  flex: none;
+  margin-top: 2px;
+}
+
 /* 오른쪽 패널의 짧은 기록: 점수와 이어진 것만 작은 글씨로 */
 .log-mini {
   gap: 2px;

@@ -25,6 +25,7 @@ import { clearFlyingCards, useHeldCards } from '../game/cardFly';
 import { useGameEffects } from '../game/effects';
 import { usePaceWait } from '../game/pace';
 import { Hand } from '../game/hand';
+import { LogOverlay, TurnFeed } from '../game/log';
 import { BankPanel, BragButtons, BuildBar, PlayersPanel, TradeButton, TurnButton } from '../game/panels';
 import { TradeDeeds, TradePanel, handPickToDraft, newDraft, type TradeDraft } from '../game/trade';
 import { OrderRollPanel, TurnStatus } from '../game/turn';
@@ -50,7 +51,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   const [buildMode, setBuildMode] = useState<PieceKind | null>(null);
   /** 보드에서 고른 자리. 할 일이 있는 자리면 그 위에 ✓ / ✕ 가 붙고 ✓ 를 눌러야 짓는다. */
   const [selected, setSelected] = useState<BoardSelection | null>(null);
-  const [dialog, setDialog] = useState<null | 'menu'>(null);
+  const [dialog, setDialog] = useState<null | 'menu' | 'log'>(null);
   /** 쓰기 창을 연 발전 카드 (손에 든 발전 카드를 눌러 연다) */
   const [devOpen, setDevOpen] = useState<DevKind | null>(null);
   const chat = useChat(view.code);
@@ -254,6 +255,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     </>
   );
   const openMenu = () => setDialog('menu');
+  const openLog = () => setDialog('log');
   // 보드 위 핑 물결 (찍은 사람 색). 3D 보드는 BoardPin 으로, 2D 보드는 marks 로 그 자리 한가운데에 겹친다.
   const pingMarks = chat.pings.map((p) => ({
     key: p.key,
@@ -318,6 +320,13 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
         </div>
       )}
 
+      {/* 넓은 화면 보드 왼쪽 위: [기록] 단추와 이번 턴 기록 (좁은 화면은 차례 상태 쪽지 아래) */}
+      {wide && (
+        <div className="hud-feed">
+          <TurnFeed view={view} players={players} onOpenLog={openLog} />
+        </div>
+      )}
+
       {/* 보드 왼쪽 위: 좁은 화면은 차례 상태 쪽지와 안내 띠, 넓은 화면은 교환 증서만 */}
       <div className="hud-top">
         {!wide && (
@@ -327,6 +336,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             <BankPanel view={view} compact />
           </div>
         )}
+        {!wide && <TurnFeed view={view} players={players} compact onOpenLog={openLog} />}
         <div className="hud-float">
           {!wide && banners}
           <TradeDeeds view={view} players={players} compact={!wide} />
@@ -340,7 +350,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
           <section className="side-log">
             <h3>
               최근 기록{' '}
-              <button className="link-btn small" onClick={openMenu}>
+              <button className="link-btn small" onClick={openLog}>
                 전체 보기
               </button>
             </h3>
@@ -464,6 +474,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog === 'log' && <LogOverlay view={view} players={players} onClose={() => setDialog(null)} />}
       {g.phase === 'playing' && g.step === 'discard' && g.discards[view.you] > 0 && !wait && <DiscardDialog key={`d-${g.turn}`} view={view} />}
       {myTurn && g.step === 'steal' && !wait && <StealDialog view={view} players={players} />}
       <SpectacleHost />
