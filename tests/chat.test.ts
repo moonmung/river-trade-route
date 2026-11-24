@@ -37,6 +37,7 @@ function fakeRoom(): { room: Room; a: RoomPlayer; b: RoomPlayer } {
     devCards: 25,
     unlimited: false,
     diceMode: 'balanced',
+    sevenDiscard: true,
     createdAt: 0,
     touchedAt: 0,
   };

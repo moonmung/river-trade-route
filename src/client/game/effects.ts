@@ -1,5 +1,5 @@
 // 새로 들어온 게임 기록에 맞춰 연출과 알림을 낸다: 주사위, 칸 생산, 기사단 동상, 빼앗기, 달성 공지, 황금 기사단, 자랑하기.
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { boardOf } from '../../shared/board';
 import { DEV_LABEL, RESOURCE_LABEL } from '../../shared/constants';
 import type { RoomView } from '../../shared/protocol';
@@ -74,7 +74,9 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
     [],
   );
 
-  useEffect(() => {
+  // 그리기 전에(useLayoutEffect) 처리한다. 굴림이 들어온 화면이 한 번 그려진 뒤에 생산 카드를 손에서 빼면
+  // 주사위가 멈추기도 전에 손 장수가 +1 됐다가 돌아가며 카드가 움찔해서 결과가 먼저 보인다.
+  useLayoutEffect(() => {
     const g = view.game;
     if (!g) return;
     const me = view.you;

@@ -47,20 +47,30 @@ const DEV_ORDER: DevKind[] = ['knight', 'road_building', 'year_of_plenty', 'mono
  */
 export function Hand({ resources, ratios, devCards, devPlayable, onResource, onDev, activeDev = null }: HandProps) {
   const prev = useRef<Bundle>(resources);
+  const latest = useRef<Bundle>(resources);
+  latest.current = resources;
   const [flash, setFlash] = useState<Partial<Record<Resource, 'gain' | 'spend'>>>({});
+  const flashTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
   // 장수가 실제로 바뀔 때만 연출한다 (화면 정보가 새로 와도 장수가 같으면 그대로 둔다).
+  // 다음 프레임에 한 번 더 보고 정한다: 주사위를 굴린 순간 생산 카드를 손에서 빼 두는 사이처럼
+  // 장수가 잠깐 바뀌었다 곧바로 돌아오면 카드가 움찔하지 않게 한다.
   const counts = RESOURCES.map((r) => resources[r]).join(',');
   useEffect(() => {
-    const next: Partial<Record<Resource, 'gain' | 'spend'>> = {};
-    for (const r of RESOURCES) {
-      if (resources[r] > prev.current[r]) next[r] = 'gain';
-      else if (resources[r] < prev.current[r]) next[r] = 'spend';
-    }
-    prev.current = resources;
-    if (!Object.keys(next).length) return;
-    setFlash(next);
-    const t = window.setTimeout(() => setFlash({}), 950);
-    return () => window.clearTimeout(t);
+    const id = window.requestAnimationFrame(() => {
+      const now = latest.current;
+      const next: Partial<Record<Resource, 'gain' | 'spend'>> = {};
+      for (const r of RESOURCES) {
+        if (now[r] > prev.current[r]) next[r] = 'gain';
+        else if (now[r] < prev.current[r]) next[r] = 'spend';
+      }
+      prev.current = now;
+      if (!Object.keys(next).length) return;
+      setFlash(next);
+      window.clearTimeout(flashTimer.current);
+      flashTimer.current = window.setTimeout(() => setFlash({}), 950);
+    });
+    return () => window.cancelAnimationFrame(id);
   }, [counts]);
 
   const res = RESOURCES.filter((r) => resources[r] > 0);

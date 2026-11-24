@@ -126,6 +126,8 @@ export interface GameState {
   unlimited: boolean;
   /** 주사위 방식: random 은 그냥 굴리기, balanced 는 고르게 굴리기 (fairDice.ts) */
   diceMode: DiceMode;
+  /** 7 버리기: 7이 나오면 보유 한도보다 많이 든 사람이 절반을 버린다 (방장이 끌 수 있다. 꺼도 동상 옮기기·빼앗기는 그대로) */
+  sevenDiscard: boolean;
   /** 고르게 굴리기의 남은 눈 카드와 기록 (random 이면 null). 화면에는 보내지 않는다. */
   fairDice: FairDiceState | null;
   /** 이번 턴에 발전 카드를 이미 썼는지 (승점 카드 제외, 한 턴에 1장) */
@@ -201,6 +203,8 @@ export interface GameOptions {
   unlimited?: boolean;
   /** 주사위 방식 (기본 random: 규칙 테스트가 난수로 눈을 정한다. 방은 balanced 가 기본) */
   diceMode?: DiceMode;
+  /** 7 버리기 (기본 true) */
+  sevenDiscard?: boolean;
 }
 
 /** 한 사람이 가질 수 있는 조각 수. 개수 제한 없음이면 끝이 없다. */
@@ -258,6 +262,7 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     devDeck: shuffle(deck, random),
     unlimited: !!o.unlimited,
     diceMode: o.diceMode ?? 'random',
+    sevenDiscard: o.sevenDiscard !== false,
     fairDice: o.diceMode === 'balanced' ? newFairDice(order) : null,
     devPlayedThisTurn: false,
     freeRoads: 0,
@@ -719,7 +724,7 @@ function doRoll(s: GameState, playerId: string, random: () => number): ActionRes
     s.discards = {};
     for (const id of s.order) {
       const n = bundleTotal(s.players[id].resources);
-      if (n > s.handLimit) s.discards[id] = Math.floor(n / 2);
+      if (s.sevenDiscard !== false && n > s.handLimit) s.discards[id] = Math.floor(n / 2);
     }
     pushEvent(s, { kind: 'roll', player: playerId, dice, gains: {}, tiles: [], blocked: [] });
     s.resumeStep = 'main';

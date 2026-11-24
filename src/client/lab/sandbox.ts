@@ -35,6 +35,8 @@ export interface SandboxOptions {
   unlimited?: boolean;
   /** 주사위 방식 (실험실 기본은 무작위. 주사위 정하기는 어느 방식에서나 그 눈이 나온다) */
   diceMode?: DiceMode;
+  /** 7 버리기 (기본 있음) */
+  sevenDiscard?: boolean;
 }
 
 type Listener = () => void;
@@ -108,6 +110,7 @@ export class Sandbox {
         devCards: this.devCards,
         unlimited: !!opts.unlimited,
         diceMode: opts.diceMode ?? 'random',
+        sevenDiscard: opts.sevenDiscard !== false,
       },
     );
     this.gameNumber += 1;
@@ -145,6 +148,7 @@ export class Sandbox {
       devCards: this.devCards,
       unlimited: !!this.state.unlimited,
       diceMode: this.state.diceMode ?? 'random',
+      sevenDiscard: this.state.sevenDiscard !== false,
     };
   }
 
