@@ -1,6 +1,6 @@
 // 던지기 자리: 내 차례 굴리기 단계에 아래 HUD 바로 위에 뜬다.
 // 주사위를 꾹 누르면 들어 올려 흔들고, 놓으면 던진다. 끌어서 튕기면 그 방향과 빠르기로 날아간다.
-// 10초 안에 던지지 않으면 알아서 던진다. 발전 카드 창이 열린 동안은 시간을 멈춘다.
+// 3초 안에 던지지 않으면 알아서 던진다. 발전 카드 창이 열린 동안은 시간을 멈춘다.
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 import type { RoomView } from '../../shared/protocol';
 import { DieFace } from '../game/panels';
@@ -8,7 +8,7 @@ import { dice3d, throwDice, tray, useDiceUi } from './index';
 import './dice.css';
 
 /** 알아서 던지기까지 기다리는 시간 */
-export const TRAY_SECONDS = 10;
+export const TRAY_SECONDS = 3;
 
 /** 아래 HUD 바로 위, 보드가 보이는 영역 가운데 */
 function useTrayPlace(open: boolean): CSSProperties {
@@ -48,7 +48,7 @@ export function DiceTray({ view, paused = false, hold = false }: { view: RoomVie
   const flat = open && !dice3d();
   const faces: [number, number] = g?.dice ?? [5, 2];
 
-  // 자리가 새로 뜰 때마다 10초부터 센다.
+  // 자리가 새로 뜰 때마다 처음(TRAY_SECONDS)부터 센다.
   useEffect(() => {
     if (!open) return;
     remaining.current = TRAY_SECONDS * 1000;
@@ -100,7 +100,8 @@ export function DiceTray({ view, paused = false, hold = false }: { view: RoomVie
     e.preventDefault();
     void throwDice();
   };
-  const urgent = left <= 3;
+  // 마지막 1초는 시계를 붉게 (dice.css)
+  const urgent = left <= 1;
 
   return (
     <div

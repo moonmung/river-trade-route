@@ -91,9 +91,9 @@ describe('주사위 굴림 계산', () => {
       // 두 주사위가 겹쳐 멈추지 않는다.
       expect(ends[0].distanceTo(ends[1])).toBeGreaterThan(0.97);
     }
-    // 너무 오래 구르지 않는다 (평균 3초 안, 가장 길어도 5초 안).
-    expect(total / N).toBeLessThan(3);
-    expect(longest).toBeLessThan(5.2);
+    // 너무 오래 구르지 않는다: 평균 2초 안, 가장 길어도 2.7초 안 (던진 뒤 서버 값을 기다리는 틈을 더해도 3초 안에 합계가 보인다).
+    expect(total / N).toBeLessThan(2.2);
+    expect(longest).toBeLessThan(2.7);
   });
 
   it('값을 알고 던지면 자리 위에서 던져도 던진 직후에 눈 방향을 다 맞추고, 멈춘 뒤 뒤집지 않는다', () => {

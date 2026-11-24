@@ -125,7 +125,8 @@ const SHADOW_SHIFT = new THREE.Vector2(0.07, -0.06);
 const GOODS_SIZE: Record<Resource, number> = { wood: 1.5, grain: 1.5, wool: 1.2, brick: 1.55, stone: 1.5 };
 const GOODS_TURNS: Record<Resource, number> = { wood: 2, grain: 1.5, wool: 1, brick: 1.5, stone: 1.75 };
 /** 생산물 한 종류가 한꺼번에 날 수 있는 수 */
-const GOODS_CAPACITY = 32;
+/** 자원마다 한꺼번에 날아가는 생산물 수 (8명이 도시를 많이 지은 대형 맵도 넉넉하게) */
+const GOODS_CAPACITY = 96;
 /** 달성 연출(최장 교역로·최강 기사단)의 금빛 */
 const AWARD_GOLD = '#ffd45a';
 const SPARKLE_MAX = 120;
@@ -1591,14 +1592,20 @@ export class BoardRenderer {
     this.kilnTops = placements.filter((p) => p.key === 'kiln').map((p) => new THREE.Vector3(p.x, p.y + 0.45 * p.scale, p.z));
   }
 
-  /** 마을(집)·도시·길을 미리 만든 인스턴스 묶음에 담는다. 플레이어 색은 지붕·판자에 인스턴스 색으로 곱한다. */
+  /**
+   * 마을(집)·도시·길을 미리 만든 인스턴스 묶음에 담는다. 플레이어 색은 지붕·판자에 인스턴스 색으로 곱한다.
+   * 묶음 크기는 보드의 자리 수로 잡는다 (길은 변 수, 마을·도시·이음목은 꼭짓점 수). 예전처럼 길 64개로 정해 두면
+   * 대형 맵·8명·개수 제한 없음 판에서 그 뒤에 지은 길(대개 바깥 바닷가)이 그려지지 않는다.
+   */
   private buildPiecePools(): void {
     const art = this.art!;
+    const nv = this.geo.vertices.length;
+    const ne = this.geo.edges.length;
     const pools: [BoardPieceKind, PropKey, number][] = [
-      ['village', 'house', 24],
-      ['city', 'city', 20],
-      ['road', 'road', 64],
-      ['joint', 'roadjoint', 48],
+      ['village', 'house', nv],
+      ['city', 'city', nv],
+      ['road', 'road', ne],
+      ['joint', 'roadjoint', nv],
     ];
     for (const [kind, key, capacity] of pools) {
       // 플레이어 조각은 기사단 동상이 선 칸 가장자리에 있어도 제 색을 지킨다.
@@ -1615,7 +1622,7 @@ export class BoardRenderer {
       }
     }
     const quad = this.own(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
-    this.pieceShadow = new THREE.InstancedMesh(quad, this.shadowMaterial(0.55), 48);
+    this.pieceShadow = new THREE.InstancedMesh(quad, this.shadowMaterial(0.55), nv);
     this.pieceShadow.count = 0;
     this.pieceShadow.frustumCulled = false;
     this.pieceShadow.renderOrder = 1;
@@ -1706,7 +1713,9 @@ export class BoardRenderer {
         toneMapped: false,
       }),
     );
-    this.glowMesh = new THREE.InstancedMesh(this.own(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)), glowMat, 96);
+    // 빛나는 자리: 길(변)·이음목과 마을·도시(꼭짓점)·동상이 한꺼번에 빛나도 모자라지 않게
+    const glowCapacity = this.geo.edges.length + 2 * this.geo.vertices.length + 4;
+    this.glowMesh = new THREE.InstancedMesh(this.own(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)), glowMat, glowCapacity);
     const sparkleMat = this.own(
       new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }),
     );
