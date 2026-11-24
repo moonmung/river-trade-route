@@ -18,6 +18,7 @@ import {
 import type { Bundle, DevKind, MapConfig, Resource } from '../../shared/types';
 import type { BoardRenderer } from '../board/BoardRenderer';
 import { colorWord } from '../game/derive';
+import { awardSound } from '../game/effects';
 import { paceBusy } from '../game/pace';
 import { setActionSink } from '../game/ui';
 import { injectBrag, injectChat, injectEmote, injectPing, setChatSink } from '../net/chat';
@@ -138,6 +139,7 @@ function LabDrawer({
       detail: award === 'longest_road' ? '이어진 길 5칸 · +2점' : '기사 3장 · +2점',
     });
     rendererRef.current?.playAward(award, p.colorIndex, p.id);
+    awardSound(award);
   };
   /** 개수 제한 없음 (길·마을·도시·발전 카드) */
   const [unlimited, setUnlimited] = useState(!!sb.state.unlimited);

@@ -1965,6 +1965,20 @@
   background: var(--parchment-hi);
 }
 
+/* 효과음: [v] 효과음  ─────●──  60%  [들어 보기] */
+.sound-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sound-row input[type='range'] {
+  flex: 1 1 140px;
+  min-width: 120px;
+  accent-color: var(--vermilion);
+}
+
 /* 결과 */
 .result-backdrop {
   position: fixed;

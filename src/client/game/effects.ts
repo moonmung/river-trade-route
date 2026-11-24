@@ -1,4 +1,4 @@
-// 새로 들어온 게임 기록에 맞춰 연출과 알림을 낸다: 주사위, 칸 생산, 기사단 동상, 빼앗기, 달성 공지, 황금 기사단, 자랑하기.
+// 새로 들어온 게임 기록에 맞춰 연출과 알림, 효과음을 낸다: 주사위, 칸 생산, 건설, 기사단 동상, 빼앗기, 교환, 달성 공지, 황금 기사단, 자랑하기.
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { boardOf } from '../../shared/board';
 import { DEV_LABEL, RESOURCE_LABEL } from '../../shared/constants';
@@ -11,6 +11,8 @@ import { onChatBrag } from '../net/chat';
 import { showAward, showGoldenKnight } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
 import { flyCards, holdCards, stealCard, type FlyCard } from './cardFly';
+import { paradeTiming } from '../board/parade';
+import { sfx } from '../sound/sfx';
 import { bundleText, tileName, type PlayerInfo } from './derive';
 import { resetPace, startPaced } from './pace';
 import { RESOURCES } from '../../shared/constants';
@@ -24,6 +26,15 @@ const ROBBER_FLIGHT_MS = 1200;
 /** 빼앗은 카드가 날아가기 시작하는 때: 동상이 막 옮겨 갔으면 내려앉은 뒤, 아니면(고르는 창으로 골랐으면) 바로 */
 const STEAL_AFTER_LANDING_MS = ROBBER_FLIGHT_MS + 150;
 const STEAL_SOON_MS = 150;
+
+/** 날아오는 카드가 내 손에 닿는 때 (cardFly.ts 의 MINE_MS) */
+const CARD_LAND_MS = 760;
+
+/** 달성 효과음: 최장 교역로는 오르는 화음, 최강 기사단은 광장 사열의 북과 나팔 (3D 보드와 같은 박자) */
+export function awardSound(award: 'longest_road' | 'largest_army'): void {
+  if (award === 'longest_road') sfx.longestRoad();
+  else sfx.army(paradeTiming(false));
+}
 
 /** 보드 위 꼭짓점의 화면 좌표 (렌더러가 없으면 보드 가운데) */
 function boardPoint(renderer: BoardRenderer | null, vertexId: string): { x: number; y: number } {
@@ -70,6 +81,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
         const unit = b.award === 'longest_road' ? `이어진 길 ${b.size}칸` : `기사 ${b.size}장`;
         showAward(b.award, { colorIndex, nickname: p?.nickname ?? '?', mine: b.from === youRef.current, detail: unit, brag: true });
         rendererRef.current?.playAward(b.award, colorIndex, b.from);
+        awardSound(b.award);
       }),
     [],
   );
@@ -130,8 +142,10 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             // 같은 카드를 아래 flyCards 가 이 자리에서 다시 빼 두므로 장수가 그사이 튀지 않는다.
             release();
             if (total === 7) {
+              if (animate) sfx.seven();
               if (discard) {
                 showToast(`7! 자원 ${discard}장을 버려야 합니다.`, 'warn', 4200);
+                sfx.alert();
                 buzz(160);
               }
               return;
@@ -153,6 +167,10 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             });
             rendererRef.current?.glowTiles(items.filter((it) => it.owner === me).map((it) => it.tileId));
             flyCards(cards, { reduced: reducedMotion() });
+            // 내 카드가 손에 닿을 때마다 한 음씩 오르는 소리, 남만 생산했으면 작은 소리 한 번
+            const mineCards = cards.filter((c) => c.mine).slice(0, 10);
+            mineCards.forEach((c, k) => window.setTimeout(() => sfx.cardIn(k), (c.delay ?? 0) + CARD_LAND_MS));
+            if (!mineCards.length && cards.length) window.setTimeout(() => sfx.production(), 900);
           }, () => {
             open();
             release();
@@ -160,6 +178,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           break;
         }
         case 'placement':
+          if (animate) sfx.build(e.step === 'road' ? 'road' : 'village');
           // 두 번째 시작 마을: 닿은 칸의 자원이 마을 자리에서 손으로 날아든다.
           if (animate && e.gained) {
             const from = boardPoint(rendererRef.current, e.vertexId);
@@ -176,6 +195,9 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             flyCards(cards, { reduced: reducedMotion() });
           }
           break;
+        case 'order_roll':
+          if (animate) sfx.diceTumble();
+          break;
         case 'order_tie':
           if (e.players.includes(me)) showToast(`주사위가 ${e.total}(으)로 같습니다. 다시 굴리세요.`, 'warn', 3200);
           break;
@@ -183,12 +205,16 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           if (e.order.length) showToast(`자리 순서: ${e.order.map((id) => (id === me ? '나' : name(id))).join(' → ')}`, 'good', 4200);
           break;
         case 'timeout':
-          if (e.player === me) showToast('시간이 다 되어 자동으로 진행했습니다.', 'warn', 3600);
+          if (e.player === me) {
+            showToast('시간이 다 되어 자동으로 진행했습니다.', 'warn', 3600);
+            sfx.alert();
+          }
           else showToast(`${name(e.player)}의 시간이 다 되어 자동으로 진행했습니다.`, 'info', 2600);
           break;
         case 'robber': {
           // 3D 보드에서는 동상이 들려 날아가 내려앉는다. 내려앉은 뒤에 빼앗기 창과 버튼을 연다.
           startPaced('robber', e.seq)(animate && rendererRef.current ? ROBBER_FLIGHT_MS : 0);
+          if (animate) sfx.robber(rendererRef.current ? (ROBBER_FLIGHT_MS - 150) / 1000 : 0);
           if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} 기사단 동상을 ${tileName(g, e.tileId)} 칸으로 옮겼습니다.`, 'warn');
           // 동상이 선 칸에 자원을 가진 상대가 없으면 아무것도 빼앗지 않고 넘어간다. 옮긴 사람에게 그렇다고 알려 준다.
           const stoleLater = fresh.slice(i + 1).some((x) => x.kind === 'steal' && x.player === e.player);
@@ -205,6 +231,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           stealCard({ thief: e.player, victim: e.from, resource: e.detail ?? null, me, delay, reduced: !animate || reducedMotion() });
           const what = e.detail ? RESOURCE_LABEL[e.detail] : '자원';
           window.setTimeout(() => {
+            if (animate) sfx.steal();
             if (e.from === me) {
               showToast(`${josa(name(e.player), '이/가')} 내 ${what} 1장을 빼앗아 갔습니다.`, 'error', 4000);
               buzz(120);
@@ -213,7 +240,11 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           }, delay);
           break;
         }
+        case 'build':
+          if (animate) sfx.build(e.piece);
+          break;
         case 'buy_dev':
+          if (animate) sfx.buyDev();
           if (e.player === me && e.detail) showToast(`발전 카드: ${DEV_LABEL[e.detail]}`, 'good');
           break;
         case 'play_dev': {
@@ -223,9 +254,12 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             const knights = g.players.find((p) => p.id === e.player)?.knightsPlayed ?? g.largestArmy.size;
             showGoldenKnight({ colorIndex: color(e.player), nickname: name(e.player), mine: e.player === me, knights });
             if (animate) rendererRef.current?.playGoldenKnight(e.player);
+            sfx.playDev(e.card);
+            sfx.army(paradeTiming(true), true);
             buzz(200);
             break;
           }
+          if (animate) sfx.playDev(e.card);
           if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} ${DEV_LABEL[e.card]} 카드를 썼습니다.`);
           break;
         }
@@ -236,21 +270,31 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             const from = e.previous ? ` · ${name(e.previous)}에게서 가져옴` : '';
             showAward(e.award, { colorIndex: color(e.player), nickname: name(e.player), mine: e.player === me, detail: `${unit} · +2점${from}` });
             rendererRef.current?.playAward(e.award, color(e.player), e.player);
+            awardSound(e.award);
             buzz(180);
           }
           break;
         case 'bank_trade':
           // 해상 교역로(3:1·2:1)로 바꿨으면 그 사람의 교역로 부두에 배가 들어와 짐을 주고받는다 (부두는 렌더러가 비율로 고른다).
           if (animate && e.harbor) rendererRef.current?.playHarborTrade(e.player, e.give, e.get);
+          if (animate) {
+            if (e.harbor && rendererRef.current) sfx.ship();
+            else sfx.bankTrade();
+          }
           break;
         // 교환 제안·응답·성사·거절·취소는 알림 대신 왼쪽 위 교환 증서에 적고 도장을 찍는다 (trade.tsx 의 TradeDeeds).
         case 'trade_proposed':
-          if (e.to.includes(me)) buzz(120);
+          if (e.to.includes(me)) {
+            sfx.tradeOffer();
+            buzz(120);
+          }
           break;
         case 'trade_accepted':
+          if (animate) sfx.tradeDone();
           if (e.from === me || e.to === me) buzz(60);
           break;
         case 'game_end':
+          sfx.gameEnd(e.winners.includes(me));
           buzz(200);
           break;
         default:
@@ -263,6 +307,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
       lastTurn.current = turn;
       if (turn === me) {
         showToast(g.phase === 'placement' ? '시작 마을과 길을 놓을 차례입니다.' : '내 차례입니다 · 주사위를 굴리세요', 'good', 3000);
+        sfx.myTurn();
         buzz(80);
       }
     }

@@ -10,7 +10,8 @@ import { MapControls } from 'three/addons/controls/MapControls.js';
 import { RESOURCES, RESOURCE_LABEL, numberPips } from '../../shared/constants';
 import { longestRoadPath } from '../../shared/rules';
 import type { Bundle, Harbor, Resource, TileDef, TileKind } from '../../shared/types';
-import { GOODS_VARIANT, LIEGE_REACH, LIEGE_SHOULDER, ROAD_DECK_TOP, type PropKey } from './art/builders';
+import { GOODS_VARIANT, ROAD_DECK_TOP, SOLDIER_REACH, SOLDIER_SHOULDER, type PropKey } from './art/builders';
+import { PARADE_LOWER_MS, paradeTiming, type ParadeTiming } from './parade';
 import { harborLegs } from './harborTrade';
 import { loadArtLibrary, type ArtLibrary, type ArtReport, type GroundTextureKey, type LoadProgress } from './assets';
 import {
@@ -267,24 +268,19 @@ const HARBOR_REACH = 1.0;
 /** 화면에 담을 범위: 타일 꼭짓점 바깥으로 이만큼 더 (모래밭이 조금 보이게) */
 const FIT_PAD = 0.32;
 const STATUE_SCALE = 0.86;
-/** 최강 기사단 연출의 충성하는 기사 크기 (무릎 꿇은 키 약 0.39, 동상의 절반쯤. 기본 줌에서도 칼 든 모습이 보이게) */
-const LIEGE_SCALE = 0.82;
-/**
- * 충성하는 기사가 서는 자리 (집 안쪽 좌표, 집 크기를 곱하기 전). 마을은 지붕 용마루 위에 한 명,
- * 도시(성)는 앞쪽 양 모서리 망루 꼭대기에 두 명 (art/builders 의 buildHouse·addCityWall 치수).
- */
-const LIEGE_SPOTS: Record<'village' | 'city', [number, number, number][]> = {
-  village: [[0, 0.7, 0]],
-  city: [
-    [-0.351, 0.182, 0.122],
-    [0.351, 0.182, 0.122],
-  ],
-};
-/** 칼 든 팔의 어깨 각도: 칼끝을 앞쪽 땅에 짚은 자세와 하늘로 치켜든 자세 */
-const LIEGE_ARM_REST = 0.72;
-const LIEGE_ARM_RAISED = -1.3;
-/** 기사 한 명이 나타나 칼을 들었다 내리고 고개 숙이기까지 (ms) */
-const LIEGE_ACT_MS = 1750;
+/** 최강 기사단 사열 병사 크기 (키 약 0.33, 동상의 절반쯤) */
+const SOLDIER_SCALE = 0.62;
+/** 칼 든 팔의 어깨 각도: 칼끝을 앞쪽 아래로 내린 차렷과 하늘로 치켜든 경례 */
+const SOLDIER_ARM_REST = 0.8;
+const SOLDIER_ARM_SALUTE = -1.45;
+/** 광장 돌 단 위 대열: 병사 사이와 줄 사이 (돌 단 가운데 기준, 앞줄이 카메라 쪽) */
+const PARADE_FILE_GAP = 0.19;
+const PARADE_RANK_GAP = 0.2;
+/** 동상이 광장 돌 단에 서 있으면 병사들이 돌 단 둘레에 둥글게 서서 동상을 본다 (둘레 소품 안쪽) */
+const PARADE_RING = 0.55;
+/** 돌 단 두 층의 반지름: 안쪽 높은 층, 바깥 낮은 층 (art/builders 의 buildDais) */
+const DAIS_TOP_R = 0.29;
+const DAIS_LOW_R = 0.39;
 /** 잠금 사슬 육각형 반지름 (꼭짓점의 마을과 겹치지 않게 타일보다 조금 안쪽) */
 const CHAIN_RADIUS = HEX_RADIUS - 0.17;
 const PADLOCK_SCALE = 2.3;
@@ -402,22 +398,21 @@ interface Ship {
   seed: number;
 }
 
-/** 최강 기사단 연출: 그 사람의 마을·도시 위에서 동상을 향해 충성하는 기사들 */
-interface Troop {
+/** 최강 기사단 사열: 빈 광장에 줄지어 선 그 사람의 병사들 */
+interface Parade {
   members: {
     /** 발 딛는 자리 */
     at: THREE.Vector3;
-    /** 동상(없으면 보드 가운데)을 보는 방향 */
+    /** 보는 방향 (돌 단 대열은 카메라 쪽, 둥근 대열은 동상 쪽) */
     yaw: number;
-    /** 연출 시작부터 이 기사가 나타나기까지 (ms) */
-    delay: number;
-    colorIndex: number;
+    /** 몇 번째 줄(들어서는 차례)과 줄 안 자리 */
+    rank: number;
+    file: number;
   }[];
-  /** 연출 전체 길이와 끝에 사라지는 시간 (ms) */
-  total: number;
-  fadeMs: number;
+  colorIndex: number;
+  timing: ParadeTiming;
   golden: boolean;
-  /** 칼을 치켜들며 반짝인 기사 */
+  /** 칼을 치켜들며 칼끝이 반짝인 병사 */
   sparked: Set<number>;
 }
 
@@ -450,6 +445,7 @@ const tmpV = new THREE.Vector3();
 const tmpS = new THREE.Vector3();
 const yAxis = new THREE.Vector3(0, 1, 0);
 const xAxis = new THREE.Vector3(1, 0, 0);
+const zAxis = new THREE.Vector3(0, 0, 1);
 
 /** 가운데가 밝고 바깥으로 부드럽게 사라지는 둥근 빛. 더하기로 섞어 칠하며 길쭉하게 늘이면 길을 따라 번진 빛이 된다. */
 function glowTexture(): THREE.DataTexture {
@@ -604,10 +600,10 @@ export class BoardRenderer {
   /** 길 위 교역인 */
   private shipParts: { mesh: THREE.InstancedMesh; tint: boolean }[] = [];
   private ships: Ship[] = [];
-  /** 최강 기사단 연출의 충성하는 기사: 몸과 칼 든 팔을 부품마다 인스턴스 메시로 */
-  private liegeParts: { mesh: THREE.InstancedMesh; tint: boolean }[] = [];
-  private liegeArmParts: { mesh: THREE.InstancedMesh; tint: boolean }[] = [];
-  private troop: Troop | null = null;
+  /** 최강 기사단 사열 병사: 몸과 칼 든 팔을 부품마다 인스턴스 메시로 */
+  private soldierParts: { mesh: THREE.InstancedMesh; tint: boolean }[] = [];
+  private soldierArmParts: { mesh: THREE.InstancedMesh; tint: boolean }[] = [];
+  private parade: Parade | null = null;
   private traderParts: { mesh: THREE.InstancedMesh; tint: boolean }[] = [];
   private traderShadow: THREE.InstancedMesh | null = null;
   private traders: Trader[] = [];
@@ -793,8 +789,8 @@ export class BoardRenderer {
       ...RESOURCES.map((r) => ({ key: 'goods' as PropKey, variant: GOODS_VARIANT[r] })),
       { key: 'trader' as PropKey, variant: 0 },
       { key: 'ship' as PropKey, variant: 0 },
-      { key: 'liege' as PropKey, variant: 0 },
-      { key: 'liegearm' as PropKey, variant: 0 },
+      { key: 'soldier' as PropKey, variant: 0 },
+      { key: 'soldierarm' as PropKey, variant: 0 },
     ];
     const art = await loadArtLibrary(this.renderer, propList, (p) => {
       if (!this.disposed) this.options.onLoadProgress?.(p);
@@ -812,7 +808,7 @@ export class BoardRenderer {
     this.buildGoods();
     this.buildTraders();
     this.buildShips();
-    this.buildLieges();
+    this.buildSoldiers();
     this.buildSmoke();
     this.buildTileLabels();
     this.buildStatue();
@@ -1818,11 +1814,12 @@ export class BoardRenderer {
   }
 
   /**
-   * 최강 기사단 연출의 충성하는 기사: 몸과 칼 든 팔을 부품마다 인스턴스 메시 하나로 만든다.
-   * 겉옷·망토·깃털(지붕 재질)에 플레이어 색을 곱한다. 마을·도시마다 많아야 둘이라 꼭짓점 수의 두 배면 넉넉하다.
+   * 최강 기사단 사열 병사: 몸과 칼 든 팔을 부품마다 인스턴스 메시 하나로 만든다.
+   * 겉옷·망토·방패·깃털(지붕 재질)에 플레이어 색을 곱한다. 대열 하나만 서므로 대열 인원만큼 담는다.
    */
-  private buildLieges(): void {
-    const capacity = this.geo.vertices.length * 2 + 2;
+  private buildSoldiers(): void {
+    const t = paradeTiming(false);
+    const capacity = t.ranks * t.files;
     const make = (key: PropKey) =>
       this.art!.prop(key, 0, true).parts.map((part) => {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, capacity);
@@ -1834,8 +1831,8 @@ export class BoardRenderer {
         this.scene.add(mesh);
         return { mesh, tint: part.tint };
       });
-    this.liegeParts = make('liege');
-    this.liegeArmParts = make('liegearm');
+    this.soldierParts = make('soldier');
+    this.soldierArmParts = make('soldierarm');
   }
 
   private buildTileLabels(): void {
@@ -2988,17 +2985,17 @@ export class BoardRenderer {
 
   /**
    * 최강 기사단: 기사단 동상이 제자리에서 뛰어올라 한 바퀴 돌며 발밑이 금빛으로 빛나고 그 사람의 마을·도시가
-   * 왼쪽부터 차례로 금빛으로 밝아지며 지붕 위에 반짝이가 터진다. 밝아지는 마을 지붕과 성 망루 위에는
-   * 그 사람 색 옷을 입은 기사가 솟아올라 동상 쪽으로 무릎을 꿇고, 칼을 하늘로 치켜들었다가 내리며 고개 숙여 충성한다.
+   * 왼쪽부터 차례로 금빛으로 밝아지며 지붕 위에 반짝이가 터진다. 그와 함께 빈 광장에 그 사람의 병사들이 사열한다 (playParade).
    */
   /**
    * 황금 기사단: 최강 기사단을 가진 사람이 기사를 쓰면 동상이 금빛으로 달아올라 높이 뛰어 두 바퀴 돌고,
    * 둘레에 금빛 반짝이가 크게 터지며 그 사람의 마을·도시가 금빛으로 빛난다 (달성 연출보다 크고 길다).
-   * 충성하는 기사들도 금빛이 섞인 옷으로 나타난다.
+   * 광장의 사열 병사들도 금빛이 섞인 옷으로 서서 경례를 더 오래 한다.
    */
   playGoldenKnight(playerId: string): void {
     if (!this.ready) return;
     this.glowArmy(playerId, true);
+    this.playParade(playerId, true);
   }
 
   private glowArmy(playerId: string, golden = false): void {
@@ -3007,20 +3004,13 @@ export class BoardRenderer {
       .map((b) => ({ b, p: this.vertexWorld(b.vertexId) }))
       .filter((x): x is { b: BoardBuildingView; p: THREE.Vector3 } => !!x.p)
       .sort((x, y) => x.p.x - y.p.x);
-    // 마을·도시가 많아도 마지막 기사가 1.6초 안에 나타나도록 간격을 좁힌다.
-    const each = Math.min(golden ? 150 : 230, 1600 / Math.max(1, mine.length));
+    const each = golden ? 150 : 230;
     const rise = 950;
     const fadeMs = golden ? 900 : 650;
     const start = 300;
-    // 마지막 기사가 칼을 들었다 내리고 고개 숙인 채 잠깐 머문 뒤 모두 함께 사라진다.
-    const total = start + Math.max(0, mine.length - 1) * each + Math.max(rise, LIEGE_ACT_MS + 350) + fadeMs;
+    const total = start + mine.length * each + rise + fadeMs;
     const sparked = new Set<number>();
     const statue = this.statue?.visible ? this.statue : null;
-    this.musterTroop(
-      mine.map((x) => x.b),
-      { start, each, total, fadeMs, golden },
-      statue ? statue.position.clone() : new THREE.Vector3(0, 0, 0),
-    );
     this.addAnim({
       duration: total,
       update: (t) => {
@@ -3079,101 +3069,122 @@ export class BoardRenderer {
   }
 
   /**
-   * 충성하는 기사들을 세운다: 마을은 지붕 용마루 위에 한 명, 도시는 앞쪽 두 망루 위에 한 명씩.
-   * 마을·도시가 금빛으로 밝아지는 차례에 맞춰 하나씩 나타나고, 연출이 끝나면 다 함께 작아지며 사라진다.
-   * 뽐내기처럼 연출이 겹치면 새 연출이 앞의 기사들을 물려받지 않고 새로 세운다.
+   * 최강 기사단 사열: 빈 광장(동상이 떠난 광장, 여럿이면 그 사람의 마을·도시에 가까운 곳)의 돌 단 위에
+   * 그 사람 색 옷과 방패를 든 병사들이 앞줄부터 한 줄씩 북소리에 맞춰 들어서고(3줄 × 4명, 카메라 쪽을 본다),
+   * 다 함께 칼을 하늘로 치켜들어 경례한 뒤 칼을 내리고 제자리걸음을 하다가 작아지며 사라진다.
+   * 동상이 광장에 서 있으면 돌 단 둘레에 둥글게 서서 동상을 보고 경례한다. 박자는 board/parade.ts (효과음과 같다).
    */
-  private musterTroop(
-    buildings: BoardBuildingView[],
-    time: { start: number; each: number; total: number; fadeMs: number; golden: boolean },
-    target: THREE.Vector3,
-  ): void {
-    if (!this.liegeParts.length) return;
-    const members: Troop['members'] = [];
-    buildings.forEach((b, i) => {
-      const p = this.vertexWorld(b.vertexId);
-      if (!p) return;
-      const scale = b.kind === 'city' ? CITY_SCALE : VILLAGE_SCALE;
-      const yaw0 = this.vertexYaw(b.vertexId);
-      for (const [x, y, z] of LIEGE_SPOTS[b.kind]) {
-        const at = new THREE.Vector3(x, y, z).multiplyScalar(scale).applyAxisAngle(yAxis, yaw0);
-        at.add(new THREE.Vector3(p.x, TILE_TOP - 0.03, p.z));
-        members.push({ at, yaw: Math.atan2(target.x - at.x, target.z - at.z), delay: time.start + i * time.each, colorIndex: b.colorIndex });
+  private playParade(playerId: string, golden: boolean): void {
+    if (!this.soldierParts.length) return;
+    const plazas = this.options.tiles.filter((t) => t.kind === 'plaza');
+    if (!plazas.length) return;
+    const homes = this.state.buildings.filter((b) => b.owner === playerId).map((b) => this.vertexWorld(b.vertexId)).filter((p): p is THREE.Vector3 => !!p);
+    const home = homes.length ? homes.reduce((s, p) => s.add(p), new THREE.Vector3()).multiplyScalar(1 / homes.length) : new THREE.Vector3();
+    const near = (list: TileDef[]) =>
+      list.reduce((best, t) => {
+        const c = tileCenter(t, this.metrics);
+        const cb = tileCenter(best, this.metrics);
+        return Math.hypot(c.x - home.x, c.z - home.z) < Math.hypot(cb.x - home.x, cb.z - home.z) ? t : best;
+      });
+    const empty = plazas.filter((t) => t.id !== this.statueTile || !this.statue?.visible);
+    const tile = near(empty.length ? empty : plazas);
+    const ring = !empty.includes(tile);
+    const c = tileCenter(tile, this.metrics);
+    const dais = new THREE.Vector3(c.x + PLAZA_STATUE_SPOT.x, TILE_TOP, c.z + PLAZA_STATUE_SPOT.z);
+    const timing = paradeTiming(golden);
+    const { ranks, files } = timing;
+    const members: Parade['members'] = [];
+    for (let rank = 0; rank < ranks; rank++) {
+      for (let file = 0; file < files; file++) {
+        let x: number;
+        let z: number;
+        let yaw = 0;
+        if (ring) {
+          // 앞쪽(카메라 쪽) 무리부터 둥글게 들어서서 가운데 동상을 본다.
+          const i = rank * files + file;
+          const a = Math.PI / 2 + ((i - (files - 1) / 2) / (ranks * files)) * Math.PI * 2;
+          x = Math.cos(a) * PARADE_RING;
+          z = Math.sin(a) * PARADE_RING;
+          yaw = Math.atan2(-x, -z);
+        } else {
+          x = (file - (files - 1) / 2) * PARADE_FILE_GAP;
+          z = ((ranks - 1) / 2 - rank) * PARADE_RANK_GAP;
+        }
+        const d = Math.hypot(x, z);
+        const lift = ring ? 0 : d < DAIS_TOP_R ? DAIS_HEIGHT : d < DAIS_LOW_R ? DAIS_HEIGHT / 2 : 0;
+        members.push({ at: dais.clone().add(new THREE.Vector3(x, lift, z)), yaw, rank, file });
       }
-    });
-    const troop: Troop = { members, total: time.total, fadeMs: time.fadeMs, golden: time.golden, sparked: new Set() };
-    this.troop = troop;
+    }
+    const colorIndex = this.state.buildings.find((b) => b.owner === playerId)?.colorIndex ?? 0;
+    const parade: Parade = { members, colorIndex, timing, golden, sparked: new Set() };
+    this.parade = parade;
     this.addAnim({
-      duration: time.total,
+      duration: timing.end,
       update: (t) => {
-        if (this.troop === troop) this.syncTroop(troop, t * time.total);
+        if (this.parade === parade) this.syncParade(parade, t * timing.end);
       },
       done: () => {
-        if (this.troop !== troop) return;
-        this.troop = null;
-        this.syncTroop(null, 0);
+        if (this.parade !== parade) return;
+        this.parade = null;
+        this.syncParade(null, 0);
       },
     });
   }
 
-  /**
-   * 기사 한 명의 동작 (나타난 뒤 ms): 지붕에서 톡 솟으며 정면에서 동상 쪽으로 돌아서고(0~450),
-   * 칼끝을 땅에 짚었다가(~300) 하늘로 치켜들어(300~650) 칼끝이 반짝이고, 잠깐 그대로 있다가(~1250)
-   * 칼을 내려 짚으며 고개 숙인다(1250~1600). 연출 끝에는 작아지며 지붕 속으로 내려간다.
-   */
-  private syncTroop(troop: Troop | null, ms: number): void {
+  /** 사열 병사들을 ms 때의 자세로 놓는다 (parade 가 없으면 모두 감춘다) */
+  private syncParade(parade: Parade | null, ms: number): void {
     const color = new THREE.Color();
     const gold = new THREE.Color(AWARD_GOLD);
     const body = new THREE.Matrix4();
     const arm = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const pos = new THREE.Vector3();
-    const cap = this.liegeParts[0]?.mesh.instanceMatrix.count ?? 0;
+    const cap = this.soldierParts[0]?.mesh.instanceMatrix.count ?? 0;
     let n = 0;
-    if (troop) {
-      const fade = ms > troop.total - troop.fadeMs ? Math.max(0, (troop.total - ms) / troop.fadeMs) : 1;
-      troop.members.forEach((m, i) => {
-        const u = ms - m.delay;
+    if (parade) {
+      const T = parade.timing;
+      color.set(this.playerColor(parade.colorIndex));
+      if (parade.golden) color.lerp(gold, 0.35).multiplyScalar(1.15);
+      const fade = ms > T.fade ? Math.max(0, 1 - (ms - T.fade) / (T.end - T.fade)) : 1;
+      // 칼: 내린 차렷 → 다 함께 치켜든 경례 → 내림
+      let a = SOLDIER_ARM_REST;
+      if (ms > T.salute && ms <= T.salute + 320) a = SOLDIER_ARM_REST + (SOLDIER_ARM_SALUTE - SOLDIER_ARM_REST) * easeOutBack((ms - T.salute) / 320);
+      else if (ms > T.salute + 320 && ms <= T.lower) a = SOLDIER_ARM_SALUTE;
+      else if (ms > T.lower) a = SOLDIER_ARM_SALUTE + (SOLDIER_ARM_REST - SOLDIER_ARM_SALUTE) * easeInOut(Math.min(1, (ms - T.lower) / PARADE_LOWER_MS));
+      // 칼을 내린 뒤 사라질 때까지 다 함께 제자리걸음: 한 걸음마다 들썩이며 좌우로 살짝 기운다.
+      const marchFrom = T.lower + PARADE_LOWER_MS;
+      const phase = ms > marchFrom ? ((ms - marchFrom) / T.step) * Math.PI : 0;
+      const bob = ms > marchFrom ? Math.abs(Math.sin(phase)) * 0.022 : 0;
+      const roll = ms > marchFrom ? Math.sin(phase) * 0.07 : 0;
+      parade.members.forEach((m, i) => {
+        const appear = T.start + m.rank * T.gap + m.file * 45;
+        const u = ms - appear;
         if (u <= 0 || n >= cap) return;
-        const pop = Math.min(1, u / 260);
-        const s = LIEGE_SCALE * Math.max(0.01, easeOutBack(pop)) * Math.max(0.01, easeInOut(fade));
-        const yaw = m.yaw * easeInOut(Math.min(1, u / 450));
-        let a = LIEGE_ARM_REST;
-        let bow = 0;
-        if (u > 300 && u <= 650) {
-          a = LIEGE_ARM_REST + (LIEGE_ARM_RAISED - LIEGE_ARM_REST) * easeOutBack((u - 300) / 350);
-        } else if (u > 650 && u <= 1250) {
-          a = LIEGE_ARM_RAISED;
-        } else if (u > 1250) {
-          const k = easeInOut(Math.min(1, (u - 1250) / 350));
-          a = LIEGE_ARM_RAISED + (LIEGE_ARM_REST - LIEGE_ARM_RAISED) * k;
-          bow = 0.32 * k;
-        }
+        const pop = Math.min(1, u / 280);
+        const s = SOLDIER_SCALE * Math.max(0.01, easeOutBack(pop)) * Math.max(0.01, easeInOut(fade));
         pos.copy(m.at);
-        pos.y -= (1 - pop) * 0.08 + (1 - fade) * 0.1;
-        q.setFromAxisAngle(yAxis, yaw).multiply(tmpQ2.setFromAxisAngle(xAxis, bow));
+        pos.y += bob - (1 - pop) * 0.06 - (1 - fade) * 0.08;
+        q.setFromAxisAngle(yAxis, m.yaw).multiply(tmpQ2.setFromAxisAngle(zAxis, roll));
         body.compose(pos, q, tmpS.setScalar(s));
-        arm.makeRotationX(a).setPosition(LIEGE_SHOULDER[0], LIEGE_SHOULDER[1], LIEGE_SHOULDER[2]).premultiply(body);
-        color.set(this.playerColor(m.colorIndex));
-        if (troop.golden) color.lerp(gold, 0.35).multiplyScalar(1.15);
-        for (const part of this.liegeParts) {
+        arm.makeRotationX(a).setPosition(SOLDIER_SHOULDER[0], SOLDIER_SHOULDER[1], SOLDIER_SHOULDER[2]).premultiply(body);
+        for (const part of this.soldierParts) {
           part.mesh.setMatrixAt(n, body);
           if (part.tint) part.mesh.setColorAt(n, color);
         }
-        for (const part of this.liegeArmParts) {
+        for (const part of this.soldierArmParts) {
           part.mesh.setMatrixAt(n, arm);
           if (part.tint) part.mesh.setColorAt(n, color);
         }
-        if (u > 650 && !troop.sparked.has(i)) {
-          troop.sparked.add(i);
-          const tip = new THREE.Vector3(0, 0, LIEGE_REACH).applyMatrix4(arm);
-          if (troop.golden) this.sparkBurst(tip, 0, 3, 0.12, 0.1);
-          else this.spawnSparkle(tip, 0, 0.11);
+        if (ms > T.salute + 300 && !parade.sparked.has(i)) {
+          parade.sparked.add(i);
+          const tip = new THREE.Vector3(0, 0, SOLDIER_REACH).applyMatrix4(arm);
+          if (parade.golden) this.sparkBurst(tip, i * 25, 2, 0.1, 0.09);
+          else this.spawnSparkle(tip, i * 25, 0.09);
         }
         n++;
       });
     }
-    for (const part of [...this.liegeParts, ...this.liegeArmParts]) {
+    for (const part of [...this.soldierParts, ...this.soldierArmParts]) {
       part.mesh.count = n;
       part.mesh.instanceMatrix.needsUpdate = true;
       if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
@@ -3306,6 +3317,7 @@ export class BoardRenderer {
     if (!this.ready) return;
     if (award === 'largest_army') {
       this.glowArmy(playerId);
+      this.playParade(playerId, false);
       return;
     }
     // 달성을 만든 길이 막 솟아오르는 중일 수 있으니 잠깐 기다렸다가, 그때의 상태로 가장 긴 길을 찾는다.
