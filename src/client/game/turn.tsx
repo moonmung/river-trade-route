@@ -135,6 +135,7 @@ export function TurnStatus({
   onMenu,
   wait = null,
   compact = false,
+  tail = null,
 }: {
   view: RoomView;
   players: Players;
@@ -142,6 +143,8 @@ export function TurnStatus({
   /** 연출을 기다리는 까닭 (game/pace.ts) */
   wait?: string | null;
   compact?: boolean;
+  /** 첫 줄 맨 오른쪽에 붙이는 것 (좁은 화면의 전체화면 단추) */
+  tail?: ReactNode;
 }) {
   const g = view.game!;
   const dice = useDiceUi();
@@ -174,6 +177,7 @@ export function TurnStatus({
           ★{g.winPoints}
         </span>
         {clock && <TurnTimer clock={clock} mine={mineNow} size={compact ? 28 : 32} />}
+        {tail}
       </div>
       <div className="turn-line">{statusText(view, players, wait)}</div>
       {clock && mineNow && <div className={`ts-bar ${clock.left <= 10_000 ? 'ts-bar-low' : ''}`} style={{ ['--f' as string]: clock.left / clock.total } as CSSProperties} />}

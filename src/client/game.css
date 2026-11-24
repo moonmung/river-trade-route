@@ -63,6 +63,45 @@
   right: var(--side-w);
 }
 
+/* 넓은 화면 보드 오른쪽 위(오른쪽 패널 바로 왼쪽): 전체화면 단추 */
+.hud-fs {
+  position: absolute;
+  top: calc(8px + var(--safe-top));
+  right: calc(var(--side-w) + 8px);
+  z-index: 12;
+}
+
+.fullscreen-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--ink);
+}
+
+.hud-fs .fullscreen-btn {
+  min-width: 40px;
+  height: 38px;
+  box-shadow:
+    0 1.5px 0 rgba(58, 42, 31, 0.3),
+    0 2px 8px rgba(30, 20, 10, 0.25);
+}
+
+.fullscreen-btn[aria-pressed='true'] {
+  background-color: #f3dfae;
+}
+
+/* 좁은 화면: 차례 상태 쪽지 첫 줄 맨 오른쪽, 메뉴 단추와 같은 크기 */
+.turn-status .fullscreen-btn {
+  min-width: 30px;
+  height: 28px;
+}
+
+.turn-status .fullscreen-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
 .hud-status {
   pointer-events: auto;
   max-width: 100%;

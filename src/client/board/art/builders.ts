@@ -54,7 +54,9 @@ export type PropKey =
   | 'roadjoint'
   | 'goods'
   | 'trader'
-  | 'ship';
+  | 'ship'
+  | 'liege'
+  | 'liegearm';
 
 type Vec3 = [number, number, number];
 /** 밝기 배율. 숫자 하나는 밝기만 바꾸고, 세 값은 색조까지 바꾼다 (이끼 낀 돌처럼). */
@@ -1555,6 +1557,109 @@ export function buildStatue(): PropPart[] {
   return k.build(0.22, 0.72);
 }
 
+/** 충성하는 기사의 오른쪽 어깨 자리: 칼 든 팔(buildLiegeArm)을 여기에 붙여 x 축으로 돌린다. */
+export const LIEGE_SHOULDER: Vec3 = [0.08, 0.288, 0];
+/** 칼 든 팔에서 어깨부터 칼끝까지 거리 */
+export const LIEGE_REACH = 0.43;
+
+/** 두 점을 잇는 원기둥 (팔다리 마디) */
+function limb(k: Kit, from: Vec3, to: Vec3, r0: number, r1: number, color: string): void {
+  const a = new THREE.Vector3(...from);
+  const b = new THREE.Vector3(...to);
+  const dir = b.clone().sub(a);
+  const mid = a.clone().addScaledVector(dir, 0.5);
+  k.add('paint', cyl(r1, r0, dir.length(), 7), {
+    position: [mid.x, mid.y, mid.z],
+    rotation: aim(dir.x, dir.y, dir.z),
+    color,
+    shade: (_p, n) => skyShade(n, 0.66, 1.1),
+  });
+}
+
+/**
+ * 충성하는 기사: 최강 기사단 연출에서 그 사람의 마을·도시 위에 나타나 기사단 동상 쪽으로 한쪽 무릎을 꿇고
+ * 왼 주먹을 가슴에 얹는다. 겉옷·망토·투구 깃털은 지붕 재질이라 플레이어 색이 곱해진다.
+ * 칼 든 오른팔은 따로 만들어(buildLiegeArm) 어깨에서 돌린다. 원점 = 무릎 꿇은 자리 바닥 가운데, 얼굴은 +z.
+ * 깃털 끝까지 키 약 0.48.
+ */
+export function buildLiege(): PropPart[] {
+  const k = new Kit();
+  const steel = '#a3aab3';
+  const steelDark = '#6e757f';
+  const boot = '#4f5560';
+  const gold = '#d0a83c';
+  const round = (_p: THREE.Vector3, n: THREE.Vector3) => skyShade(n, 0.66, 1.1);
+  const hip = 0.135;
+  // 왼다리(-x): 발을 앞에 딛고 무릎을 세운다.
+  limb(k, [-0.045, 0.012, 0.09], [-0.045, 0.115, 0.09], 0.028, 0.026, steelDark);
+  limb(k, [-0.045, 0.115, 0.09], [-0.045, hip, 0.0], 0.03, 0.033, steelDark);
+  k.add('paint', new THREE.SphereGeometry(0.027, 8, 6), { position: [-0.045, 0.118, 0.095], color: steel, shade: round });
+  k.add('paint', box(0.05, 0.03, 0.08), { position: [-0.045, 0.015, 0.105], color: boot });
+  // 오른다리(+x): 무릎을 땅에 대고 정강이는 뒤로 눕힌다.
+  limb(k, [0.045, hip, 0.0], [0.045, 0.03, 0.035], 0.033, 0.03, steelDark);
+  limb(k, [0.045, 0.03, 0.035], [0.045, 0.024, -0.085], 0.027, 0.024, steelDark);
+  k.add('paint', new THREE.SphereGeometry(0.027, 8, 6), { position: [0.045, 0.03, 0.042], color: steel, shade: round });
+  k.add('paint', box(0.048, 0.04, 0.05), { position: [0.045, 0.022, -0.105], rotation: [0.5, 0, 0], color: boot });
+  // 몸통 갑옷과 허리띠
+  k.add('paint', cyl(0.064, 0.072, 0.17, 10), { position: [0, hip + 0.085, 0], color: steel, shade: round });
+  k.add('paint', cyl(0.078, 0.078, 0.024, 10), { position: [0, hip + 0.012, 0], color: '#5a3b20' });
+  // 겉옷 (플레이어 색): 앞판은 허벅지 위까지 내려오고 가운데에 금빛 십자 띠
+  k.add('roof', box(0.115, 0.2, 0.02), { position: [0, hip + 0.07, 0.066], shade: round });
+  k.add('roof', box(0.115, 0.17, 0.02), { position: [0, hip + 0.09, -0.066], shade: round });
+  k.add('paint', box(0.022, 0.12, 0.024), { position: [0, hip + 0.1, 0.07], color: gold });
+  k.add('paint', box(0.075, 0.02, 0.024), { position: [0, hip + 0.125, 0.07], color: gold });
+  // 망토 (플레이어 색): 어깨에서 등 뒤로 넓게 퍼지며 바닥에 끌린다.
+  const capeH = 0.27;
+  const cape = box(0.17, capeH, 0.016, 4, 6, 1);
+  warp(cape, (v) => {
+    const t = (capeH / 2 - v.y) / capeH; // 위 0 → 아래 1
+    v.x *= 0.8 + 0.4 * t;
+    v.z -= 0.07 * t * t;
+  });
+  k.add('roof', cape, { position: [0, 0.3 - capeH / 2, -0.085], shade: (p, n) => skyShade(n, 0.62, 1.05) * (0.84 + 0.2 * smoothstep(0.03, 0.3, p.y)) });
+  // 어깨 갑옷
+  for (const x of [-LIEGE_SHOULDER[0], LIEGE_SHOULDER[0]]) {
+    k.add('paint', new THREE.SphereGeometry(0.042, 10, 8), { position: [x, LIEGE_SHOULDER[1], 0], scale: [1, 0.8, 1], color: steel, shade: round });
+  }
+  // 왼팔: 주먹을 가슴에 얹는다 (충성 맹세).
+  const elbow: Vec3 = [-0.088, 0.21, 0.05];
+  const fist: Vec3 = [-0.012, 0.255, 0.088];
+  limb(k, [-LIEGE_SHOULDER[0], LIEGE_SHOULDER[1] - 0.005, 0], elbow, 0.026, 0.023, steel);
+  limb(k, elbow, fist, 0.023, 0.021, steel);
+  k.add('paint', new THREE.SphereGeometry(0.024, 8, 6), { position: fist, color: steelDark, shade: round });
+  // 머리: 투구, 눈 틈, 플레이어 색 깃털
+  k.add('paint', cyl(0.035, 0.04, 0.03, 8), { position: [0, 0.315, 0], color: steelDark });
+  k.add('paint', cyl(0.05, 0.054, 0.075, 12), { position: [0, 0.36, 0], color: steel, shade: round });
+  k.add('paint', new THREE.SphereGeometry(0.05, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), { position: [0, 0.397, 0], color: steel, shade: round });
+  k.add('dark', box(0.066, 0.01, 0.01), { position: [0, 0.37, 0.051] });
+  k.add('dark', box(0.01, 0.034, 0.01), { position: [0, 0.352, 0.053] });
+  k.add('roof', new THREE.SphereGeometry(0.028, 8, 6), { position: [0, 0.455, -0.014], scale: [0.55, 1.5, 1.45], shade: round });
+  return k.build(0.12, 0.72);
+}
+
+/**
+ * 충성하는 기사의 칼 든 오른팔: 어깨가 원점이고 팔과 칼날이 +z 로 곧게 뻗는다.
+ * 어깨에서 x 축으로 돌려, 칼끝을 앞쪽 땅에 짚었다가 하늘로 치켜든다. 칼끝까지 LIEGE_REACH.
+ */
+export function buildLiegeArm(): PropPart[] {
+  const k = new Kit();
+  const round = (_p: THREE.Vector3, n: THREE.Vector3) => skyShade(n, 0.66, 1.1);
+  const gold = '#d0a83c';
+  k.add('paint', cyl(0.022, 0.026, 0.12, 7), { position: [0, 0, 0.06], rotation: [Math.PI / 2, 0, 0], color: '#a3aab3', shade: round });
+  k.add('paint', new THREE.SphereGeometry(0.026, 8, 6), { position: [0, 0, 0.125], color: '#6e757f', shade: round });
+  k.add('paint', new THREE.SphereGeometry(0.013, 6, 4), { position: [0, 0, 0.094], color: gold });
+  k.add('paint', box(0.078, 0.014, 0.016), { position: [0, 0, 0.158], color: gold });
+  k.add('paint', box(0.022, 0.007, 0.235), { position: [0, 0, 0.166 + 0.1175], color: '#e4e8ee', faceShade: (_c, n) => skyShade(n, 0.82, 1.14) });
+  k.add('paint', new THREE.ConeGeometry(0.011, 0.03, 4), {
+    position: [0, 0, 0.401 + 0.015],
+    rotation: [Math.PI / 2, 0, 0],
+    scale: [1, 1, 0.32],
+    color: '#e4e8ee',
+  });
+  // 팔이 바닥 가까이 내려와도 어둡게 칠하지 않는다 (어깨가 원점이라 미리 구운 그늘을 쓰지 않는다).
+  return k.build(0.01, 1);
+}
+
 /** 광장 가운데 둥근 두 단 돌 단: 기사단 동상이 처음 서 있는 자리. 동상이 떠나면 빈 단만 남는다. */
 export function buildDais(): PropPart[] {
   const k = new Kit();
@@ -2235,6 +2340,8 @@ export const PROP_VARIANTS: Record<PropKey, number> = {
   goods: 5,
   trader: 1,
   ship: 1,
+  liege: 1,
+  liegearm: 1,
 };
 
 export function buildProp(key: PropKey, variant = 0): PropPart[] {
@@ -2320,6 +2427,10 @@ export function buildProp(key: PropKey, variant = 0): PropPart[] {
       return buildTrader();
     case 'ship':
       return buildShip();
+    case 'liege':
+      return buildLiege();
+    case 'liegearm':
+      return buildLiegeArm();
   }
 }
 
