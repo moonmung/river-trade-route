@@ -321,11 +321,17 @@ uniform sampler2D tNoise;
 uniform vec2 uRes;
 uniform float uDpr;
 uniform float uDepthRange;
+uniform float uPersp;
+uniform float uNear;
+uniform float uFar;
 uniform vec3 uInk;
 uniform vec3 uPaper;
 varying vec2 vUv;
 
 float lum( vec3 c ) { return dot( c, vec3( 0.299, 0.587, 0.114 ) ); }
+
+// 원근 카메라의 깊이 버퍼 값을 카메라에서의 거리의 역수로 바꾼다. 평면 위에서는 화면 좌표에 대해 일차식이다.
+float invDist( float d ) { return ( uFar - d * ( uFar - uNear ) ) / ( uNear * uFar ); }
 
 void main() {
   vec2 px = 1.0 / uRes;
@@ -348,8 +354,17 @@ void main() {
   float d2 = texture2D( tDepth, uv - dx ).x;
   float d3 = texture2D( tDepth, uv + dy ).x;
   float d4 = texture2D( tDepth, uv - dy ).x;
-  float dz = max( max( abs( d1 - d ), abs( d2 - d ) ), max( abs( d3 - d ), abs( d4 - d ) ) ) * uDepthRange;
-  float depthInk = smoothstep( 0.035, 0.12, dz );
+  float depthInk;
+  if ( uPersp > 0.5 ) {
+    // 원근(승리 연출의 길 위 카메라): 깊이 차이 그대로 쓰면 멀리 비스듬한 땅이 온통 먹선이 된다.
+    // 거리 역수는 평면 위에서 곧게 변하므로 그 굽음(이웃과의 2차 차분)이 큰 곳, 곧 윤곽과 꺾인 모서리에만 먹선을 긋는다.
+    float w0 = invDist( d );
+    float lap = max( abs( invDist( d1 ) + invDist( d2 ) - 2.0 * w0 ), abs( invDist( d3 ) + invDist( d4 ) - 2.0 * w0 ) ) / w0;
+    depthInk = smoothstep( 0.05, 0.16, lap );
+  } else {
+    float dz = max( max( abs( d1 - d ), abs( d2 - d ) ), max( abs( d3 - d ), abs( d4 - d ) ) ) * uDepthRange;
+    depthInk = smoothstep( 0.035, 0.12, dz );
+  }
 
   float l = lum( col );
   float l1 = lum( texture2D( tColor, uv + dx ).rgb );
@@ -407,6 +422,9 @@ export class PaintedRenderer {
         uRes: { value: new THREE.Vector2(1, 1) },
         uDpr: { value: 1 },
         uDepthRange: { value: 1 },
+        uPersp: { value: 0 },
+        uNear: { value: 0.1 },
+        uFar: { value: 100 },
         uInk: { value: new THREE.Color(INK_COLOR) },
         uPaper: { value: new THREE.Color(PAPER_COLOR) },
       },
@@ -433,7 +451,11 @@ export class PaintedRenderer {
   }
 
   render(scene: THREE.Scene, camera: THREE.OrthographicCamera | THREE.PerspectiveCamera): void {
-    this.material.uniforms.uDepthRange.value = camera.far - camera.near;
+    const u = this.material.uniforms;
+    u.uDepthRange.value = camera.far - camera.near;
+    u.uPersp.value = camera instanceof THREE.PerspectiveCamera ? 1 : 0;
+    u.uNear.value = camera.near;
+    u.uFar.value = camera.far;
     this.renderer.setRenderTarget(this.target);
     this.renderer.render(scene, camera);
     this.renderer.setRenderTarget(null);
