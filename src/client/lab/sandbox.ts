@@ -343,12 +343,18 @@ export class Sandbox {
     this.onPing?.({ id: this.pingSeq, from, kind, target, at: Date.now() });
   }
 
-  /** 서버의 ChatHub.brag 처럼 가진 달성만 뽐낸다 (간격은 화면이 센다). */
-  brag(from: string, award: ChatBrag['award']): AckResult {
+  /** 서버의 ChatHub.brag 처럼 가진 달성이나(게임 중) 이긴 사람의 승리만(게임이 끝난 뒤) 뽐낸다 (간격은 화면이 센다). */
+  brag(from: string, award: ChatBrag['award'], line: number): AckResult {
+    if (award === 'victory') {
+      const r = this.state.result;
+      if (this.state.phase !== 'finished' || !r?.winners.includes(from)) return { ok: false, error: '이긴 사람만 승리를 자랑할 수 있습니다.', code: 'BRAG_NOT_WINNER' };
+      this.onBrag?.({ from, award, size: r.ranking.find((e) => e.playerId === from)?.score ?? 0, line, at: Date.now() });
+      return { ok: true };
+    }
     const held = award === 'longest_road' ? this.state.longestRoad : this.state.largestArmy;
     if (held.holder !== from) return { ok: false, error: '가지고 있는 달성만 자랑할 수 있습니다.', code: 'BRAG_NOT_HOLDER' };
     const size = 'length' in held ? held.length : held.size;
-    this.onBrag?.({ from, award, size, at: Date.now() });
+    this.onBrag?.({ from, award, size, line, at: Date.now() });
     return { ok: true };
   }
 }

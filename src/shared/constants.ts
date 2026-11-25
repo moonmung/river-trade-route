@@ -263,6 +263,10 @@ export const PING_MS = 2600;
 
 /** 최장 교역로·최강 기사단을 가진 사람이 모두에게 뽐내는 자랑하기의 최소 간격 (달성 공지가 다 사라질 만큼) */
 export const BRAG_GAP_MS = 5000;
+/** 이긴 사람이 승리를 뽐내는 간격 (게임이 끝난 뒤라 한마디만 바뀌어 뜨므로 짧다) */
+export const VICTORY_BRAG_GAP_MS = 2000;
+/** 자랑할 때 뜨는 한마디의 가짓수 (자랑 종류마다) */
+export const BRAG_LINE_COUNT = 10;
 
 export const NICKNAME_MAX = 12;
 export const ROOM_CODE_LENGTH = 4;

@@ -3560,7 +3560,8 @@
 
 /* 글자 둘레를 여덟 방향 그늘로 감싸 먹 테두리를 만든다 (어느 브라우저에서도 글자 획이 가늘어지지 않게) */
 .award-headline,
-.award-sub {
+.award-sub,
+.award-quote {
   font-family: var(--font-title);
   font-weight: 800;
   color: #fff8ea;
@@ -3595,6 +3596,14 @@
   margin-top: 4px;
   font-size: clamp(0.95rem, 3vw, 1.2rem);
   font-weight: 700;
+}
+
+/* 자랑하기 한마디: 금빛 글씨로 한 줄 더 */
+.award-quote {
+  margin-top: 6px;
+  font-size: clamp(1rem, 3.2vw, 1.3rem);
+  font-weight: 700;
+  color: #ffe39a;
 }
 
 @keyframes award-banner-life {
@@ -3821,14 +3830,9 @@
   animation: victory-bar-bottom 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-.victory-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: clamp(1rem, 2.6vw, 1.45rem);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
+/* 아래 띠: 왼쪽은 이긴 사람의 자랑하기, 오른쪽은 건너뛰기 */
+.victory-bar-bottom {
+  justify-content: flex-end;
 }
 
 .victory-name {
@@ -3841,22 +3845,55 @@
     0 -1px 0 #fff3dc;
 }
 
-/* 점수: 오를 때마다 숫자가 톡 커졌다 돌아온다 */
-.victory-score {
+/* 위 가운데 점수판: 위 띠에 걸려 아래로 드리운 먹빛 패. 이긴 사람 이름, 큰 금빛 점수, 점수 구슬, 방금 더한 것 */
+.victory-plate {
+  position: absolute;
+  left: 50%;
+  top: var(--safe-top);
+  transform: translateX(-50%);
+  min-width: min(240px, 60vw);
+  max-width: min(400px, 60vw);
+  padding: 6px 22px 12px;
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
+  align-items: center;
   gap: 3px;
-  flex: none;
-  min-width: 2.6em;
+  border-radius: 0 0 20px 20px;
+  background: linear-gradient(rgba(22, 15, 10, 0.97), rgba(36, 24, 14, 0.95));
+  box-shadow:
+    0 12px 26px rgba(10, 6, 2, 0.45),
+    inset 0 -3px 0 var(--pc);
+  color: #f6ead2;
+  font-family: var(--font-title);
+  text-align: center;
+  animation: victory-plate-in 0.6s cubic-bezier(0.2, 1.2, 0.3, 1) both;
 }
 
+.victory-plate-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: clamp(0.85rem, 2vh, 1rem);
+  white-space: nowrap;
+}
+
+.victory-plate-score {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  line-height: 1;
+}
+
+/* 점수: 오를 때마다 숫자가 톡 커졌다 돌아온다 */
 .victory-total {
   display: inline-block;
-  font-size: clamp(2rem, 6.4vh, 3.4rem);
+  font-size: clamp(2.8rem, 9vh, 4.8rem);
   font-weight: 800;
   line-height: 1;
   color: #ffd766;
-  text-shadow: 0 0 12px rgba(255, 200, 70, 0.55);
+  text-shadow:
+    0 0 14px rgba(255, 200, 70, 0.6),
+    0 3px 0 #3d2606;
   font-variant-numeric: tabular-nums;
 }
 
@@ -3865,34 +3902,25 @@
 }
 
 .victory-unit {
-  font-size: 1rem;
+  font-size: clamp(1rem, 2.4vh, 1.3rem);
   color: #e7d3ad;
-}
-
-.victory-tally {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
 }
 
 .victory-pips {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 5px;
+  margin-top: 2px;
 }
 
 /* 점수 구슬: 센 만큼 그 사람 색으로 차오른다. 승리 점수 자리 구슬은 금빛 테를 두른다. */
 .victory-pips i {
-  width: clamp(10px, 1.6vh, 15px);
-  height: clamp(10px, 1.6vh, 15px);
+  width: clamp(10px, 1.6vh, 14px);
+  height: clamp(10px, 1.6vh, 14px);
   border-radius: 50%;
   background: rgba(246, 234, 210, 0.16);
   box-shadow: inset 0 0 0 1.5px rgba(246, 234, 210, 0.35);
-  transition:
-    background-color 0.2s,
-    transform 0.2s;
 }
 
 .victory-pips i.is-on {
@@ -3909,16 +3937,164 @@
 }
 
 .victory-step {
-  font-size: clamp(0.85rem, 2vh, 1.05rem);
+  margin-top: 2px;
+  font-size: clamp(0.95rem, 2.3vh, 1.15rem);
+  font-weight: 700;
   color: #f1e2c3;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   animation: victory-step 0.32s ease-out;
 }
 
 .victory-step b {
   color: #ffd766;
+}
+
+/* 오른쪽 위 카드 더미: 새 카드가 오른쪽에서 미끄러져 들어와 맨 앞에 놓이고 앞서 놓인 카드는 뒤로 밀려 비스듬히 겹친다. */
+.victory-cards {
+  --vc-w: clamp(132px, 13vw, 176px);
+  position: absolute;
+  right: max(20px, 2.4vw);
+  top: calc(var(--safe-top) + var(--victory-bar) + 18px);
+  width: var(--vc-w);
+  height: calc(var(--vc-w) * 1.45);
+}
+
+.victory-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 12px 10px 10px;
+  border-radius: 12px;
+  border: 2px solid #8a6a3e;
+  background-color: var(--parchment-hi);
+  background-image: var(--paper);
+  box-shadow:
+    0 12px 24px rgba(20, 12, 4, 0.45),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.35);
+  color: var(--ink);
+  font-family: var(--font-title);
+  text-align: center;
+  transform-origin: 50% 100%;
+  transform: translate(calc(var(--depth) * -24px), calc(var(--depth) * 12px)) rotate(calc(var(--depth) * -6deg)) scale(calc(1 - var(--depth) * 0.05));
+  filter: brightness(calc(1 - var(--depth) * 0.07));
+  transition:
+    transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1),
+    filter 0.4s;
+  animation: victory-card-deal 0.5s cubic-bezier(0.2, 1.1, 0.3, 1) both;
+}
+
+.victory-card.is-total {
+  border-color: #c9952a;
+  box-shadow:
+    0 12px 24px rgba(20, 12, 4, 0.45),
+    0 0 22px rgba(255, 200, 80, 0.65),
+    inset 0 0 0 3px rgba(255, 236, 170, 0.6);
+}
+
+/* 오른쪽 위 모서리 점수 딱지: 그 사람 색 */
+.vc-points {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  min-width: 42px;
+  height: 42px;
+  padding: 0 8px;
+  display: grid;
+  place-items: center;
+  border-radius: 21px;
+  background: var(--pc);
+  color: #fff;
+  font-size: 1.15rem;
+  font-weight: 800;
+  text-shadow: 0 1px 1px var(--pc-ink);
+  box-shadow:
+    0 0 0 2px #fff3dc,
+    0 4px 10px rgba(0, 0, 0, 0.35);
+}
+
+.vc-art {
+  width: calc(var(--vc-w) * 0.46);
+  height: calc(var(--vc-w) * 0.46);
+  flex: none;
+}
+
+.vc-art .art-img {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 2px 2px rgba(58, 42, 31, 0.35));
+}
+
+.vc-title {
+  font-size: calc(var(--vc-w) * 0.105);
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.vc-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 3px;
+}
+
+.vc-tile {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px 1px 3px;
+  border-radius: 999px;
+  background: rgba(58, 42, 31, 0.08);
+  font-size: calc(var(--vc-w) * 0.075);
+  font-weight: 700;
+}
+
+.vc-tile.is-hot {
+  color: #b3261e;
+}
+
+.vc-line {
+  font-size: calc(var(--vc-w) * 0.072);
+  line-height: 1.25;
+  color: var(--ink-soft);
+}
+
+/* 이긴 사람의 자랑하기: 금빛 둥근 단추 (승리 연출 아래 띠, 결과 창) */
+.victory-brag,
+.btn.btn-brag {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #8a5f16;
+  border-radius: 999px;
+  background: linear-gradient(#f6d985, #d9a93c);
+  color: #3a2508;
+  font-family: var(--font-title);
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow:
+    0 2px 0 #8a5f16,
+    0 0 14px rgba(255, 205, 90, 0.45);
+}
+
+.victory-brag {
+  margin-right: auto;
+  padding: 8px 18px;
+  font-size: 0.95rem;
+}
+
+.victory-brag:hover,
+.btn.btn-brag:hover {
+  filter: brightness(1.06);
+}
+
+.victory-brag.is-cooling,
+.btn.btn-brag.is-cooling {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .victory-skip {
@@ -3936,6 +4112,69 @@
 
 .victory-skip:hover {
   background: rgba(246, 234, 210, 0.2);
+}
+
+/*
+ * 승리 자랑 한마디: 양피지 두루마리가 화면 아래쪽(승리 연출 아래 띠 위, 결과 창 아래)에 떠올랐다가 사라진다.
+ * 양 끝에 둘둘 만 두루마리 막대를 단다.
+ */
+.victory-quote {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + max(13vh, 104px));
+  z-index: 49;
+  width: min(90vw, 640px);
+  padding: 14px 30px 12px;
+  border: 2px solid #8a6a3e;
+  border-radius: 8px;
+  background-color: var(--parchment-hi);
+  background-image: var(--paper);
+  box-shadow: 0 14px 30px rgba(20, 12, 4, 0.5);
+  color: var(--ink);
+  font-family: var(--font-title);
+  text-align: center;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: victory-quote-life 3.8s ease-in-out forwards;
+}
+
+.victory-quote::before,
+.victory-quote::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  bottom: -7px;
+  width: 14px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, #6e4a28, #c79a5e 45%, #6e4a28);
+  box-shadow: 0 3px 6px rgba(20, 12, 4, 0.35);
+}
+
+.victory-quote::before {
+  left: -9px;
+}
+
+.victory-quote::after {
+  right: -9px;
+}
+
+.vq-text {
+  font-size: clamp(1.05rem, 3.2vw, 1.5rem);
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.vq-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.vq-who b {
+  color: var(--pc);
 }
 
 /* 마무리: 띠 사이 가운데에 이름과 "승리!"가 금빛으로 튀어나온다 */
@@ -4014,6 +4253,12 @@
   }
 }
 
+@keyframes victory-plate-in {
+  from {
+    transform: translate(-50%, -110%);
+  }
+}
+
 @keyframes victory-bump {
   40% {
     transform: scale(1.35);
@@ -4036,6 +4281,13 @@
   }
 }
 
+@keyframes victory-card-deal {
+  from {
+    opacity: 0;
+    transform: translate(140%, -24px) rotate(18deg) scale(0.9);
+  }
+}
+
 @keyframes victory-finale {
   from {
     opacity: 0;
@@ -4043,21 +4295,84 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .victory-bar-top,
-  .victory-bar-bottom,
-  .victory-total.is-bump,
-  .victory-pips i.is-on,
-  .victory-step,
-  .victory-finale {
-    animation: none;
+@keyframes victory-quote-life {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 16px) scale(0.92);
+  }
+  10%,
+  88% {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%);
   }
 }
 
-/* 휴대폰: 띠가 낮아 점수 구슬을 작게, 건너뛰기를 짧게 */
+@media (prefers-reduced-motion: reduce) {
+  .victory-bar-top,
+  .victory-bar-bottom,
+  .victory-plate,
+  .victory-total.is-bump,
+  .victory-pips i.is-on,
+  .victory-step,
+  .victory-card,
+  .victory-finale {
+    animation: none;
+  }
+
+  .victory-quote {
+    animation-name: victory-quote-fade;
+  }
+}
+
+@keyframes victory-quote-fade {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  8%,
+  90% {
+    opacity: 1;
+  }
+}
+
+/* 휴대폰: 점수판과 카드를 줄여 서로 겹치지 않게 하고, 단추를 짧게 */
 @media (max-width: 560px) {
   .victory-bar {
     gap: 10px;
+  }
+
+  .victory-plate {
+    min-width: 0;
+    max-width: 54vw;
+    padding: 4px 14px 10px;
+  }
+
+  /* 점수판 아래로 내려 겹치지 않게 한다 */
+  .victory-cards {
+    --vc-w: 100px;
+    right: 12px;
+    top: calc(var(--safe-top) + var(--victory-bar) + 110px);
+  }
+
+  .vc-points {
+    top: -9px;
+    right: -9px;
+    min-width: 32px;
+    height: 32px;
+    font-size: 0.9rem;
+  }
+
+  .vc-tiles {
+    display: none;
+  }
+
+  .victory-brag {
+    padding: 6px 12px;
+    font-size: 0.82rem;
   }
 
   .victory-skip {

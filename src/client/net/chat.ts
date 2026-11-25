@@ -1,6 +1,6 @@
 // 방 채팅 저장소. 서버가 보낸 최근 대화와 이모티콘, 핑을 방 코드와 함께 들고 있다가 React 에 알린다.
 import { useSyncExternalStore } from 'react';
-import { BRAG_GAP_MS, CHAT_HISTORY, PING_MS, PING_SLOW_TEXT, takePingToken, type PingBucket } from '../../shared/constants';
+import { BRAG_GAP_MS, VICTORY_BRAG_GAP_MS, CHAT_HISTORY, PING_MS, PING_SLOW_TEXT, takePingToken, type PingBucket } from '../../shared/constants';
 import type { AckResult, ChatBrag, ChatEmote, ChatMessage, ChatPing } from '../../shared/protocol';
 import { client } from './client';
 
@@ -37,7 +37,7 @@ export interface ChatSink {
   send: (text: string) => Promise<AckResult>;
   emote: (emote: string) => Promise<AckResult>;
   ping: (kind: ChatPing['kind'], target: string) => Promise<AckResult>;
-  brag: (award: ChatBrag['award']) => Promise<AckResult>;
+  brag: (award: ChatBrag['award'], line: number) => Promise<AckResult>;
 }
 let sink: ChatSink | null = null;
 
@@ -64,16 +64,16 @@ export function sendChatPing(kind: ChatPing['kind'], target: string, now = Date.
 /** 마지막으로 자랑한 시각 (화면에서도 서버와 같은 간격을 미리 센다) */
 let lastBrag = -Infinity;
 
-/** 다시 자랑할 수 있기까지 남은 시간 (ms, 0 이면 지금 할 수 있다) */
-export function bragWait(now = Date.now()): number {
-  return Math.max(0, lastBrag + BRAG_GAP_MS - now);
+/** 다시 자랑할 수 있기까지 남은 시간 (ms, 0 이면 지금 할 수 있다). 승리 자랑은 간격이 짧다. */
+export function bragWait(award: ChatBrag['award'] = 'longest_road', now = Date.now()): number {
+  return Math.max(0, lastBrag + (award === 'victory' ? VICTORY_BRAG_GAP_MS : BRAG_GAP_MS) - now);
 }
 
-/** 내가 가진 달성을 모두에게 뽐낸다. 간격이 덜 찼으면 서버에 묻지 않고 거절한다. */
-export function sendChatBrag(award: ChatBrag['award'], now = Date.now()): Promise<AckResult> {
-  if (bragWait(now) > 0) return Promise.resolve({ ok: false, error: '자랑은 잠시 뒤에 다시 할 수 있습니다.', code: 'BRAG_SLOW' });
+/** 내가 가진 달성이나 승리를 한마디(line 번)와 함께 모두에게 뽐낸다. 간격이 덜 찼으면 서버에 묻지 않고 거절한다. */
+export function sendChatBrag(award: ChatBrag['award'], line: number, now = Date.now()): Promise<AckResult> {
+  if (bragWait(award, now) > 0) return Promise.resolve({ ok: false, error: '자랑은 잠시 뒤에 다시 할 수 있습니다.', code: 'BRAG_SLOW' });
   lastBrag = now;
-  return sink ? sink.brag(award) : client.sendBrag(award);
+  return sink ? sink.brag(award, line) : client.sendBrag(award, line);
 }
 
 const bragListeners = new Set<(b: ChatBrag) => void>();

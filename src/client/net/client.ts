@@ -2,6 +2,7 @@
 import { io, type Socket } from 'socket.io-client';
 import type {
   AckResult,
+  BragKind,
   ClientToServerEvents,
   HandshakeAuth,
   RoomListing,
@@ -321,8 +322,8 @@ export class GameClient {
     return this.emit('chat:ping', { kind, target });
   }
 
-  sendBrag(award: 'longest_road' | 'largest_army'): Promise<AckResult> {
-    return this.emit('chat:brag', { award });
+  sendBrag(award: BragKind, line: number): Promise<AckResult> {
+    return this.emit('chat:brag', { award, line });
   }
 
   /** 화면 정보(state)와 따로 오는 서버 메시지 (채팅, 이모티콘, 핑, 자랑) */
