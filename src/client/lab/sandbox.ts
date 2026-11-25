@@ -1,7 +1,7 @@
 // 실험실 모의 게임: 서버 없이 브라우저 안에서 규칙 엔진(shared/rules)을 그대로 돌린다.
 // 화면 정보는 서버와 같은 함수(shared/gameView)로 만들어 실제 게임 화면(Game.tsx)에 그대로 넘긴다.
 // 다른 자리는 봇이 두고, 보는 자리를 바꾸면 그 사람이 되어 직접 둘 수 있다. 차례 시간도 서버처럼 잰다.
-import { DEV_CARDS, DISCARD_LIMIT, MIN_PLAYERS, RESOURCE_CARDS, TURN_SECONDS, WIN_POINTS } from '../../shared/constants';
+import { DEV_CARDS, DISCARD_LIMIT, MIN_PLAYERS, PIECE_LIMIT, RESOURCE_CARDS, TURN_SECONDS, WIN_POINTS, devDeckFor } from '../../shared/constants';
 import { buildGameView } from '../../shared/gameView';
 import { DEFAULT_MAP, mapCardDefaults, maxPlayersFor } from '../../shared/maps';
 import type { AckResult, ChatBrag, ChatEmote, ChatMessage, ChatPing, RoomView } from '../../shared/protocol';
@@ -159,6 +159,9 @@ export class Sandbox {
       unlimited: !!this.state.unlimited,
       diceMode: this.state.diceMode ?? 'random',
       sevenDiscard: this.state.sevenDiscard !== false,
+      devMix: devDeckFor(this.devCards),
+      devMixCustom: false,
+      pieceLimits: { ...(this.state.pieceLimits ?? PIECE_LIMIT) },
     };
   }
 

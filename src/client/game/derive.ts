@@ -5,7 +5,6 @@ import {
   DEV_LABEL,
   PIECE_COST,
   PIECE_LABEL,
-  PIECE_LIMIT,
   RESOURCES,
   RESOURCE_LABEL,
   AWARD_POINTS,
@@ -63,7 +62,7 @@ export function buildBlocker(view: RoomView, kind: PieceKind): string | null {
     if (turn) return turn;
   }
   if (!g) return '게임이 없습니다.';
-  if (pieceCount(g.buildings, g.roads, view.you, kind) >= pieceLimit(g, kind)) return `${PIECE_LABEL[kind]}은(는) 최대 ${PIECE_LIMIT[kind]}개까지입니다.`;
+  if (pieceCount(g.buildings, g.roads, view.you, kind) >= pieceLimit(g, kind)) return `${PIECE_LABEL[kind]}은(는) 최대 ${pieceLimit(g, kind)}개까지입니다.`;
   if (!free && !hasBundle(g.myResources, PIECE_COST[kind])) return `${shortfallText(g.myResources, PIECE_COST[kind])} 더 필요합니다.`;
   if (buildSpots(view, kind).length === 0) {
     if (kind === 'road') return '내 마을이나 길과 이어진 빈 변이 없습니다.';

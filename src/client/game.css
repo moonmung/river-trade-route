@@ -2051,6 +2051,44 @@
   background: var(--parchment-hi);
 }
 
+/* 대기실 규칙의 종류별 개수: 길·마을·도시, 발전 카드 종류 (작은 조절 칸이 줄을 바꿔 가며 놓인다) */
+.rule-row-minis {
+  align-items: flex-start;
+}
+
+.rule-minis {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 10px;
+  max-width: 100%;
+}
+
+.mini-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.82rem;
+}
+
+.mini-stepper .mini-name {
+  color: var(--ink-soft);
+  margin-right: 2px;
+}
+
+.mini-stepper .wp-btn {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.mini-stepper .mini-value {
+  min-width: 1.6em;
+  text-align: center;
+}
+
 /* 효과음: [v] 효과음  ─────●──  60%  [들어 보기] */
 .sound-row {
   display: flex;

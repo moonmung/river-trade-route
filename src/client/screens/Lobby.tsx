@@ -14,24 +14,53 @@ import { NumberStepper, WinPointsStepper, saveWinPoints, turnSecondsLabel } from
 import {
   DEV_CARDS_MAX,
   DEV_CARDS_MIN,
+  DEV_KIND_MAX,
   DEV_LABEL,
   HAND_LIMIT_MAX,
   HAND_LIMIT_MIN,
+  PIECE_LABEL,
+  PIECE_LIMIT_RANGE,
   RESOURCE_CARDS_MAX,
   RESOURCE_CARDS_MIN,
   TURN_SECONDS_OPTIONS,
-  devDeckFor,
+  devMixTotal,
+  type DevMix,
+  type PieceLimits,
 } from '../../shared/constants';
-import type { DevKind } from '../../shared/types';
+import type { DevKind, PieceKind } from '../../shared/types';
 import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL, mapTileCount, maxPlayersFor } from '../../shared/maps';
 import type { MapArrange, MapShape } from '../../shared/types';
 import { MapPreview } from '../ui/MapPreview';
 import { DICE_MODE_LABEL, type DiceMode } from '../../shared/fairDice';
 
 /** 발전 카드 더미 구성: "기사 14 · 승점 5 · 길 건설 2 · 풍년 2 · 독점 2" */
-function devDeckText(total: number): string {
-  const counts = devDeckFor(total);
-  return (Object.keys(counts) as DevKind[]).map((k) => `${DEV_LABEL[k]} ${counts[k]}`).join(" · ");
+function devDeckText(mix: DevMix): string {
+  return (Object.keys(mix) as DevKind[]).map((k) => `${DEV_LABEL[k]} ${mix[k]}`).join(' · ');
+}
+
+const PIECE_KINDS: PieceKind[] = ['road', 'village', 'city'];
+
+/** 길·마을·도시 개수: "길 15 · 마을 5 · 도시 4" */
+function pieceLimitText(l: PieceLimits): string {
+  return PIECE_KINDS.map((k) => `${PIECE_LABEL[k]} ${l[k]}`).join(' · ');
+}
+
+/** 작은 조절 칸 하나: 이름 [−] 값 [+] (대기실 규칙의 종류별 개수) */
+function MiniStepper({ name, value, min, max, onChange }: { name: string; value: number; min: number; max: number; onChange: (n: number) => void }) {
+  return (
+    <div className="mini-stepper" role="group" aria-label={name}>
+      <span className="mini-name">{name}</span>
+      <button type="button" className="wp-btn" onClick={() => onChange(value - 1)} disabled={value <= min} aria-label={`${name} 1 줄이기`}>
+        −
+      </button>
+      <b className="mini-value" aria-live="polite">
+        {value}
+      </b>
+      <button type="button" className="wp-btn" onClick={() => onChange(value + 1)} disabled={value >= max} aria-label={`${name} 1 늘리기`}>
+        +
+      </button>
+    </div>
+  );
 }
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
@@ -262,6 +291,33 @@ export function Lobby({ view }: { view: RoomView }) {
                 </div>
               )}
             </div>
+            <div className="rule-row rule-row-minis">
+              <span className="rule-name" title="종류마다 0~30장, 모두 합쳐 1~50장. 위의 총 장수를 바꾸면 기본 비율로 다시 나눕니다">
+                발전 카드 종류{view.devMixCustom ? '' : ' (기본 비율)'}
+              </span>
+              {isHost ? (
+                <div className="rule-minis">
+                  {(Object.keys(view.devMix) as DevKind[]).map((k) => (
+                    <MiniStepper
+                      key={k}
+                      name={DEV_LABEL[k]}
+                      value={view.devMix[k]}
+                      min={0}
+                      max={DEV_KIND_MAX}
+                      onChange={async (n) => {
+                        const next = { ...view.devMix, [k]: Math.min(DEV_KIND_MAX, Math.max(0, n)) };
+                        if (devMixTotal(next) < 1) return showToast('발전 카드는 모두 합쳐 1장 이상이어야 합니다.', 'error');
+                        if (devMixTotal(next) > DEV_CARDS_MAX) return showToast(`발전 카드는 모두 합쳐 ${DEV_CARDS_MAX}장까지입니다.`, 'error');
+                        const res = await client.setSettings({ devMix: next });
+                        if (!res.ok) showToast(res.error, 'error');
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="wp-fixed">{devDeckText(view.devMix)}</div>
+              )}
+            </div>
             <div className="rule-row">
               <span className="rule-name" title="고르게: 숫자마다 확률대로 고르게 나오고 같은 숫자 연타·오랜 가뭄·한 사람에게 몰리는 7을 줄입니다">
                 주사위
@@ -299,7 +355,7 @@ export function Lobby({ view }: { view: RoomView }) {
                     if (!res.ok) showToast(res.error, 'error');
                   }}
                 >
-                  <option value="on">있음 (길 15·마을 5·도시 4, 발전 카드 소진)</option>
+                  <option value="on">있음 ({pieceLimitText(view.pieceLimits)}, 발전 카드 소진)</option>
                   <option value="off">없음 (몇 개든 짓기, 발전 카드 무한)</option>
                 </select>
               ) : (
@@ -308,6 +364,33 @@ export function Lobby({ view }: { view: RoomView }) {
                 </div>
               )}
             </div>
+            {!view.unlimited && (
+              <div className="rule-row rule-row-minis">
+                <span className="rule-name" title="한 사람이 가질 수 있는 개수 (길 5~40, 마을 2~15, 도시 1~12)">
+                  길·마을·도시 개수
+                </span>
+                {isHost ? (
+                  <div className="rule-minis">
+                    {PIECE_KINDS.map((k) => (
+                      <MiniStepper
+                        key={k}
+                        name={PIECE_LABEL[k]}
+                        value={view.pieceLimits[k]}
+                        min={PIECE_LIMIT_RANGE[k][0]}
+                        max={PIECE_LIMIT_RANGE[k][1]}
+                        onChange={async (n) => {
+                          const [lo, hi] = PIECE_LIMIT_RANGE[k];
+                          const res = await client.setSettings({ pieceLimits: { ...view.pieceLimits, [k]: Math.min(hi, Math.max(lo, n)) } });
+                          if (!res.ok) showToast(res.error, 'error');
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="wp-fixed">{pieceLimitText(view.pieceLimits)}</div>
+                )}
+              </div>
+            )}
             <div className="rule-row">
               <span className="rule-name">차례 시간</span>
               {isHost ? (
@@ -397,7 +480,7 @@ export function Lobby({ view }: { view: RoomView }) {
               : '7이 나와도 자원을 버리지 않고 동상 옮기기와 빼앗기만 합니다.'}{' '}
             {view.turnSeconds > 0 ? `한 차례 ${turnSecondsLabel(view.turnSeconds)} 안에 끝내지 못하면 자동으로 진행합니다.` : '차례 시간 제한이 없습니다.'}{' '}
             은행에는 자원마다 {view.resourceCards}장이 있고 다 떨어진 자원은 생산과 교환으로 받을 수 없습니다. 발전 카드 {view.devCards}장은{' '}
-            {devDeckText(view.devCards)}입니다.
+            {devDeckText(view.devMix)}입니다.{view.unlimited ? '' : ` 한 사람이 ${pieceLimitText(view.pieceLimits)}개까지 짓습니다.`}
             {view.unlimited
               ? ' 개수 제한이 없어서 길·마을·도시를 몇 개든 지을 수 있고, 발전 카드는 이 비율대로 무작위로 뽑혀 떨어지지 않습니다.'
               : ''}

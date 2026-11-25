@@ -106,8 +106,25 @@ export const PIECE_COST: Record<PieceKind, Bundle> = {
   village: { wood: 1, grain: 1, wool: 1, brick: 1, stone: 0 },
   city: { wood: 0, grain: 2, wool: 0, brick: 0, stone: 3 },
 };
-/** 한 사람이 가질 수 있는 개수 */
+/** 한 사람이 가질 수 있는 개수 (기본값. 방장이 대기실에서 PIECE_LIMIT_RANGE 안으로 바꿀 수 있다) */
 export const PIECE_LIMIT: Record<PieceKind, number> = { road: 15, village: 5, city: 4 };
+/** 한 사람이 가질 수 있는 길·마을·도시 개수 */
+export type PieceLimits = Record<PieceKind, number>;
+/** 방장이 정하는 한 사람의 조각 수 범위 */
+export const PIECE_LIMIT_RANGE: Record<PieceKind, readonly [number, number]> = { road: [5, 40], village: [2, 15], city: [1, 12] };
+
+export function normalizePieceLimits(v: unknown): PieceLimits | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const o = v as Record<string, unknown>;
+  const out = { ...PIECE_LIMIT };
+  for (const k of Object.keys(PIECE_LIMIT) as PieceKind[]) {
+    const n = o[k];
+    const [lo, hi] = PIECE_LIMIT_RANGE[k];
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < lo || n > hi) return null;
+    out[k] = n;
+  }
+  return out;
+}
 /** 마을 1점, 도시 2점 (도시로 업그레이드하면 마을 1점이 도시 2점으로 바뀐다) */
 export const PIECE_POINTS: Record<PieceKind, number> = { road: 0, village: 1, city: 2 };
 
@@ -122,6 +139,28 @@ export const DEV_CARDS_MAX = 50;
 
 export function normalizeDevCards(v: unknown): number | null {
   return typeof v === 'number' && Number.isInteger(v) && v >= DEV_CARDS_MIN && v <= DEV_CARDS_MAX ? v : null;
+}
+
+/** 발전 카드 종류별 장수 */
+export type DevMix = Record<DevKind, number>;
+/** 방장이 발전 카드를 종류마다 정할 때 한 종류의 최대 장수 (0장도 된다. 모두 합쳐 1~DEV_CARDS_MAX 장) */
+export const DEV_KIND_MAX = 30;
+
+export function devMixTotal(m: DevMix): number {
+  return (Object.keys(DEV_DECK) as DevKind[]).reduce((n, k) => n + m[k], 0);
+}
+
+export function normalizeDevMix(v: unknown): DevMix | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const o = v as Record<string, unknown>;
+  const out = { ...DEV_DECK } as DevMix;
+  for (const k of Object.keys(DEV_DECK) as DevKind[]) {
+    const n = o[k];
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > DEV_KIND_MAX) return null;
+    out[k] = n;
+  }
+  const total = devMixTotal(out);
+  return total >= 1 && total <= DEV_CARDS_MAX ? out : null;
 }
 
 /**
