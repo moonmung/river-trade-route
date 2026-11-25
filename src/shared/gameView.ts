@@ -79,6 +79,7 @@ export function buildGameView(g: GameState, viewer: string, clock: ClockInfo = {
     devDeckCount: g.devDeck.length,
     unlimited: !!g.unlimited,
     diceMode: g.diceMode ?? 'random',
+    sevenDiscard: g.sevenDiscard !== false,
     devPlayedThisTurn: g.devPlayedThisTurn,
     freeRoads: g.freeRoads,
     longestRoad: { ...g.longestRoad },

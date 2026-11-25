@@ -144,6 +144,8 @@ function LabDrawer({
   /** 고르게 굴리기 */
   const [fair, setFair] = useState(sb.state.diceMode === 'balanced');
   const diceMode = fair ? ('balanced' as const) : ('random' as const);
+  /** 7이 나오면 버리기 */
+  const [sevenDiscard, setSevenDiscard] = useState(sb.state.sevenDiscard !== false);
   const [dice, setDice] = useState(8);
   const map = sb.map;
   /** 맵을 바꾸면 바로 그 맵으로 새 게임을 연다. 인원은 그 맵이 받는 만큼으로 줄인다. */
@@ -151,7 +153,7 @@ function LabDrawer({
     const n = Math.min(players, maxPlayersFor(next.shape));
     setPlayers(n);
     saveMap(next);
-    sb.reset({ players: n, turnSeconds: sb.turnSeconds, map: next, unlimited, diceMode });
+    sb.reset({ players: n, turnSeconds: sb.turnSeconds, map: next, unlimited, diceMode, sevenDiscard });
     showToast(`${MAP_SHAPE_LABEL[next.shape]} 맵(${MAP_ARRANGE_LABEL[next.arrange]})으로 새 게임을 시작했습니다.`, 'info', 2200);
   };
   const me = sb.you;
@@ -310,12 +312,12 @@ function LabDrawer({
               </>
             ) : null}
           </select>
-          <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, unlimited, diceMode })}>
+          <button className="btn btn-small" onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, unlimited, diceMode, sevenDiscard })}>
             새 게임
           </button>
           <button
             className="btn btn-small"
-            onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, unlimited, diceMode, rollForOrder: false })}
+            onClick={() => sb.reset({ players, turnSeconds: sb.turnSeconds, map, unlimited, diceMode, sevenDiscard, rollForOrder: false })}
             title="순서 주사위 없이 바로 시작 배치"
           >
             순서 건너뛰기
@@ -326,6 +328,9 @@ function LabDrawer({
         </label>
         <label className="lab-row small">
           <input type="checkbox" checked={fair} onChange={(e) => setFair(e.target.checked)} /> 주사위 고르게 굴리기 (새 게임부터)
+        </label>
+        <label className="lab-row small">
+          <input type="checkbox" checked={sevenDiscard} onChange={(e) => setSevenDiscard(e.target.checked)} /> 7이 나오면 자원 절반 버리기 (새 게임부터)
         </label>
         <div className="lab-row">
           <button

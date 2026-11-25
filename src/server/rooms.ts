@@ -65,6 +65,8 @@ export interface Room {
   unlimited: boolean;
   /** 방장이 정한 주사위 방식 (기본 고르게, 다음 게임부터 쓴다) */
   diceMode: DiceMode;
+  /** 방장이 정한 7 버리기 (기본 있음, 다음 게임부터 쓴다) */
+  sevenDiscard: boolean;
   createdAt: number;
   /** 마지막으로 상태가 바뀐 시각 (오래 비어 있는 방 정리용) */
   touchedAt: number;
@@ -105,6 +107,7 @@ export function blankRoom(code: string, now = Date.now()): Room {
     devCards: DEV_CARDS,
     unlimited: false,
     diceMode: 'balanced',
+    sevenDiscard: true,
     createdAt: now,
     touchedAt: now,
   };
@@ -237,6 +240,7 @@ export class RoomManager {
       devCards: room.devCards,
       unlimited: room.unlimited,
       diceMode: room.diceMode,
+      sevenDiscard: room.sevenDiscard,
     };
     if (p.winPoints !== undefined) {
       const n = normalizeWinPoints(p.winPoints);
@@ -284,6 +288,10 @@ export class RoomManager {
       if (typeof p.unlimited !== 'boolean') return { error: '개수 제한은 있음·없음 중에서 고르세요.' };
       next.unlimited = p.unlimited;
     }
+    if (p.sevenDiscard !== undefined) {
+      if (typeof p.sevenDiscard !== 'boolean') return { error: '7 버리기는 있음·없음 중에서 고르세요.' };
+      next.sevenDiscard = p.sevenDiscard;
+    }
     if (p.devCards !== undefined) {
       const n = normalizeDevCards(p.devCards);
       if (n === null) return { error: `발전 카드는 ${DEV_CARDS_MIN}~${DEV_CARDS_MAX}장 사이로 정하세요.` };
@@ -298,7 +306,8 @@ export class RoomManager {
       next.resourceCards === room.resourceCards &&
       next.devCards === room.devCards &&
       next.unlimited === room.unlimited &&
-      next.diceMode === room.diceMode;
+      next.diceMode === room.diceMode &&
+      next.sevenDiscard === room.sevenDiscard;
     if (same) return null;
     Object.assign(room, next);
     // 규칙이 바뀌면 다른 사람은 다시 확인하고 준비하도록 준비를 푼다.
@@ -330,6 +339,7 @@ export class RoomManager {
         devCards: room.devCards,
         unlimited: room.unlimited,
         diceMode: room.diceMode,
+        sevenDiscard: room.sevenDiscard,
       },
     );
     room.phase = 'game';

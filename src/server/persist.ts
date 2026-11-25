@@ -126,6 +126,8 @@ function reviveRoom(raw: unknown): Room | null {
     // 주사위 방식이 생기기 전에 저장한 게임은 그냥 굴렸다.
     if (!('diceMode' in game)) game.diceMode = 'random';
     if (!('fairDice' in game)) game.fairDice = null;
+    // 7 버리기를 끌 수 있기 전에 저장한 게임은 늘 버렸다.
+    if (!('sevenDiscard' in game)) game.sevenDiscard = true;
     const keys = requiredGameKeys();
     if (keys && keys.some((k) => !(k in game))) return null;
     const ids = new Set(players.map((p) => p.id));
@@ -150,6 +152,7 @@ function reviveRoom(raw: unknown): Room | null {
     resourceCards: normalizeResourceCards(raw.resourceCards) ?? base.resourceCards,
     devCards: normalizeDevCards(raw.devCards) ?? base.devCards,
     unlimited: raw.unlimited === true,
+    sevenDiscard: raw.sevenDiscard !== false,
     diceMode: normalizeDiceMode(raw.diceMode) ?? base.diceMode,
     gameNumber: typeof raw.gameNumber === 'number' ? raw.gameNumber : base.gameNumber,
     touchedAt: typeof raw.touchedAt === 'number' ? raw.touchedAt : base.touchedAt,

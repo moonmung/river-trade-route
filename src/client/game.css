@@ -619,7 +619,8 @@
   width: 78px;
 }
 
-.game-wide .act-slot-roll {
+/* 주사위 굴리기·턴 종료 칸은 늘 같은 넓은 칸 (굴릴 때 버튼 줄 너비가 바뀌지 않게) */
+.game-wide .act-slot-turn {
   width: 150px;
 }
 
@@ -4469,7 +4470,7 @@
   .game-wide .act-slot {
     width: 66px;
   }
-  .game-wide .act-slot-roll {
+  .game-wide .act-slot-turn {
     width: 128px;
   }
   .game-wide .bb-ico,
@@ -4631,7 +4632,7 @@
   .game-wide .act-slot {
     width: 54px;
   }
-  .game-wide .act-slot-roll {
+  .game-wide .act-slot-turn {
     width: 108px;
   }
   .game-wide .bb-btn,

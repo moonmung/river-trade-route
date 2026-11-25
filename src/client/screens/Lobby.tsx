@@ -88,6 +88,8 @@ export function Lobby({ view }: { view: RoomView }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const me = view.players.find((p) => p.id === view.you);
   const isHost = view.hostId === view.you;
+  /** 7 버리기 (예전 서버가 값을 보내지 않으면 있음) */
+  const sevenDiscard = view.sevenDiscard !== false;
   const { emotes } = useChat(view.code);
   const { base, local, missingLan } = inviteBase(info, chosen);
   const link = `${base}/join/${view.code}`;
@@ -170,6 +172,30 @@ export function Lobby({ view }: { view: RoomView }) {
               )}
             </div>
             <div className="rule-row">
+              <span className="rule-name" title="없음으로 하면 7이 나와도 아무도 자원을 버리지 않습니다 (동상 옮기기와 빼앗기는 그대로)">
+                7 버리기
+              </span>
+              {isHost ? (
+                <select
+                  className="rule-select"
+                  value={sevenDiscard ? 'on' : 'off'}
+                  aria-label="7이 나오면 자원 버리기"
+                  onChange={async (e) => {
+                    const res = await client.setSettings({ sevenDiscard: e.target.value === 'on' });
+                    if (!res.ok) showToast(res.error, 'error');
+                  }}
+                >
+                  <option value="on">있음 (한도보다 많으면 절반 버리기)</option>
+                  <option value="off">없음 (버리지 않기)</option>
+                </select>
+              ) : (
+                <div className="wp-fixed">
+                  <b>{sevenDiscard ? '있음' : '없음'}</b>
+                </div>
+              )}
+            </div>
+            {sevenDiscard && (
+            <div className="rule-row">
               <span className="rule-name" title="7이 나오면 이보다 많이 든 사람이 절반을 버립니다">
                 자원 보유 한도
               </span>
@@ -191,6 +217,7 @@ export function Lobby({ view }: { view: RoomView }) {
                 </div>
               )}
             </div>
+            )}
             <div className="rule-row">
               <span className="rule-name" title="은행에 자원마다 두는 카드 수. 다 떨어지면 그 자원은 받을 수 없습니다">
                 자원 카드
@@ -365,7 +392,9 @@ export function Lobby({ view }: { view: RoomView }) {
           </div>
           <p className="muted small">
             {isHost ? '바꾸면 다른 사람은 다시 준비해야 합니다. ' : '방장이 정한 규칙입니다. '}
-            7이 나오면 자원이 {view.handLimit}장보다 많은 사람이 절반을 버립니다.{' '}
+            {sevenDiscard
+              ? `7이 나오면 자원이 ${view.handLimit}장보다 많은 사람이 절반을 버립니다.`
+              : '7이 나와도 자원을 버리지 않고 동상 옮기기와 빼앗기만 합니다.'}{' '}
             {view.turnSeconds > 0 ? `한 차례 ${turnSecondsLabel(view.turnSeconds)} 안에 끝내지 못하면 자동으로 진행합니다.` : '차례 시간 제한이 없습니다.'}{' '}
             은행에는 자원마다 {view.resourceCards}장이 있고 다 떨어진 자원은 생산과 교환으로 받을 수 없습니다. 발전 카드 {view.devCards}장은{' '}
             {devDeckText(view.devCards)}입니다.

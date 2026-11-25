@@ -106,6 +106,8 @@ export interface GameView {
   unlimited: boolean;
   /** 주사위 방식 (고르게·무작위) */
   diceMode: DiceMode;
+  /** 7이 나오면 보유 한도보다 많이 든 사람이 절반을 버리는지 */
+  sevenDiscard: boolean;
   devPlayedThisTurn: boolean;
   freeRoads: number;
   longestRoad: { holder: string | null; length: number };
@@ -155,6 +157,8 @@ export interface RoomView {
   unlimited: boolean;
   /** 방장이 정한 주사위 방식 */
   diceMode: DiceMode;
+  /** 방장이 정한 7 버리기 (있음·없음) */
+  sevenDiscard: boolean;
 }
 
 /** 방장이 대기실에서 바꾸는 규칙 (보낸 것만 바뀐다) */
@@ -168,6 +172,7 @@ export interface RoomSettingsPatch {
   devCards?: number;
   unlimited?: boolean;
   diceMode?: DiceMode;
+  sevenDiscard?: boolean;
 }
 
 export interface RoomPeek {

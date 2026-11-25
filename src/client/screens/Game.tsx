@@ -400,7 +400,8 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             resources={shownResources}
             ratios={g.myTradeRatios}
             devCards={g.myDevCards.map((c) => ({ kind: c.kind, fresh: c.boughtTurn >= g.turn }))}
-            devPlayable={(kind) => !wait && !playDevBlocker(view, kind)}
+            // 주사위가 구르는 동안(wait)에도 쓸 수 있음 표시는 그대로 둔다. 껐다 켜면 카드가 내려갔다 올라와 움찔한다.
+            devPlayable={(kind) => !playDevBlocker(view, kind)}
             activeDev={devOpen}
             onResource={(r) => {
               if (wait) {
@@ -424,6 +425,11 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
               setTradeDraft(next);
             }}
             onDev={(kind) => {
+              // 열어 둔 창을 닫는 것은 기다리지 않는다.
+              if (wait && devOpen !== kind) {
+                showToast(wait, 'info');
+                return;
+              }
               setTradeDraft(null);
               setSelected(null);
               setDevOpen((cur) => (cur === kind ? null : kind));

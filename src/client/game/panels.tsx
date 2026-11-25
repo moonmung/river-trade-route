@@ -397,7 +397,7 @@ export function TurnButton({ view, wait = null }: { view: RoomView; wait?: strin
   if (g.phase !== 'playing') return null;
   if (mine && g.step === 'roll') {
     return (
-      <div className="act-slot act-slot-roll">
+      <div className="act-slot act-slot-turn">
         <ActionButton
           className="btn btn-primary act act-roll"
           label={rolling ? '굴리는 중…' : '주사위 굴리기'}
@@ -417,8 +417,9 @@ export function TurnButton({ view, wait = null }: { view: RoomView; wait?: strin
       </div>
     );
   }
+  // 주사위 굴리기와 같은 넓은 칸: 굴리고 나서 버튼 줄 너비가 줄면 손 카드 간격이 바뀌어 카드가 움찔한다.
   return (
-    <div className="act-slot">
+    <div className="act-slot act-slot-turn">
       <ActionButton
         className="btn act act-end"
         label="턴 종료"

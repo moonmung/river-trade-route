@@ -34,5 +34,6 @@ export function buildRoomView(room: Room, viewer: string, deadline: number | nul
     devCards: room.devCards,
     unlimited: room.unlimited,
     diceMode: room.diceMode,
+    sevenDiscard: room.sevenDiscard,
   };
 }

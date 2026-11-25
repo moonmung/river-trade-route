@@ -74,7 +74,17 @@ export const GRAVITY = 44;
 const STEP = 1 / 240;
 const RECORD_EVERY = 2;
 const ITERATIONS = 10;
-const MAX_TIME = 5;
+/**
+ * 계산을 끝내는 때 (초). 그때까지 못 멈춘 주사위는 SNAP_TIME 동안 면을 바닥에 붙인다.
+ * 던진 뒤 서버 값을 기다리는 틈(DiceStage 의 THROW_WAIT_MS)을 더해도 3초 안에 합계가 보이게 한다.
+ */
+const MAX_TIME = 2.35;
+/** 이때부터 구르는 힘을 점점 더 빼서 대개는 MAX_TIME 전에 스스로 멈추게 한다 */
+const SETTLE_FROM = 1.3;
+/** MAX_TIME 에 이르렀을 때 바닥에서 미끄러지는 저항이 처음의 몇 배가 되는지 */
+const SETTLE_SLIDE = 10;
+/** 같은 때 도는 저항. 모서리로 선 주사위는 넘어가 면을 대야 하므로 미끄럼보다 덜 키운다 */
+const SETTLE_SPIN = 3;
 const SLOP = 0.004;
 /** 이 속도보다 느리게 닿으면 튀지 않는다 (떨림 방지) */
 const BOUNCE_MIN = 0.9;
@@ -84,8 +94,9 @@ const INV_INERTIA = 6 / (DIE_SIZE * DIE_SIZE);
 /** 주사위끼리 */
 const PAIR_BOUNCE = 0.45;
 const PAIR_FRICTION = 0.25;
-/** 마지막 자세로 맞추는 시간 */
+/** 마지막 자세로 맞추는 시간: 거의 멈췄으면 SNAP_TIME, 덜 멈춘 채 MAX_TIME 에 이르러 많이 기울었으면(최대 45°) SNAP_TIME_MAX 까지 */
 const SNAP_TIME = 0.1;
+const SNAP_TIME_MAX = 0.3;
 
 const CORNERS: Vector3[] = [];
 for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1]) CORNERS.push(new Vector3(x * CORE, y * CORE, z * CORE));
@@ -355,6 +366,10 @@ export function simulate(starts: readonly BodyStart[], walls: readonly Wall[]): 
     }
 
     // 움직이기
+    // 오래 구를수록 탁자 천의 저항을 키운다 (SETTLE_FROM 부터 MAX_TIME 까지 1배 → SETTLE_SLIDE·SETTLE_SPIN 배)
+    const late = t > SETTLE_FROM ? ((t - SETTLE_FROM) / (MAX_TIME - SETTLE_FROM)) ** 2 : 0;
+    const slide = 1 + (SETTLE_SLIDE - 1) * late;
+    const turn = 1 + (SETTLE_SPIN - 1) * late;
     for (const b of bodies) {
       if (b.asleep) continue;
       b.pos.addScaledVector(b.vel, STEP);
@@ -363,9 +378,9 @@ export function simulate(starts: readonly BodyStart[], walls: readonly Wall[]): 
       b.quat.set(b.quat.x + tmpQ.x, b.quat.y + tmpQ.y, b.quat.z + tmpQ.z, b.quat.w + tmpQ.w).normalize();
       // 바닥에 닿아 구르는 동안은 조금씩 힘이 빠진다 (탁자 천의 저항).
       if (b.grounded) {
-        b.spin.multiplyScalar(1 - 1.6 * STEP);
-        b.vel.x *= 1 - 0.9 * STEP;
-        b.vel.z *= 1 - 0.9 * STEP;
+        b.spin.multiplyScalar(1 - 1.6 * turn * STEP);
+        b.vel.x *= 1 - 0.9 * slide * STEP;
+        b.vel.z *= 1 - 0.9 * slide * STEP;
       } else b.spin.multiplyScalar(1 - 0.08 * STEP);
     }
 
@@ -420,14 +435,18 @@ export function simulate(starts: readonly BodyStart[], walls: readonly Wall[]): 
     if (bodies.every((b) => b.asleep)) break;
   }
 
-  // 마지막: 기울기가 조금 남았으면 면을 바닥에 딱 붙인 자세로 짧게 옮긴다.
+  // 마지막: 기울기가 남았으면 면을 바닥에 딱 붙인 자세로 옮긴다. 많이 기울었을수록 천천히,
+  // 아직 움직이던 주사위가 툭 멈추지 않게 처음 빠르기를 살려(점점 느려지게) 옮긴다.
   const finals = bodies.map((b) => ({ pos: new Vector3(b.pos.x, DIE_HALF, b.pos.z), quat: levelled(b.quat) }));
   const starts2 = bodies.map((b) => ({ pos: b.pos.clone(), quat: b.quat.clone() }));
   const dt = STEP * RECORD_EVERY;
-  const snapFrames = Math.ceil(SNAP_TIME / dt);
+  const tilt = Math.max(...bodies.map((b, i) => b.quat.angleTo(finals[i].quat)));
+  const snapTime = SNAP_TIME + (SNAP_TIME_MAX - SNAP_TIME) * Math.min(1, tilt / (Math.PI / 4));
+  const snapFrames = Math.ceil(snapTime / dt);
+  const moving = bodies.some((b) => !b.asleep);
   for (let f = 1; f <= snapFrames; f++) {
     const s = f / snapFrames;
-    const e = s * s * (3 - 2 * s);
+    const e = moving ? 1 - (1 - s) * (1 - s) : s * s * (3 - 2 * s);
     for (let i = 0; i < dice; i++) {
       const p = starts2[i].pos.clone().lerp(finals[i].pos, e);
       const q = starts2[i].quat.clone().slerp(finals[i].quat, e);
