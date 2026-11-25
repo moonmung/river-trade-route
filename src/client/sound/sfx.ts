@@ -425,6 +425,14 @@ export const sfx = {
     if (golden) for (let i = 0; i < 8; i++) tone({ at: salute + 0.6 + i * 0.07, freq: NOTE.C6 * (1 + i * 0.2), dur: 0.25, gain: 0.03 });
   },
   /** 게임 끝: 이기면 팡파르, 아니면 짧은 마침 */
+  /** 승리 연출에서 점수가 오를 때: 단계마다 종소리가 한 음씩 오르고, 달성·승점 카드(big)는 화음으로 울린다 */
+  victoryCount(n: number, big = false): void {
+    const scale = [NOTE.C5, NOTE.D5, NOTE.E5, NOTE.G5, NOTE.A5, NOTE.C6, NOTE.E6, NOTE.G6];
+    const f = scale[Math.min(n, scale.length - 1)];
+    knock(0, 480 + Math.min(n, 12) * 25, 0.1);
+    bell(0, f, big ? 0.08 : 0.065, big ? 0.9 : 0.55);
+    if (big) bell(0.05, f * 1.26, 0.05, 0.85);
+  },
   gameEnd(won: boolean): void {
     if (won) {
       [NOTE.C5, NOTE.E5, NOTE.G5].forEach((f, i) => brass(i * 0.15, f, 0.14, 0.08));

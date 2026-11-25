@@ -8,7 +8,8 @@ import type { BoardRenderer } from '../board/BoardRenderer';
 import { josa } from '../ui/josa';
 import { rollDice, settleDice } from '../dice';
 import { onChatBrag } from '../net/chat';
-import { showAward, showGoldenKnight } from '../ui/spectacle';
+import { hideVictory, showAward, showGoldenKnight, showVictory } from '../ui/spectacle';
+import { victoryPlan } from '../board/victory';
 import { showToast } from '../ui/toast';
 import { flyCards, holdCards, stealCard, type FlyCard } from './cardFly';
 import { paradeTiming } from '../board/parade';
@@ -86,6 +87,9 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
     [],
   );
 
+  // 게임 화면을 떠나면 진행 중이던 승리 연출 화면도 거둔다.
+  useEffect(() => () => hideVictory(), []);
+
   // 그리기 전에(useLayoutEffect) 처리한다. 굴림이 들어온 화면이 한 번 그려진 뒤에 생산 카드를 손에서 빼면
   // 주사위가 멈추기도 전에 손 장수가 +1 됐다가 돌아가며 카드가 움찔해서 결과가 먼저 보인다.
   useLayoutEffect(() => {
@@ -97,6 +101,11 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
     const maxSeq = g.events.length ? g.events[g.events.length - 1].seq : 0;
 
     if (lastSeq.current === null || lastGame.current !== view.gameNumber) {
+      // 새 게임을 시작하면 지난 게임의 승리 연출을 거둔다.
+      if (lastSeq.current !== null) {
+        hideVictory();
+        rendererRef.current?.stopVictory();
+      }
       // 처음 받은 화면(새로고침·재접속 포함)은 지난 기록을 다시 연출하지 않는다.
       lastSeq.current = maxSeq;
       lastGame.current = view.gameNumber;
@@ -264,6 +273,8 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           break;
         }
         case 'award':
+          // 이 달성으로 게임이 끝났으면 승리 연출이 최장 교역로·최강 기사단까지 함께 보여 준다.
+          if (fresh.slice(i + 1).some((x) => x.kind === 'game_end')) break;
           if (e.player) {
             // 화면 위쪽에 "빨강 플레이어 최장 교역로 달성" 공지를 크게 띄운다.
             const unit = e.award === 'longest_road' ? `이어진 길 ${e.size}칸` : `기사 ${e.size}장`;
@@ -293,10 +304,35 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           if (animate) sfx.tradeDone();
           if (e.from === me || e.to === me) buzz(60);
           break;
-        case 'game_end':
-          sfx.gameEnd(e.winners.includes(me));
+        case 'game_end': {
+          const winner = e.winners[0];
           buzz(200);
+          if (!animate || !winner) {
+            sfx.gameEnd(e.winners.includes(me));
+            break;
+          }
+          // 승리 연출: 이긴 사람이 처음 지은 차례대로 마을·도시를 찾아가며 점수를 세고(최장 교역로·최강 기사단·승점 카드까지)
+          // 보드 전체로 물러나 승리를 알린 뒤 결과 창을 연다. 효과음은 연출 화면이 박자에 맞춰 낸다.
+          const plan = victoryPlan({
+            buildings: g.buildings.filter((b) => b.owner === winner).map((b) => ({ vertexId: b.vertexId, kind: b.kind })),
+            longestRoad: g.longestRoad.holder === winner,
+            largestArmy: g.largestArmy.holder === winner,
+            score: g.players.find((p) => p.id === winner)?.score ?? 0,
+          });
+          // 마지막에 지은 조각이 솟아오를 틈을 두고 시작한다.
+          const delay = fresh.slice(0, i).some((x) => x.kind === 'build' || x.kind === 'award') ? 650 : 250;
+          showVictory({
+            colorIndex: color(winner),
+            nickname: name(winner),
+            mine: winner === me,
+            winPoints: g.winPoints,
+            plan,
+            delay,
+            onSkip: () => rendererRef.current?.stopVictory(),
+          });
+          rendererRef.current?.playVictory(winner, plan, { delay, camera: !reducedMotion() });
           break;
+        }
         default:
           break;
       }

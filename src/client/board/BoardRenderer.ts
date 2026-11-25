@@ -13,6 +13,7 @@ import type { Bundle, Harbor, Resource, TileDef, TileKind } from '../../shared/t
 import { GOODS_VARIANT, ROAD_DECK_TOP, SOLDIER_REACH, SOLDIER_SHOULDER, type PropKey } from './art/builders';
 import { PARADE_LOWER_MS, paradeTiming, type ParadeTiming } from './parade';
 import { harborLegs } from './harborTrade';
+import type { VictoryPlan, VictoryStep } from './victory';
 import { loadArtLibrary, type ArtLibrary, type ArtReport, type GroundTextureKey, type LoadProgress } from './assets';
 import {
   DAIS_HEIGHT,
@@ -111,6 +112,8 @@ const ELEVATION_DEG = 54;
 const ELEVATION_RAD = THREE.MathUtils.degToRad(ELEVATION_DEG);
 /** 장면에서 카메라 쪽을 가리키는 방향 (카메라는 돌지 않으므로 한 번만 구한다) */
 const VIEW_AXIS = new THREE.Vector3(0, Math.sin(ELEVATION_RAD), Math.cos(ELEVATION_RAD));
+/** 화면 위쪽에 해당하는 장면 방향 (VIEW_AXIS 에 수직) */
+const SCREEN_UP = new THREE.Vector3(0, Math.cos(ELEVATION_RAD), -Math.sin(ELEVATION_RAD));
 const CAMERA_DISTANCE = 40;
 const LIGHT_DIR = new THREE.Vector3(-0.55, 1, 0.5).normalize();
 /** 그림자 맵 해상도 (보드 전체를 한 장에 담는다). 품질이 높음이면 2048, 자동이면 휴대폰 메모리를 아껴 1024 (칸 하나가 약 60픽셀). */
@@ -155,6 +158,15 @@ const SHIP_MS = 2800;
 /** 배가 들어오기를 마치는 때와 떠나기 시작하는 때 (연출 길이 대비) */
 const SHIP_IN = 0.3;
 const SHIP_OUT = 0.72;
+/**
+ * 승리 연출: 마을·도시를 비출 때 화면에 담을 땅 넓이(변 하나는 1.32), 카메라가 바라보는 높이(집 몸통 가운데),
+ * 빛이 닿은 뒤 남는 밝기, 보드 전체로 물러나는 데 걸리는 시간, 끝나고 빛이 사그라드는 시간
+ */
+const VICTORY_SHOT = { w: 4.6, h: 3.4 };
+const VICTORY_FOCUS_Y = PLATFORM_TOP + 0.3;
+const VICTORY_GLOW_FLOOR = 0.42;
+const VICTORY_HOME_MS = 850;
+const VICTORY_FADE_MS = 600;
 /** 가마 하나에서 동시에 피어오르는 연기 공 수 */
 const SMOKE_PUFFS = 5;
 /** 바람·양·연기만 움직일 때 프레임 간격 (약 30fps) */
@@ -174,12 +186,18 @@ const PIECE_PICK_BONUS = { village: 0.36 * VILLAGE_SCALE, city: 0.36 * CITY_SCAL
 const ROAD_FRACTION = 0.64;
 /** 판자가 꼭짓점까지 늘어나지 않은 쪽 끝에 비워 둔 몫 (변 길이 대비) */
 const ROAD_GAP = (1 - ROAD_FRACTION) / 2;
-const HIGHLIGHT_COLOR: Record<HighlightKind | 'selected' | 'hover', string> = {
+const HIGHLIGHT_COLOR: Record<HighlightKind | 'selected', string> = {
   placeable: '#ffe066',
   buildable: '#ffe066',
   selected: '#ffffff',
-  hover: '#fff6cf',
 };
+/**
+ * 마우스를 올린 자리의 테두리: 흰 띠 둘레에 옅은 먹 그늘을 한 겹 더 깔아 밝은 칸(밭·채석장·광장)이나
+ * 희끄무레한 샛길 위에서도 흰 선이 또렷하게 떠 보인다. 칸은 육각 고리, 꼭짓점은 동그란 고리, 변은 길쭉한 알약 고리다.
+ */
+const HOVER_WHITE = '#ffffff';
+const HOVER_INK = '#24180f';
+const HOVER_INK_OPACITY = 0.42;
 /** 보드 바깥을 채우는 물 색. 물결 무늬 없이 장면 배경색으로만 칠하고, 종이 결과 물감 농담은 후처리가 입힌다.
  *  styles.css 의 --water(보드 배경과 처음 화면·대기실 배경)도 같은 색이다. */
 const WATER_COLOR = '#589eb5';
@@ -280,6 +298,11 @@ function seaColor(d: number): string {
 }
 /** 바닷가 변 가운데에서 교역로 부두 중심까지 거리 */
 const HARBOR_REACH = 0.74;
+/** 잔교 크기와 모델의 판자 윗면 높이(art/builders 의 buildPier), 부두 쪽 끝 높이, 잔교 머리를 흙 땅 끝 안쪽으로 얹는 몫 */
+const PIER_SCALE = 1.15;
+const PIER_DECK = 0.073;
+const PIER_LOW = 0.08;
+const PIER_TUCK = 0.03;
 /** 화면에 담을 범위: 타일 꼭짓점 바깥으로 이만큼 더 (모래밭이 조금 보이게) */
 const FIT_PAD = 0.32;
 const STATUE_SCALE = 0.86;
@@ -339,6 +362,18 @@ function chaikin(pts: Pt[], iterations: number): Pt[] {
       const b = cur[(i + 1) % cur.length];
       next.push({ x: a.x * 0.75 + b.x * 0.25, z: a.z * 0.75 + b.z * 0.25 }, { x: a.x * 0.25 + b.x * 0.75, z: a.z * 0.25 + b.z * 0.75 });
     }
+    cur = next;
+  }
+  return cur;
+}
+
+/** 열린 꺾은선을 부드럽게 다듬는다 (처음과 끝 점은 그대로 둔다) */
+function smoothOpen(pts: THREE.Vector3[], iterations: number): THREE.Vector3[] {
+  let cur = pts;
+  for (let it = 0; it < iterations; it++) {
+    const next = [cur[0]];
+    for (let i = 0; i + 1 < cur.length; i++) next.push(cur[i].clone().lerp(cur[i + 1], 0.25), cur[i].clone().lerp(cur[i + 1], 0.75));
+    next.push(cur[cur.length - 1]);
     cur = next;
   }
   return cur;
@@ -453,11 +488,49 @@ interface Trader {
   scale: number;
 }
 
+/** 승리 연출 카메라의 확대: 정한 배율이거나, 그만한 땅(가로 w × 세로 h)이 화면에 들어오는 배율 */
+type CamZoom = { zoom: number } | { fit: { w: number; h: number } };
+
+/** 승리 연출 카메라가 한 곳에서 다음 곳으로 옮겨 가는 구간 */
+interface CamLeg {
+  from: number;
+  to: number;
+  /** 지나가는 점 (처음과 끝 포함). 이긴 사람의 길로 이어진 두 건물 사이는 길을 따라 꺾인다. */
+  pts: THREE.Vector3[];
+  /** 점마다 처음부터 잰 길이 */
+  cum: number[];
+  zoomFrom: CamZoom;
+  zoomTo: CamZoom;
+  /** 멀리 날아갈 때 가운데에서 살짝 물러나는 정도 */
+  dip: number;
+  /** 지나가며 빛낼 길(r:)과 이음목(v:), 경로 위 위치 */
+  marks: { key: string; s: number }[];
+}
+
+/** 진행 중인 승리 연출 하나 */
+interface VictoryRun {
+  playerId: string;
+  plan: VictoryPlan;
+  camera: boolean;
+  /** 첫 그림에서 그때의 카메라 자리로부터 만든다 (화면 가장자리 여백이 바뀐 뒤) */
+  legs: CamLeg[] | null;
+  /** 빛이 닿은 때 (조각 키 → 연출 시작부터 ms) */
+  lit: Map<string, number>;
+  /** 마을·도시가 톡 부푼 때 */
+  bumps: Map<string, number>;
+  /** 이미 터뜨린 단계 수 */
+  fired: number;
+  finale: boolean;
+  anim: Anim;
+  onDone?: () => void;
+}
+
 const tmpM = new THREE.Matrix4();
 const tmpQ = new THREE.Quaternion();
 const tmpQ2 = new THREE.Quaternion();
 const tmpV = new THREE.Vector3();
 const tmpS = new THREE.Vector3();
+const tmpE = new THREE.Euler();
 const yAxis = new THREE.Vector3(0, 1, 0);
 const xAxis = new THREE.Vector3(1, 0, 0);
 const zAxis = new THREE.Vector3(0, 0, 1);
@@ -491,6 +564,28 @@ function sparkleGeometry(): THREE.BufferGeometry {
     else star.lineTo(Math.cos(a) * r, Math.sin(a) * r);
   }
   return new THREE.ShapeGeometry(star).rotateX(-ELEVATION_RAD);
+}
+
+/** 길쭉한 알약 모양 고리: x 방향 길이 len, 폭 wid, 띠 두께 thick. 바닥에 눕힌다. */
+function capsuleRing(len: number, wid: number, thick: number): THREE.BufferGeometry {
+  const outline = (l: number, w: number) => {
+    const r = w / 2;
+    const h = Math.max(0, l / 2 - r);
+    const pts: THREE.Vector2[] = [];
+    const seg = 14;
+    for (let i = 0; i <= seg; i++) {
+      const a = -Math.PI / 2 + (i / seg) * Math.PI;
+      pts.push(new THREE.Vector2(h + Math.cos(a) * r, Math.sin(a) * r));
+    }
+    for (let i = 0; i <= seg; i++) {
+      const a = Math.PI / 2 + (i / seg) * Math.PI;
+      pts.push(new THREE.Vector2(-h + Math.cos(a) * r, Math.sin(a) * r));
+    }
+    return pts;
+  };
+  const shape = new THREE.Shape(outline(len, wid));
+  shape.holes.push(new THREE.Path(outline(len - 2 * thick, wid - 2 * thick)));
+  return new THREE.ShapeGeometry(shape, 1).rotateX(-Math.PI / 2);
 }
 
 function compose(x: number, y: number, z: number, rotY: number, sx: number, sy: number, sz: number): THREE.Matrix4 {
@@ -607,6 +702,10 @@ export class BoardRenderer {
   private state: BoardState = { buildings: [], roads: [], highlights: null, selected: null };
   private firstState = true;
   private hovered: BoardSelection | null = null;
+  /** 마우스를 올린 자리의 흰 테두리 (칸·꼭짓점·변). 한 번에 하나만 보이므로 일반 메시로 그린다. */
+  private hoverMarks: { tile: THREE.Group; vertex: THREE.Group; edge: THREE.Group } | null = null;
+  /** 변 테두리 모양 (판자 길이마다 하나씩 만들어 둔다): [흰 띠, 먹 그늘] */
+  private hoverEdgeGeo = new Map<string, [THREE.BufferGeometry, THREE.BufferGeometry]>();
 
   private highlightRing: THREE.InstancedMesh | null = null;
   private highlightFill: THREE.InstancedMesh | null = null;
@@ -630,6 +729,10 @@ export class BoardRenderer {
    * 플레이어 색에 금빛을 섞어 밝히고 그 자리 바닥에도 금빛을 더한다.
    */
   private glow = new Map<string, number>();
+  /** 승리 연출이 깔아 두는 빛 (glow 와 같은 키). 다른 연출이 glow 를 지워도 이 값 아래로는 어두워지지 않는다. */
+  private victoryGlow = new Map<string, number>();
+  /** 진행 중인 승리 연출 (그동안 보드 조작과 마우스 올림 표시를 막는다) */
+  private victory: VictoryRun | null = null;
   private glowMesh: THREE.InstancedMesh | null = null;
   private sparkleMesh: THREE.InstancedMesh | null = null;
   private sparkles: Sparkle[] = [];
@@ -679,6 +782,9 @@ export class BoardRenderer {
   private harborGroup: THREE.Group | null = null;
   /** 지금 놓인 교역로 (바뀌면 부두와 바닷가 소품을 다시 놓는다). 처음엔 null 이라 교역로가 없어도 바닷가 소품을 한 번 놓는다. */
   private harborKey: string | null = null;
+  /** 흙 땅 셰이더의 샛길 값 (교역로가 바뀌면 거리장 텍스처를 갈아 끼운다)과 그 거리장을 만든 교역로 */
+  private pathUniforms: { uPathField: { value: THREE.DataTexture }; uPathBox: { value: THREE.Vector4 } } | null = null;
+  private pathHarborKey: string | null = null;
   /** 화면에 꼭 담을 범위 (타일 + 교역로 부두) */
   private fitX = 0;
   private fitZ = 0;
@@ -1452,9 +1558,9 @@ export class BoardRenderer {
    * 샛길 거리장: 바닥 좌표마다 가장 가까운 샛길 중심선까지의 거리를 담은 한 채널 텍스처.
    * 갈래끼리는 부드러운 최솟값으로 합쳐 갈림길이 조금 넓게 다져진 빈터처럼 이어진다. 보드를 만들 때 한 번만 계산한다.
    */
-  private footpathField(): { texture: THREE.DataTexture; box: THREE.Vector4 } {
-    // 바닷가 변(타일 하나만 닿은 변)은 샛길을 내지 않는다. 그쪽은 모래밭으로 이어진다.
-    const lines = this.geo.edges.filter((e) => e.tiles.length > 1).map((e) => this.footpathLine(e));
+  private footpathField(extra: Pt[][] = []): { texture: THREE.DataTexture; box: THREE.Vector4 } {
+    // 바닷가 변에도 샛길을 내어 섬 둘레를 한 바퀴 잇는다. 해상 교역로 꼭짓점에서는 잔교 머리까지 짧은 갈래(extra)가 더 난다.
+    const lines = [...this.geo.edges.map((e) => this.footpathLine(e)), ...extra];
     const reach = PATH_FIELD_REACH;
     let minX = Infinity;
     let maxX = -Infinity;
@@ -1540,7 +1646,8 @@ export class BoardRenderer {
    * 플레이어 색 판자 길은 그 위에 도드라진다. 길 판자가 놓이면 판자가 샛길을 덮는다.
    */
   private withFootpaths(m: THREE.MeshToonMaterial): THREE.MeshToonMaterial {
-    const field = this.footpathField();
+    this.pathHarborKey = this.harborKeyOf(this.state.harbors ?? []);
+    const field = this.footpathField(this.pierSpurs(this.state.harbors ?? []));
     const uniforms = {
       uPathField: { value: field.texture },
       uPathBox: { value: field.box },
@@ -1550,6 +1657,7 @@ export class BoardRenderer {
       uPathDark: { value: new THREE.Color('#cdc1a7') },
       uPathVerge: { value: new THREE.Color('#c2ad8c') },
     };
+    this.pathUniforms = uniforms;
     const base = m.onBeforeCompile;
     m.onBeforeCompile = (shader, renderer) => {
       base.call(m, shader, renderer);
@@ -1561,6 +1669,35 @@ export class BoardRenderer {
     const key = m.customProgramCacheKey();
     m.customProgramCacheKey = () => `${key}-footpath`;
     return m;
+  }
+
+  /** 교역로 자리가 바뀌면 샛길 거리장을 다시 만든다 (교역로 꼭짓점에서 잔교로 이어지는 갈래가 달라진다). */
+  private refreshFootpaths(harbors: readonly Harbor[]): void {
+    const u = this.pathUniforms;
+    const key = this.harborKeyOf(harbors);
+    if (!u || key === this.pathHarborKey) return;
+    this.pathHarborKey = key;
+    const field = this.footpathField(this.pierSpurs(harbors));
+    const old = u.uPathField.value;
+    u.uPathField.value = field.texture;
+    u.uPathBox.value = field.box;
+    old.dispose();
+    this.owned.textures = this.owned.textures.filter((t) => t !== old);
+    this.requestRender();
+  }
+
+  private harborKeyOf(harbors: readonly Harbor[]): string {
+    return harbors.map((h) => `${h.edgeId}:${h.resource ?? '*'}`).join(',');
+  }
+
+  /** 교역로 꼭짓점마다 바닷가 샛길에서 잔교 머리까지 바다 쪽으로 곧게 나가는 짧은 갈래 (잔교 밑으로 조금 더 들어간다) */
+  private pierSpurs(harbors: readonly Harbor[]): Pt[][] {
+    return harbors.flatMap((h) =>
+      this.harborPiers(h.edgeId).map(({ v, start, dir }) => {
+        const end = start.clone().addScaledVector(dir, 0.06);
+        return Array.from({ length: 7 }, (_, i) => ({ x: v.x + ((end.x - v.x) * i) / 6, z: v.z + ((end.z - v.z) * i) / 6 }));
+      }),
+    );
   }
 
   /**
@@ -1870,6 +2007,108 @@ export class BoardRenderer {
       m.frustumCulled = false;
       this.scene.add(m);
     }
+    this.buildHoverMarks();
+  }
+
+  /** 마우스를 올린 자리의 흰 테두리: 먹 그늘 고리 위에 조금 좁은 흰 고리를 겹친다. */
+  private buildHoverMarks(): void {
+    const hexPoints = (rad: number) => hexCorners(rad).map((v) => new THREE.Vector2(v.x, -v.z));
+    const hexRing = (outer: number, inner: number) => {
+      const shape = new THREE.Shape().setFromPoints(hexPoints(outer));
+      shape.holes.push(new THREE.Path().setFromPoints(hexPoints(inner)));
+      return this.own(new THREE.ShapeGeometry(shape, 1).rotateX(-Math.PI / 2));
+    };
+    const circleRing = (outer: number, inner: number) => this.own(new THREE.RingGeometry(inner, outer, 40).rotateX(-Math.PI / 2));
+    const white = this.own(new THREE.MeshBasicMaterial({ color: HOVER_WHITE, transparent: true, depthWrite: false, toneMapped: false }));
+    const ink = this.own(new THREE.MeshBasicMaterial({ color: HOVER_INK, transparent: true, opacity: HOVER_INK_OPACITY, depthWrite: false, toneMapped: false }));
+    const mark = (line: THREE.BufferGeometry, halo: THREE.BufferGeometry) => {
+      const g = new THREE.Group();
+      const under = new THREE.Mesh(halo, ink);
+      const over = new THREE.Mesh(line, white);
+      // 그늘을 먼저, 흰 띠를 나중에 칠한다 (둘 다 다른 표식보다 위에).
+      under.renderOrder = 7;
+      over.renderOrder = 8;
+      under.position.y = -0.003;
+      g.add(over, under);
+      g.visible = false;
+      this.scene.add(g);
+      return g;
+    };
+    const [edgeLine, edgeHalo] = this.hoverEdgeGeometry(0.62, false);
+    this.hoverMarks = {
+      tile: mark(hexRing(HEX_RADIUS + 0.045, HEX_RADIUS - 0.095), hexRing(HEX_RADIUS + 0.075, HEX_RADIUS - 0.125)),
+      vertex: mark(circleRing(0.245, 0.175), circleRing(0.272, 0.148)),
+      edge: mark(edgeLine, edgeHalo),
+    };
+  }
+
+  /**
+   * 변 테두리 모양: 빈 변은 샛길 가운데를 감싸는 가는 알약, 길이 놓인 변은 판자 둘레를 넉넉히 감싸는 알약이다.
+   * span 은 판자가 변에서 차지하는 몫 (꼭짓점까지 늘어난 판자는 1).
+   */
+  private hoverEdgeGeometry(span: number, road: boolean): [THREE.BufferGeometry, THREE.BufferGeometry] {
+    const key = `${road ? 'r' : 'e'}:${span.toFixed(2)}`;
+    let g = this.hoverEdgeGeo.get(key);
+    if (!g) {
+      const len = span * HEX_SPACING + (road ? 0.16 : 0);
+      const wid = road ? 0.36 : 0.24;
+      g = [this.own(capsuleRing(len, wid, 0.05)), this.own(capsuleRing(len + 0.06, wid + 0.06, 0.11))];
+      this.hoverEdgeGeo.set(key, g);
+    }
+    return g;
+  }
+
+  /** 길 판자가 변에서 차지하는 몫: 같은 사람의 길이나 내 마을·도시와 이어진 쪽 끝은 꼭짓점까지 늘어난다 (updatePieceInstances 와 같다). */
+  private roadSpan(road: BoardRoadView): [number, number] {
+    const e = this.geo.edgeMap[road.edgeId];
+    if (!e) return [ROAD_GAP, 1 - ROAD_GAP];
+    const joins = (v: string) => {
+      const b = this.state.buildings.find((x) => x.vertexId === v);
+      if (b) return b.owner === road.owner;
+      return this.state.roads.filter((r) => r.owner === road.owner && (this.geo.edgeMap[r.edgeId]?.a === v || this.geo.edgeMap[r.edgeId]?.b === v)).length >= 2;
+    };
+    return [joins(e.a) ? 0 : ROAD_GAP, joins(e.b) ? 1 : 1 - ROAD_GAP];
+  }
+
+  /** 마우스를 올린 자리에 흰 테두리를 옮겨 놓는다 (올린 자리가 없거나 승리 연출 중이면 숨긴다). */
+  private syncHover(): void {
+    const m = this.hoverMarks;
+    if (!m) return;
+    m.tile.visible = m.vertex.visible = m.edge.visible = false;
+    const hov = this.victory ? null : this.hovered;
+    if (!hov) return;
+    if (hov.kind === 'tile') {
+      const t = this.tileById.get(hov.id);
+      if (!t) return;
+      const c = tileCenter(t, this.metrics);
+      m.tile.position.set(c.x, TILE_TOP + 0.016, c.z);
+      m.tile.visible = true;
+      return;
+    }
+    if (hov.kind === 'vertex') {
+      const p = this.vertexWorld(hov.id);
+      if (!p) return;
+      // 마을·도시가 선 자리는 집 밑에 숨지 않게 집 둘레만큼 키운다.
+      const b = this.state.buildings.find((x) => x.vertexId === hov.id);
+      const s = b?.kind === 'city' ? 2 : b ? 1.6 : 1;
+      m.vertex.position.set(p.x, TILE_TOP + 0.036, p.z);
+      m.vertex.scale.set(s, 1, s);
+      m.vertex.visible = true;
+      return;
+    }
+    const ew = this.edgeWorld(hov.id);
+    if (!ew) return;
+    const road = this.state.roads.find((r) => r.edgeId === hov.id);
+    const [t0, t1] = road ? this.roadSpan(road) : [0.19, 0.81];
+    const [line, halo] = this.hoverEdgeGeometry(t1 - t0, !!road);
+    const [over, under] = m.edge.children as THREE.Mesh[];
+    over.geometry = line;
+    under.geometry = halo;
+    const mid = ew.a.clone().lerp(ew.b, (t0 + t1) / 2);
+    // 길이 놓인 변은 판자 윗면 높이에 띄워 판자 둘레를 감싼다.
+    m.edge.position.set(mid.x, PLATFORM_TOP + ROAD_DECK_TOP + (road ? 0.02 : 0.016), mid.z);
+    m.edge.rotation.y = ew.angle;
+    m.edge.visible = true;
   }
 
   /** 달성 연출: 조각 아래 바닥에 번지는 금빛(더하기 섞기)과 화면을 향한 반짝이 별. 둘 다 그리기 호출 한 번씩이다. */
@@ -2074,7 +2313,7 @@ export class BoardRenderer {
     /** 플레이어 색. 달성 연출로 빛나는 조각은 금빛을 섞어 밝힌다. */
     const tint = (colorIndex: number, glowKey: string) => {
       color.set(this.playerColor(colorIndex));
-      const g = this.glow.get(glowKey) ?? 0;
+      const g = this.glowLevel(glowKey);
       if (g > 0) color.lerp(gold, Math.min(0.7, 0.55 * g)).multiplyScalar(1 + 0.8 * g);
       return color;
     };
@@ -2169,7 +2408,8 @@ export class BoardRenderer {
     const color = new THREE.Color();
     const gold = new THREE.Color(AWARD_GOLD);
     let i = 0;
-    for (const [key, g] of this.glow) {
+    for (const key of new Set([...this.glow.keys(), ...this.victoryGlow.keys()])) {
+      const g = this.glowLevel(key);
       if (g < 0.01 || i >= mesh.instanceMatrix.count) continue;
       const id = key.slice(2);
       if (key.startsWith('r:')) {
@@ -2195,6 +2435,10 @@ export class BoardRenderer {
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }
 
+  private glowLevel(key: string): number {
+    return Math.max(this.glow.get(key) ?? 0, this.victoryGlow.get(key) ?? 0);
+  }
+
   private playerColor(index: number): string {
     const list = this.options.playerColors;
     return list[((index % list.length) + list.length) % list.length];
@@ -2203,9 +2447,8 @@ export class BoardRenderer {
   private updateHighlights(): void {
     const color = new THREE.Color();
     const sel = this.state.selected;
-    const hov = this.hovered;
     const same = (a: BoardSelection | null, kind: BoardSelection['kind'], id: string) => !!a && a.kind === kind && a.id === id;
-    // 타일: 고른 칸, 기사단 동상을 옮길 수 있는 칸, 마우스가 올라간 칸에 테두리를 그린다.
+    // 타일: 고른 칸과 기사단 동상을 옮길 수 있는 칸에 테두리를 그린다 (마우스가 올라간 자리는 syncHover 의 흰 테두리).
     const hlTiles = new Set(this.state.highlights?.tiles ?? []);
     const hlKind = this.state.highlights?.kind ?? null;
     const ring = this.highlightRing;
@@ -2214,13 +2457,7 @@ export class BoardRenderer {
       this.options.tiles.forEach((t, i) => {
         const c = tileCenter(t, this.metrics);
         const selected = same(sel, 'tile', t.id);
-        const kind: keyof typeof HIGHLIGHT_COLOR | null = selected
-          ? 'selected'
-          : hlTiles.has(t.id) && hlKind
-            ? hlKind
-            : same(hov, 'tile', t.id)
-              ? 'hover'
-              : null;
+        const kind: keyof typeof HIGHLIGHT_COLOR | null = selected ? 'selected' : hlTiles.has(t.id) && hlKind ? hlKind : null;
         const show = kind !== null;
         ring.setMatrixAt(i, compose(c.x, TILE_TOP + 0.012, c.z, 0, show ? 1 : 0, 1, show ? 1 : 0));
         fill.setMatrixAt(i, compose(c.x, TILE_TOP + 0.008, c.z, 0, selected ? 1 : 0, 1, selected ? 1 : 0));
@@ -2245,18 +2482,12 @@ export class BoardRenderer {
       this.geo.vertices.forEach((v, i) => {
         const p = this.vertexWorld(v.id)!;
         const selected = same(sel, 'vertex', v.id);
-        const kind: keyof typeof HIGHLIGHT_COLOR | null = selected
-          ? 'selected'
-          : hv.has(v.id) && hl
-            ? hl.kind
-            : same(hov, 'vertex', v.id)
-              ? 'hover'
-              : null;
+        const kind: keyof typeof HIGHLIGHT_COLOR | null = selected ? 'selected' : hv.has(v.id) && hl ? hl.kind : null;
         // 마을·도시가 선 자리는 고리가 집 밑에 숨지 않게 집 둘레만큼 키운다.
         const around = built.get(v.id) === 'city' ? 2 : built.has(v.id) ? 1.6 : 1;
         const s = kind ? (selected ? 1.2 : 1) * around : 0;
         spotRing.setMatrixAt(i, compose(p.x, TILE_TOP + 0.03, p.z, 0, s, 1, s));
-        spotFill.setMatrixAt(i, compose(p.x, TILE_TOP + 0.028, p.z, 0, kind && kind !== 'hover' ? s : 0, 1, kind && kind !== 'hover' ? s : 0));
+        spotFill.setMatrixAt(i, compose(p.x, TILE_TOP + 0.028, p.z, 0, s, 1, s));
         if (kind) {
           color.set(HIGHLIGHT_COLOR[kind]);
           spotRing.setColorAt(i, color);
@@ -2274,7 +2505,7 @@ export class BoardRenderer {
       this.geo.edges.forEach((e, i) => {
         const ew = this.edgeWorld(e.id)!;
         const selected = same(sel, 'edge', e.id);
-        const kind: keyof typeof HIGHLIGHT_COLOR | null = selected ? 'selected' : he.has(e.id) && hl ? hl.kind : same(hov, 'edge', e.id) ? 'hover' : null;
+        const kind: keyof typeof HIGHLIGHT_COLOR | null = selected ? 'selected' : he.has(e.id) && hl ? hl.kind : null;
         const len = kind ? ew.length * 0.66 : 0;
         // 빈 변은 길 판자 높이에 띠를 그린다. 길이 놓인 변은 판자 아래에 더 넓게 깔아 판자 둘레로 빛 테두리가 비친다.
         const road = roadEdges.has(e.id);
@@ -2323,6 +2554,7 @@ export class BoardRenderer {
       this.traceMark.count = nt;
       this.traceMark.instanceMatrix.needsUpdate = true;
     }
+    this.syncHover();
   }
 
   // ───────────────────────── 연출 ─────────────────────────
@@ -2553,6 +2785,24 @@ export class BoardRenderer {
   }
 
   /**
+   * 교역로 하나의 잔교 두 갈래 (변의 두 꼭짓점마다 하나). 꼭짓점에서 흙 땅 끝까지는 흰 샛길 갈래(pierSpurs)가 나고,
+   * 잔교는 그 끝 땅 높이에서 시작해 바다 위 부두 모서리까지 완만하게 내려간다.
+   */
+  private harborPiers(edgeId: string): { v: THREE.Vector3; start: THREE.Vector3; end: THREE.Vector3; dir: THREE.Vector3 }[] {
+    const s = this.harborSpot(edgeId);
+    if (!s) return [];
+    return [s.a, s.b].map((v) => {
+      const toward = v.clone().sub(s.mid).normalize();
+      const end = s.dock.clone().addScaledVector(toward, 0.17).addScaledVector(s.n, -0.1);
+      const dir = end.clone().sub(v).normalize();
+      // 흙 땅은 바닷가 변에서 LAND_MARGIN 만큼 나가 있다. 잔교 머리는 땅 끝 바로 안쪽에 얹는다.
+      const reach = LAND_MARGIN / Math.max(0.45, dir.x * s.n.x + dir.z * s.n.z);
+      const start = v.clone().addScaledVector(dir, reach - PIER_TUCK);
+      return { v, start, end, dir };
+    });
+  }
+
+  /**
    * 바닷가 모래 위 가벼운 소품: 교역로가 아닌 바닷가 변마다 0~2개를 모래 둑 아래 마른 모래(물가 안쪽)에 흩는다.
    * 유목, 조개껍데기, 갯그령, 잔돌 중에서 변마다 같은 것이 나오도록 변 이름을 시드로 고른다. 교역로 변은 잔교와 부두가 있어 비운다.
    */
@@ -2590,7 +2840,17 @@ export class BoardRenderer {
     for (const list of byKey.values()) {
       for (const part of art.prop(list[0].key, list[0].variant).parts) {
         const mesh = new THREE.InstancedMesh(part.geometry, part.material, list.length);
-        list.forEach((p, i) => mesh.setMatrixAt(i, compose(p.x, p.y, p.z, p.rotY, p.scale * (p.stretch ?? 1), p.scale * (p.sy ?? 1), p.scale)));
+        list.forEach((p, i) => {
+          const sx = p.scale * (p.stretch ?? 1);
+          const sy = p.scale * (p.sy ?? 1);
+          if (!p.tilt) {
+            mesh.setMatrixAt(i, compose(p.x, p.y, p.z, p.rotY, sx, sy, p.scale));
+            return;
+          }
+          // 길이 방향(x)으로 기울인 뒤 돌린다 (잔교가 땅에서 부두로 내려간다).
+          tmpQ.setFromEuler(tmpE.set(0, p.rotY, p.tilt, 'YZX'));
+          mesh.setMatrixAt(i, tmpM.compose(tmpV.set(p.x, p.y, p.z), tmpQ, tmpS.set(sx, sy, p.scale)));
+        });
         mesh.computeBoundingSphere();
         group.add(mesh);
       }
@@ -2604,9 +2864,10 @@ export class BoardRenderer {
    */
   private syncHarbors(): void {
     const list = this.state.harbors ?? [];
-    const key = list.map((h) => `${h.edgeId}:${h.resource ?? '*'}`).join(',');
+    const key = this.harborKeyOf(list);
     if (key === this.harborKey || !this.art) return;
     this.harborKey = key;
+    this.refreshFootpaths(list);
     if (this.harborGroup) {
       this.scene.remove(this.harborGroup);
       this.harborGroup.traverse((o) => {
@@ -2624,24 +2885,26 @@ export class BoardRenderer {
       if (!s) return;
       const yaw = Math.atan2(s.n.x, s.n.z);
       const side = new THREE.Vector3(s.n.z, 0, -s.n.x);
-      // 부두 바닥은 물 위에 뜬다. 잔교는 흙 땅 끝의 모래 둑에서 나와(처음 한 뼘은 모래에 묻힌다) 부두로 내려간다.
+      // 부두 바닥은 물 위에 뜬다.
       const deck = 0.16;
       placements.push({ key: 'dock', variant: 0, x: s.dock.x, y: 0.09, z: s.dock.z, rotY: yaw, scale: 0.52, shadow: 0 });
-      for (const v of [s.a, s.b]) {
-        // 잔교는 꼭짓점 바로 앞 흙 둑에서 나와 부두 모서리로 이어진다 (교역로 하나에 길 두 갈래).
-        const start = v.clone().addScaledVector(s.n, LAND_MARGIN - 0.06);
-        const toward = v.clone().sub(s.mid).normalize();
-        const end = s.dock.clone().addScaledVector(toward, 0.17).addScaledVector(s.n, -0.1);
-        const mid = start.clone().add(end).multiplyScalar(0.5);
+      for (const { start, end } of this.harborPiers(h.edgeId)) {
+        // 잔교는 바닷가 샛길에서 갈라져 나온 흰 갈래 끝(흙 땅 끝)에서 땅 높이로 시작해 부두 모서리로 완만하게 내려간다
+        // (교역로 하나에 길 두 갈래). 판자 윗면이 시작에서는 흙 땅 바로 위, 끝에서는 부두 바닥 높이다.
+        const len = start.distanceTo(end);
+        const high = PLATFORM_TOP + 0.008 - PIER_DECK * PIER_SCALE;
+        const low = PIER_LOW;
+        const tilt = -Math.atan2(high - low, len);
         placements.push({
           key: 'pier',
           variant: 0,
-          x: mid.x,
-          y: 0.08,
-          z: mid.z,
+          x: (start.x + end.x) / 2,
+          y: (high + low) / 2,
+          z: (start.z + end.z) / 2,
           rotY: Math.atan2(-(end.z - start.z), end.x - start.x),
-          scale: 1.15,
-          stretch: start.distanceTo(end) / 1.15,
+          tilt,
+          scale: PIER_SCALE,
+          stretch: len / Math.cos(tilt) / PIER_SCALE,
           shadow: 0,
         });
       }
@@ -3097,15 +3360,16 @@ export class BoardRenderer {
    * 최장 교역로: 그 사람의 가장 긴 길을 따라 금빛이 한 칸씩 훑고 지나간다. 빛이 닿은 판자는 금빛으로 밝아지며 반짝이가 튄다.
    * 지나간 자리는 은은하게 남았다가 끝에서 길 전체가 한 번 더 반짝인 뒤 사그라든다. 길에 닿은 내 마을·도시 지붕도 함께 빛난다.
    */
-  private sweepLongestRoad(playerId: string): void {
+  private sweepLongestRoad(playerId: string, pace?: { sweepMs: number; holdMs: number; fadeMs: number }): void {
     const { edges, vertices } = this.longestPath(playerId);
     const n = edges.length;
     if (!n) return;
     const own = new Set(this.state.buildings.filter((b) => b.owner === playerId).map((b) => b.vertexId));
     const vKeys = vertices.map((v) => (own.has(v) ? `b:${v}` : `v:${v}`));
-    const sweepMs = Math.min(2600, Math.max(900, n * 200));
-    const holdMs = 520;
-    const fadeMs = 700;
+    // 승리 연출에서는 정해진 박자 안에 빠르게 훑는다.
+    const sweepMs = pace?.sweepMs ?? Math.min(2600, Math.max(900, n * 200));
+    const holdMs = pace?.holdMs ?? 520;
+    const fadeMs = pace?.fadeMs ?? 700;
     const total = sweepMs + holdMs + fadeMs;
     // 빛의 머리가 앞 꼭짓점 조금 앞에서 출발해 마지막 꼭짓점 너머까지 간다 (단위: 길 칸 수).
     const from = -0.5;
@@ -3491,6 +3755,324 @@ export class BoardRenderer {
     }
   }
 
+  // ───────────────────────── 승리 연출 ─────────────────────────
+
+  /**
+   * 승리 연출. 카메라가 이긴 사람이 처음 지었던 차례대로 마을·도시를 찾아가고(두 건물이 그 사람의 길로 이어져 있으면 길을 따라간다),
+   * 닿을 때마다 그 건물이 금빛으로 부풀며 반짝이와 +1·+2 가 뜬다. 카메라가 지나간 길도 금빛으로 남는다.
+   * 최장 교역로를 가졌으면 그 길 전체가 화면에 들어오게 물러나 금빛이 훑고, 최강 기사단이면 동상이 뛴다.
+   * 마지막에 보드 전체로 물러나며 그 사람의 길과 건물이 가운데부터 물결처럼 다시 빛난다.
+   * 박자는 board/victory.ts 의 plan 이고 화면 위 점수판(ui/spectacle 의 VictoryShow)과 같다. delay 뒤에 시작한다.
+   * 연출하는 동안 보드를 끌거나 누를 수 없다. camera 가 false 면(동작 줄이기) 카메라는 그대로 두고 빛만 낸다.
+   */
+  playVictory(playerId: string, plan: VictoryPlan, opts: { delay?: number; camera?: boolean; onDone?: () => void } = {}): void {
+    if (!this.ready || this.disposed) return;
+    this.stopVictory();
+    const run: VictoryRun = {
+      playerId,
+      plan,
+      camera: opts.camera ?? true,
+      legs: null,
+      lit: new Map(),
+      bumps: new Map(),
+      fired: 0,
+      finale: false,
+      anim: { start: 0, duration: 1, update: () => undefined },
+      onDone: opts.onDone,
+    };
+    const duration = plan.end + VICTORY_FADE_MS;
+    run.anim = {
+      start: performance.now() + (opts.delay ?? 0),
+      duration,
+      update: (t) => this.updateVictory(run, t * duration),
+      done: () => this.endVictory(run),
+    };
+    this.victory = run;
+    this.anims.push(run.anim);
+    // 보드 조작을 막고 마우스 올림 표시를 닫는다.
+    this.controls.enabled = false;
+    this.canvas.style.cursor = '';
+    if (this.hovered) {
+      this.hovered = null;
+      this.emitHover();
+    }
+    this.syncHover();
+    this.requestRender();
+  }
+
+  /** 승리 연출을 건너뛴다: 빛을 지우고 보드 전체 보기로 돌아가 다시 조작할 수 있게 한다. */
+  stopVictory(): void {
+    const run = this.victory;
+    if (!run) return;
+    this.anims = this.anims.filter((a) => a !== run.anim);
+    this.endVictory(run);
+  }
+
+  private endVictory(run: VictoryRun): void {
+    if (this.victory !== run) return;
+    this.victory = null;
+    this.victoryGlow.clear();
+    for (const key of run.bumps.keys()) this.growing.delete(key);
+    if (run.camera) this.placeCamera(this.defaultTarget, 1);
+    this.controls.enabled = true;
+    this.updatePieceInstances();
+    this.syncHover();
+    this.requestRender();
+    run.onDone?.();
+  }
+
+  /**
+   * target 이 화면에서 가리지 않는 영역(가장자리 여백을 뺀 곳) 한가운데에 오도록 카메라를 옮긴다 (돌지 않으므로 늘 같은 방향에서 본다).
+   * 여백 때문에 시야가 카메라 축에서 비껴 있으면 확대할수록 축 둘레가 아니라 시야 가운데를 중심으로 커지므로 그만큼 축을 비켜 놓는다.
+   */
+  private placeCamera(target: THREE.Vector3, zoom: number): void {
+    const k = 1 - 1 / zoom;
+    const ox = ((this.camera.left + this.camera.right) / 2) * k;
+    const oy = ((this.camera.top + this.camera.bottom) / 2) * k;
+    const axis = target.clone().addScaledVector(xAxis, -ox).addScaledVector(SCREEN_UP, -oy);
+    this.controls.target.copy(axis);
+    this.camera.position.copy(axis).addScaledVector(VIEW_AXIS, CAMERA_DISTANCE);
+    this.camera.zoom = zoom;
+    this.camera.updateProjectionMatrix();
+  }
+
+  /** 확대 배율. fit 이면 그만한 땅이 지금 화면(가장자리 여백을 뺀 곳)에 들어오는 배율이다. */
+  private zoomFor(z: CamZoom): number {
+    if ('zoom' in z) return z.zoom;
+    const viewW = this.camera.right - this.camera.left;
+    const viewH = this.camera.top - this.camera.bottom;
+    const fit = Math.min(viewW / z.fit.w, viewH / (z.fit.h * Math.sin(ELEVATION_RAD) + 0.6));
+    return THREE.MathUtils.clamp(fit, 1, this.controls.maxZoom);
+  }
+
+  /** 승리 연출 한 단계에서 카메라가 비출 곳 (승점 카드는 보드에 자리가 없어 그대로 둔다) */
+  private victoryFocus(run: VictoryRun, step: VictoryStep): { at: THREE.Vector3; zoom: CamZoom; vertex?: string } | null {
+    if (step.vertexId) {
+      const p = this.vertexWorld(step.vertexId);
+      return p ? { at: p.setY(VICTORY_FOCUS_Y), zoom: { fit: VICTORY_SHOT }, vertex: step.vertexId } : null;
+    }
+    if (step.kind === 'longest_road') {
+      const pts = this.longestPath(run.playerId)
+        .vertices.map((v) => this.vertexWorld(v))
+        .filter((p): p is THREE.Vector3 => !!p);
+      if (!pts.length) return null;
+      const box = new THREE.Box3().setFromPoints(pts);
+      const c = box.getCenter(new THREE.Vector3());
+      return { at: c.setY(VICTORY_FOCUS_Y), zoom: { fit: { w: box.max.x - box.min.x + 2.4, h: box.max.z - box.min.z + 2.2 } } };
+    }
+    if (step.kind === 'largest_army') {
+      const plaza = this.options.tiles.find((t) => t.kind === 'plaza');
+      const at = this.statue?.visible ? this.statue.position.clone() : plaza ? tileCenter(plaza, this.metrics) : null;
+      return at ? { at: at.setY(VICTORY_FOCUS_Y + 0.15), zoom: { fit: { w: 5.6, h: 4.2 } } } : null;
+    }
+    return null;
+  }
+
+  /** 이긴 사람의 길만 밟아 두 꼭짓점 사이를 가는 가장 짧은 길 (이어져 있지 않으면 null) */
+  private roadRoute(playerId: string, from: string, to: string): { vertices: string[]; edges: string[] } | null {
+    if (from === to) return null;
+    const adj = new Map<string, { v: string; e: string }[]>();
+    for (const r of this.state.roads) {
+      const e = r.owner === playerId ? this.geo.edgeMap[r.edgeId] : undefined;
+      if (!e) continue;
+      adj.set(e.a, [...(adj.get(e.a) ?? []), { v: e.b, e: e.id }]);
+      adj.set(e.b, [...(adj.get(e.b) ?? []), { v: e.a, e: e.id }]);
+    }
+    const prev = new Map<string, { v: string; e: string }>();
+    const queue = [from];
+    const seen = new Set([from]);
+    while (queue.length) {
+      const cur = queue.shift()!;
+      if (cur === to) break;
+      for (const n of adj.get(cur) ?? []) {
+        if (seen.has(n.v)) continue;
+        seen.add(n.v);
+        prev.set(n.v, { v: cur, e: n.e });
+        queue.push(n.v);
+      }
+    }
+    if (!prev.has(to)) return null;
+    const vertices = [to];
+    const edges: string[] = [];
+    for (let v = to; v !== from; ) {
+      const p = prev.get(v)!;
+      edges.unshift(p.e);
+      vertices.unshift(p.v);
+      v = p.v;
+    }
+    return { vertices, edges };
+  }
+
+  /** 카메라가 한 곳에서 다음 곳으로 옮겨 가는 구간. 길을 따라갈 때는 꺾인 곳을 둥글게 다듬는다. */
+  private camLeg(from: number, to: number, path: THREE.Vector3[], zoomFrom: CamZoom, zoomTo: CamZoom, route: { vertices: string[]; edges: string[] } | null): CamLeg {
+    const pts = path.length > 2 ? smoothOpen(path, 2) : path;
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+    // 지나가며 빛낼 길과 빈 꼭짓점의 이음목: 다듬기 전 꺾인 길 위 위치를 전체 길이 대비 몫으로 잰다.
+    const marks: CamLeg['marks'] = [];
+    if (route) {
+      const raw = [0];
+      for (let i = 1; i < path.length; i++) raw.push(raw[i - 1] + path[i].distanceTo(path[i - 1]));
+      const total = raw[raw.length - 1] || 1;
+      const built = new Set(this.state.buildings.map((b) => b.vertexId));
+      route.edges.forEach((e, i) => marks.push({ key: `r:${e}`, s: (raw[i] + raw[i + 1]) / 2 / total }));
+      route.vertices.forEach((v, i) => {
+        if (i > 0 && i < route.vertices.length - 1 && !built.has(v)) marks.push({ key: `v:${v}`, s: raw[i] / total });
+      });
+    }
+    const straight = path[0].distanceTo(path[path.length - 1]);
+    return { from, to: Math.max(from + 1, to), pts, cum, zoomFrom, zoomTo, dip: Math.min(0.45, straight / 14), marks };
+  }
+
+  /** 승리 연출의 카메라 길: 단계마다 비출 곳으로 옮겨 가고, 마지막에 보드 전체로 물러난다. */
+  private victoryLegs(run: VictoryRun): CamLeg[] {
+    if (!run.camera) return [];
+    const legs: CamLeg[] = [];
+    let prev: { at: THREE.Vector3; zoom: CamZoom; vertex?: string } = { at: this.controls.target.clone(), zoom: { zoom: this.camera.zoom } };
+    let leave = 0;
+    for (const step of run.plan.steps) {
+      const f = this.victoryFocus(run, step);
+      if (!f) continue;
+      const route = prev.vertex && f.vertex ? this.roadRoute(run.playerId, prev.vertex, f.vertex) : null;
+      const path = route ? route.vertices.map((v) => this.vertexWorld(v)!.setY(VICTORY_FOCUS_Y)) : [prev.at.clone(), f.at.clone()];
+      legs.push(this.camLeg(leave, step.at, path, prev.zoom, f.zoom, route));
+      prev = f;
+      // 닿은 곳에서 조금 머물렀다가 다음 곳으로 떠난다.
+      leave = step.at + Math.min(220, step.span * 0.35);
+    }
+    // 마무리: 승점 카드를 펼칠 때(없으면 마무리 때) 보드 전체로 물러나기 시작한다.
+    const cards = run.plan.steps.find((s) => s.kind === 'cards');
+    const back = Math.max(leave, cards ? cards.at : run.plan.finaleAt);
+    legs.push(this.camLeg(back, run.plan.finaleAt + VICTORY_HOME_MS, [prev.at.clone(), this.defaultTarget.clone()], prev.zoom, { zoom: 1 }, null));
+    return legs;
+  }
+
+  private updateVictory(run: VictoryRun, ms: number): void {
+    if (this.victory !== run) return;
+    if (!run.legs) run.legs = this.victoryLegs(run);
+    if (run.camera) this.moveVictoryCamera(run, ms);
+    const steps = run.plan.steps;
+    while (run.fired < steps.length && ms >= steps[run.fired].at) this.victoryBeat(run, steps[run.fired++], ms);
+    if (!run.finale && ms >= run.plan.finaleAt) {
+      run.finale = true;
+      this.victoryFinale(run, ms);
+    }
+    // 빛: 닿은 때 확 밝아졌다가 은은하게 남고, 연출이 끝나면 사그라든다.
+    const fade = ms > run.plan.end ? Math.max(0, 1 - (ms - run.plan.end) / VICTORY_FADE_MS) : 1;
+    for (const [key, at] of run.lit) {
+      const d = ms - at;
+      const g = d < 0 ? 0 : Math.min(1, d / 120) * (VICTORY_GLOW_FLOOR + (1 - VICTORY_GLOW_FLOOR) * Math.exp(-d / 420));
+      this.victoryGlow.set(key, g * fade);
+    }
+    // 점수를 센 마을·도시가 톡 부풀었다 돌아온다.
+    for (const [key, at] of run.bumps) {
+      const u = (ms - at) / 460;
+      if (u < 0) continue;
+      if (u >= 1) {
+        this.growing.delete(key);
+        run.bumps.delete(key);
+        continue;
+      }
+      this.growing.set(key, 1 + 0.32 * Math.sin(u * Math.PI) * (1 - u * 0.4));
+    }
+    this.updatePieceInstances();
+  }
+
+  private moveVictoryCamera(run: VictoryRun, ms: number): void {
+    const legs = run.legs ?? [];
+    if (!legs.length) return;
+    let leg = legs[0];
+    for (const l of legs) {
+      if (ms < l.from) break;
+      leg = l;
+    }
+    const u = ms >= leg.to ? 1 : easeInOut(Math.max(0, (ms - leg.from) / (leg.to - leg.from)));
+    const total = leg.cum[leg.cum.length - 1];
+    const s = u * total;
+    let i = 1;
+    while (i < leg.cum.length - 1 && leg.cum[i] < s) i++;
+    const seg = leg.cum[i] - leg.cum[i - 1];
+    const target = leg.pts[i - 1].clone().lerp(leg.pts[i], seg > 0 ? Math.min(1, (s - leg.cum[i - 1]) / seg) : 1);
+    const z0 = this.zoomFor(leg.zoomFrom);
+    const z1 = this.zoomFor(leg.zoomTo);
+    // 멀리 날아갈 때는 가운데에서 살짝 물러났다가 다가간다.
+    const zoom = (z0 + (z1 - z0) * u) / (1 + leg.dip * Math.sin(Math.PI * u));
+    this.placeCamera(target, Math.max(this.controls.minZoom, zoom));
+    for (const m of leg.marks) if (u >= m.s && !run.lit.has(m.key)) run.lit.set(m.key, ms);
+  }
+
+  /** 점수가 오르는 순간: 마을·도시는 부풀며 반짝이고 +1·+2 가 뜬다. 최장 교역로는 금빛이 훑고, 최강 기사단은 동상이 뛴다. */
+  private victoryBeat(run: VictoryRun, step: VictoryStep, ms: number): void {
+    if (step.vertexId) {
+      const key = `b:${step.vertexId}`;
+      run.lit.set(key, ms);
+      run.bumps.set(key, ms);
+      const p = this.vertexWorld(step.vertexId);
+      if (!p) return;
+      const lift = BADGE_LIFT[step.kind === 'city' ? 'city' : 'village'];
+      this.sparkBurst(p.clone().add(new THREE.Vector3(0, lift * 0.8, 0)), 0, step.kind === 'city' ? 9 : 6, 0.34, 0.11);
+      this.spawnFloating(p.clone().add(new THREE.Vector3(0, lift + 0.3, 0)), `+${step.points}`, 'float-label float-vp');
+      return;
+    }
+    if (step.kind === 'longest_road') {
+      const sweep = step.span * 0.6;
+      this.sweepLongestRoad(run.playerId, { sweepMs: sweep, holdMs: step.span * 0.15, fadeMs: step.span * 0.3 });
+      // 훑고 지나간 길은 마무리까지 은은하게 남는다 (금빛 머리가 닿는 때에 맞춘다).
+      const { edges } = this.longestPath(run.playerId);
+      edges.forEach((e, i) => {
+        if (!run.lit.has(`r:${e}`)) run.lit.set(`r:${e}`, ms + ((i + 0.5) / edges.length) * sweep);
+      });
+      const mids = edges.map((e) => this.edgeWorld(e)?.mid).filter((m): m is THREE.Vector3 => !!m);
+      if (mids.length) {
+        const at = mids.reduce((a, m) => a.add(m), new THREE.Vector3()).multiplyScalar(1 / mids.length);
+        this.spawnFloating(at.add(new THREE.Vector3(0, 0.8, 0)), `최장 교역로 +${step.points}`, 'float-label float-award');
+      }
+      return;
+    }
+    if (step.kind === 'largest_army') this.glowArmy(run.playerId);
+  }
+
+  /** 마무리: 그 사람의 길·이음목·마을·도시가 보드 가운데부터 바깥으로 물결처럼 다시 빛나고 건물마다 반짝이가 터진다. */
+  private victoryFinale(run: VictoryRun, ms: number): void {
+    const center = this.defaultTarget;
+    const mine: { key: string; p: THREE.Vector3; lift?: number; edge?: string }[] = [];
+    const built = new Set<string>();
+    for (const b of this.state.buildings) {
+      if (b.owner !== run.playerId) continue;
+      const p = this.vertexWorld(b.vertexId);
+      built.add(b.vertexId);
+      if (p) mine.push({ key: `b:${b.vertexId}`, p, lift: BADGE_LIFT[b.kind] });
+    }
+    const joints = new Set<string>();
+    for (const r of this.state.roads) {
+      if (r.owner !== run.playerId) continue;
+      const ew = this.edgeWorld(r.edgeId);
+      const e = this.geo.edgeMap[r.edgeId];
+      if (!ew || !e) continue;
+      mine.push({ key: `r:${r.edgeId}`, p: ew.mid, edge: r.edgeId });
+      for (const v of [e.a, e.b]) if (!built.has(v)) joints.add(v);
+    }
+    for (const v of joints) {
+      const p = this.vertexWorld(v);
+      if (p) mine.push({ key: `v:${v}`, p });
+    }
+    let budget = SPARKLE_MAX - this.sparkles.length;
+    for (const m of mine) {
+      const delay = 180 + Math.hypot(m.p.x - center.x, m.p.z - center.z) * 85;
+      run.lit.set(m.key, ms + delay);
+      if (m.lift !== undefined) {
+        run.bumps.set(m.key, ms + delay);
+        if (budget >= 5) {
+          this.sparkBurst(m.p.clone().add(new THREE.Vector3(0, m.lift * 0.8, 0)), delay, 5, 0.3, 0.12);
+          budget -= 5;
+        }
+      } else if (m.edge && budget >= 1) {
+        this.sparkEdge(m.edge, delay, 1);
+        budget -= 1;
+      }
+    }
+  }
+
   // ───────────────────────── 카메라·입력 ─────────────────────────
 
   setInsets(insets: Insets): void {
@@ -3850,7 +4432,7 @@ export class BoardRenderer {
     this.pointerDowns.delete(e.pointerId);
     const wasMulti = this.multiTouch;
     if (this.pointerDowns.size === 0) this.multiTouch = false;
-    if (!d || wasMulti) return;
+    if (!d || wasMulti || this.victory) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     const moved = Math.hypot(e.clientX - d.x, e.clientY - d.y);
     const slop = e.pointerType === 'mouse' ? 6 : 12;
@@ -3868,7 +4450,7 @@ export class BoardRenderer {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
-    if (e.pointerType !== 'mouse' || e.buttons !== 0 || !this.ready) return;
+    if (e.pointerType !== 'mouse' || e.buttons !== 0 || !this.ready || this.victory) return;
     const sel = this.pick(e.clientX, e.clientY);
     if (sel?.kind !== this.hovered?.kind || sel?.id !== this.hovered?.id) {
       this.hovered = sel;
@@ -3941,7 +4523,8 @@ export class BoardRenderer {
     if (this.updateTokens(now)) animating = true;
     if (this.updateSparkles(now)) animating = true;
     if (this.ready && (ambient || this.bouncing.size) && this.updateMotion(now)) animating = true;
-    const moving = this.controls.update();
+    // 승리 연출 중에는 연출이 카메라를 직접 옮긴다 (조작 잔여 움직임이 끼어들지 않게 컨트롤을 쉰다).
+    const moving = this.victory ? false : this.controls.update();
     const t0 = performance.now();
     this.renderer.info.reset();
     this.flushShadows();

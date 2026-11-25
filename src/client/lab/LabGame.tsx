@@ -214,11 +214,14 @@ function LabDrawer({
     showToast(`다음 주사위는 ${sb.nextDice[0]}+${sb.nextDice[1]} = ${total}`, 'info', 2200);
   };
 
+  // 게임 끝 기록도 남겨 실제 게임처럼 승리 연출(카메라가 내 건물을 돌며 점수를 센다)이 나온 뒤 결과 창이 열린다.
   const finish = () =>
     sb.cheat((st) => {
       st.phase = 'finished';
       st.trades = [];
       st.result = computeResult(st, me);
+      st.eventSeq += 1;
+      st.events.push({ kind: 'game_end', winners: [me], seq: st.eventSeq, turn: st.turn });
     });
 
   if (!open) {

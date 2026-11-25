@@ -32,6 +32,8 @@ export interface Placement {
   stretch?: number;
   /** 세로(y) 방향으로만 더 늘이는 배율 (바위 언덕을 높게) */
   sy?: number;
+  /** 길이(x) 방향 기울기 (라디안, 음수면 +x 쪽 끝이 내려간다). 잔교가 땅에서 부두로 내려가게 한다. */
+  tilt?: number;
   /** 접촉 그림자 반지름 (0이면 그림자 없음) */
   shadow: number;
   /** 그림자 가로세로 비율 */
