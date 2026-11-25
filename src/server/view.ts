@@ -20,6 +20,7 @@ export function buildRoomView(room: Room, viewer: string, deadline: number | nul
       colorIndex: p.colorIndex,
       isHost: p.id === room.hostId,
       ready: p.ready,
+      auto: p.auto === true,
       connected: p.connected,
     })),
     game: room.game ? buildGameView(room.game, viewer, { turnSeconds: room.turnSeconds, deadline }) : null,

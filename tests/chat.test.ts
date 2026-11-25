@@ -16,6 +16,7 @@ function fakeRoom(): { room: Room; a: RoomPlayer; b: RoomPlayer } {
     nickname,
     colorIndex,
     ready: false,
+    auto: false,
     connected: true,
     socketId: null,
     recent: new Map(),

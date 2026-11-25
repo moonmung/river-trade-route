@@ -207,6 +207,20 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
       reply({ ok: true });
     });
 
+    socket.on('room:auto', (payload, ack) => {
+      const reply = safeAck(ack);
+      const cur = current(socket);
+      if (!cur) return reply(fail('방에 연결되어 있지 않습니다.'));
+      const on = (payload as { on?: unknown } | undefined)?.on;
+      if (typeof on !== 'boolean') return reply(fail('잘못된 요청입니다.'));
+      const was = cur.player.auto;
+      const err = rooms.setAuto(cur.room, cur.player.id, on);
+      if (err) return reply(fail(err.error));
+      if (was !== on) log(`[자리 비움] ${cur.room.code} ${cur.player.nickname} ${on ? '켬 (컴퓨터가 대신 둠)' : '끔'}`);
+      broadcast(cur.room);
+      reply({ ok: true });
+    });
+
     socket.on('room:settings', (payload, ack) => {
       const reply = safeAck(ack);
       const cur = current(socket);
@@ -327,8 +341,10 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
       const p = (payload ?? {}) as { requestId?: unknown; action?: unknown };
       const action = parseAction(p.action);
       if (!action || !isRequestId(p.requestId)) return reply(fail('잘못된 요청입니다.', 'BAD_REQUEST'));
+      const wasAuto = cur.player.auto;
       const { result, changed } = rooms.act(cur.room, cur.player.id, p.requestId, action);
-      if (changed) broadcast(cur.room);
+      if (wasAuto && !cur.player.auto) log(`[자리 비움] ${cur.room.code} ${cur.player.nickname} 끔 (직접 둠)`);
+      if (changed || wasAuto !== cur.player.auto) broadcast(cur.room);
       reply(result);
     });
 

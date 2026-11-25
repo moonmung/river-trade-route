@@ -91,7 +91,7 @@ function revivePlayer(raw: unknown): RoomPlayer | null {
   if (typeof raw.id !== 'string' || typeof raw.token !== 'string' || typeof raw.nickname !== 'string') return null;
   if (typeof raw.colorIndex !== 'number') return null;
   const recent = new Map(Array.isArray(raw.recent) ? raw.recent.filter(isRecentEntry) : []);
-  return { ...raw, ready: raw.ready === true, connected: false, socketId: null, recent } as RoomPlayer;
+  return { ...raw, ready: raw.ready === true, auto: raw.auto === true, connected: false, socketId: null, recent } as RoomPlayer;
 }
 
 function reviveRoom(raw: unknown): Room | null {

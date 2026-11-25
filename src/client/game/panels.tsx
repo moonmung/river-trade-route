@@ -176,6 +176,11 @@ export function PlayersPanel({
               <span className="player-name">
                 <span className="player-nick">{p.nickname}</span>
                 {id === view.you && <span className="tag">나</span>}
+                {p.auto && (
+                  <span className="tag tag-auto" title="자리 비움: 컴퓨터가 대신 두는 중">
+                    자동
+                  </span>
+                )}
                 {emote && (
                   <span key={emote.key} className="emote-pop" aria-label={`${p.nickname}: ${emote.emote}`}>
                     {emote.emote}

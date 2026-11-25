@@ -20,7 +20,7 @@ import type { BoardRenderer } from '../board/BoardRenderer';
 import { colorWord } from '../game/derive';
 import { awardSound } from '../game/effects';
 import { paceBusy } from '../game/pace';
-import { setActionSink } from '../game/ui';
+import { setActionSink, setAutoSink } from '../game/ui';
 import { injectBrag, injectChat, injectEmote, injectPing, setChatSink } from '../net/chat';
 import Game from '../screens/Game';
 import { navigate } from '../router';
@@ -67,6 +67,7 @@ export function LabGame({ onScene }: { onScene: () => void }) {
   // 화면 버튼의 행동·채팅을 서버 대신 모의 게임으로 보낸다.
   useEffect(() => {
     setActionSink(async (a) => sb.actMine(a));
+    setAutoSink((on) => sb.setAuto(on));
     setChatSink({
       send: async (t) => {
         sb.say(sb.you, t);
@@ -97,6 +98,7 @@ export function LabGame({ onScene }: { onScene: () => void }) {
     if (import.meta.env.DEV) Object.assign(window, { __lab: { sb, renderer: () => rendererRef.current } });
     return () => {
       setActionSink(null);
+      setAutoSink(null);
       setChatSink(null);
       sb.busy = null;
       sb.stop();

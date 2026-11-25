@@ -223,6 +223,11 @@ export class GameClient {
     return this.emit('room:ready', { ready });
   }
 
+  /** 게임 중 자리 비움(자동): 켜 두면 서버가 내 대신 둔다 */
+  setAuto(on: boolean): Promise<AckResult> {
+    return this.emit('room:auto', { on });
+  }
+
   setWinPoints(winPoints: number): Promise<AckResult> {
     return this.setSettings({ winPoints });
   }

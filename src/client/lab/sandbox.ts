@@ -8,7 +8,7 @@ import type { AckResult, ChatBrag, ChatEmote, ChatMessage, ChatPing, RoomView } 
 import { applyAction, autoPlay, clockKey, createGame, currentPlayer, placementPlayer, type GameState } from '../../shared/rules';
 import type { GameAction, MapConfig } from '../../shared/types';
 import type { DiceMode } from '../../shared/fairDice';
-import { botSideAction, botTurnAction } from './bot';
+import { botSideAction, botTurnAction } from '../../shared/bot';
 
 export const LAB_CODE = 'LAB1';
 const NAMES = ['나', '버들', '물레', '나루', '솔이', '바위', '여울', '한별'];
@@ -53,6 +53,8 @@ export class Sandbox {
   bots = true;
   /** 봇이 한 수를 두기까지 기다리는 시간 */
   botDelay = 750;
+  /** 내 자리 비움(자동): 서버처럼 내 차례도 봇이 대신 둔다. 직접 두면 꺼진다. */
+  autoYou = false;
   /**
    * 화면이 아직 주사위·생산·동상 연출을 보여 주는 중인지 (실험실 화면이 game/pace.ts 로 정한다).
    * 그동안 봇은 다음 수를 미루고, 끝나면 botDelay 만큼 더 쉬었다가 둔다. 사람 화면의 버튼이 열리는 때와 같은 차례다.
@@ -135,7 +137,15 @@ export class Sandbox {
       phase: 'game',
       hostId: 'p0',
       you: id,
-      players: this.players.map((p) => ({ id: p.id, nickname: p.nickname, colorIndex: p.colorIndex, isHost: p.id === 'p0', ready: true, connected: true })),
+      players: this.players.map((p) => ({
+        id: p.id,
+        nickname: p.nickname,
+        colorIndex: p.colorIndex,
+        isHost: p.id === 'p0',
+        ready: true,
+        auto: p.id === this.you && this.autoYou,
+        connected: true,
+      })),
       game: buildGameView(this.state, id, { turnSeconds: this.turnSeconds, deadline: this.clockPaused ? null : (this.clock?.deadline ?? null) }),
       gameNumber: this.gameNumber,
       minPlayers: MIN_PLAYERS,
@@ -173,9 +183,20 @@ export class Sandbox {
     return () => (i < 2 ? vals[i++] : Math.random());
   }
 
-  /** 내가 둔 행동 (화면 버튼). 굴리기는 정해 둔 주사위 값을 쓴다. */
+  /** 내가 둔 행동 (화면 버튼). 굴리기는 정해 둔 주사위 값을 쓴다. 자리 비움이었으면 서버처럼 꺼진다. */
   actMine(action: GameAction): AckResult {
-    return action.type === 'roll' ? this.roll(this.you, action) : this.act(this.you, action, Math.random);
+    const res = action.type === 'roll' ? this.roll(this.you, action) : this.act(this.you, action, Math.random);
+    if (res.ok && this.autoYou) this.setAuto(false);
+    return res;
+  }
+
+  /** 내 자리 비움(자동)을 켜고 끈다 (서버의 room:auto 와 같다) */
+  setAuto(on: boolean): AckResult {
+    if (on && this.state.phase === 'finished') return { ok: false, error: '게임 중에만 자리 비움을 켤 수 있습니다.' };
+    if (this.autoYou === on) return { ok: true };
+    this.autoYou = on;
+    this.changed();
+    return { ok: true };
   }
 
   /** 주사위 굴리기. 정해 둔 눈이 있으면 고르게 굴리기여도 그 눈이 나오게 이번 한 번만 그냥 굴린다. */
@@ -248,12 +269,12 @@ export class Sandbox {
   private scheduleBot(): void {
     window.clearTimeout(this.botTimer);
     this.busySince = 0;
-    if (!this.tickTimer || !this.bots || this.state.phase === 'finished') return;
+    if (!this.tickTimer || !(this.bots || this.autoYou) || this.state.phase === 'finished') return;
     this.botTimer = window.setTimeout(() => this.botStep(), this.botDelay);
   }
 
   private botStep(): void {
-    if (!this.bots) return;
+    if (!this.bots && !this.autoYou) return;
     // 화면의 연출이 끝날 때까지 기다린다. 연출이 끝나지 않아도 BUSY_MAX_MS 가 지나면 그냥 둔다.
     if (this.busy?.()) {
       if (!this.busySince) this.busySince = Date.now();
@@ -268,19 +289,21 @@ export class Sandbox {
       return;
     }
     const s = this.state;
-    const others = this.players.filter((p) => p.id !== this.you);
+    // 봇이 두는 자리: 다른 자리(봇을 켰을 때)와 자리 비운 나. 나는 서버의 자동처럼 교환을 하지 않는다.
+    const bots = this.players.filter((p) => (p.id === this.you ? this.autoYou : this.bots));
+    const optsFor = (id: string) => (id === this.you ? { trades: false } : {});
     // 차례와 상관없는 일 먼저 (순서 주사위, 7 버리기, 교환 응답)
-    for (const p of others) {
-      const a = botSideAction(this.viewFor(p.id));
+    for (const p of bots) {
+      const a = botSideAction(this.viewFor(p.id), Math.random, optsFor(p.id));
       if (a && this.act(p.id, a).ok) {
         this.maybeChat(p, a);
         return;
       }
     }
     const turnId = s.phase === 'placement' ? placementPlayer(s) : currentPlayer(s);
-    if (!turnId || turnId === this.you) return;
+    if (!turnId || !bots.some((b) => b.id === turnId)) return;
     const p = this.players.find((x) => x.id === turnId)!;
-    let a = botTurnAction(this.viewFor(turnId), s.order.indexOf(turnId));
+    let a = botTurnAction(this.viewFor(turnId), s.order.indexOf(turnId), Math.random, optsFor(turnId));
     if (!a) {
       // 교환 제안에 사람이 답하기를 기다리는 중. 너무 오래 걸리면 턴을 넘긴다.
       this.idle += 1;

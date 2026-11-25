@@ -35,6 +35,7 @@ import { ChatBox, ChatDock, EmoteBar, PingButton, PingMark } from '../ui/chat';
 import { PersonIcon } from '../ui/icons';
 import { showToast } from '../ui/toast';
 import { FullscreenButton } from '../ui/FullscreenButton';
+import { AwayBanner, AwayButton, useAwayNotices } from '../game/away';
 import { SpectacleHost } from '../ui/spectacle';
 import { DiceTray } from '../dice/DiceTray';
 
@@ -187,6 +188,9 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   }, [wide]);
 
   useGameEffects(view, renderer, players);
+  useAwayNotices(view, players);
+  /** 내가 자리 비움(자동) 중인지: 서버가 대신 두므로 주사위 던지기 자리를 띄우지 않는다 */
+  const away = !!players.get(view.you)?.auto && g.phase !== 'finished';
   const takeRenderer = (r: BoardRenderer | null) => {
     setRenderer(r);
     onRenderer?.(r);
@@ -331,6 +335,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       {/* 넓은 화면 보드 오른쪽 위(오른쪽 패널 바로 왼쪽): 전체화면 단추 (좁은 화면은 차례 상태 쪽지 맨 오른쪽) */}
       {wide && (
         <div className="hud-fs">
+          {g.phase !== 'finished' && <AwayButton on={away} withLabel />}
           <FullscreenButton />
         </div>
       )}
@@ -339,7 +344,14 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       <div className="hud-top">
         {!wide && (
           <div className="hud-status" ref={topRef}>
-            <TurnStatus view={view} players={players} onMenu={openMenu} wait={wait} compact tail={<FullscreenButton />} />
+            <TurnStatus view={view} players={players} onMenu={openMenu} wait={wait} compact
+              tail={
+                <>
+                  {g.phase !== 'finished' && <AwayButton on={away} />}
+                  <FullscreenButton />
+                </>
+              }
+            />
             <PlayersPanel view={view} players={players} emotes={chat.emotes} compact />
             <BankPanel view={view} compact />
           </div>
@@ -492,7 +504,8 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       {g.phase === 'playing' && g.step === 'discard' && g.discards[view.you] > 0 && !wait && <DiscardDialog key={`d-${g.turn}`} view={view} />}
       {myTurn && g.step === 'steal' && !wait && <StealDialog view={view} players={players} />}
       <SpectacleHost />
-      <DiceTray view={view} paused={dialog !== null} hold={!!wait} />
+      {!away && <DiceTray view={view} paused={dialog !== null} hold={!!wait} />}
+      {away && <AwayBanner />}
       {g.phase === 'finished' && showResult && <ResultOverlay view={view} players={players} onClose={() => setShowResult(false)} />}
       {g.phase === 'finished' && !showResult && (
         <button className="btn btn-primary result-reopen" onClick={() => setShowResult(true)}>
