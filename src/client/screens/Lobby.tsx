@@ -19,6 +19,7 @@ import {
   DEV_LABEL,
   HAND_LIMIT_MAX,
   HAND_LIMIT_MIN,
+  NICKNAME_MAX,
   PIECE_LABEL,
   PIECE_LIMIT_RANGE,
   RESOURCE_CARDS_MAX,
@@ -33,6 +34,7 @@ import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL, mapTileCo
 import type { MapArrange, MapShape } from '../../shared/types';
 import { MapPreview } from '../ui/MapPreview';
 import { DICE_MODE_LABEL, type DiceMode } from '../../shared/fairDice';
+import { normalizeNickname } from '../../shared/validate';
 
 /** 발전 카드 더미 구성: "기사 14 · 승점 5 · 길 건설 2 · 풍년 2 · 독점 2" */
 function devDeckText(mix: DevMix): string {
@@ -157,6 +159,61 @@ function ColorPicker({ view }: { view: RoomView }) {
         })}
       </div>
     </div>
+  );
+}
+
+/**
+ * 내 이름 바꾸기: 참가자 목록 아래 입력칸에 새 이름을 적고 바꾸기(또는 Enter)를 누른다.
+ * 들어올 때와 같은 규칙(1~12자, 같은 방에서 겹치지 않게)은 서버가 다시 확인한다.
+ */
+function NameEditor({ view }: { view: RoomView }) {
+  const me = view.players.find((p) => p.id === view.you);
+  const current = me?.nickname ?? '';
+  const [draft, setDraft] = useState(current);
+  const [busy, setBusy] = useState(false);
+  // 다른 탭에서 바꿨거나 서버가 정리한 이름이 오면 입력칸도 맞춘다.
+  useEffect(() => setDraft(current), [current]);
+  if (!me) return null;
+  const next = normalizeNickname(draft);
+  const changed = !!next && next !== current;
+  const submit = async () => {
+    if (busy) return;
+    if (!next) return showToast(`이름을 1~${NICKNAME_MAX}자로 입력하세요.`, 'error');
+    if (!changed) return;
+    setBusy(true);
+    const res = await client.setNickname(next);
+    setBusy(false);
+    if (!res.ok) return showToast(res.error, 'error');
+    setDraft(res.nickname);
+    showToast(`이름을 ${josa(res.nickname, '으로/로')} 바꿨습니다.`);
+  };
+  return (
+    <form
+      className="name-editor"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <label className="name-editor-label" htmlFor="name-editor-input">
+        내 이름
+      </label>
+      <input
+        id="name-editor-input"
+        className="input name-editor-input"
+        value={draft}
+        maxLength={NICKNAME_MAX + 4}
+        autoComplete="nickname"
+        enterKeyHint="done"
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setDraft(current);
+        }}
+      />
+      <button type="submit" className="btn btn-small" disabled={!changed || busy} aria-busy={busy}>
+        바꾸기
+      </button>
+    </form>
   );
 }
 
@@ -580,6 +637,7 @@ export function Lobby({ view }: { view: RoomView }) {
               ),
             )}
           </ul>
+          <NameEditor view={view} />
           <ColorPicker view={view} />
         </section>
 

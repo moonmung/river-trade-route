@@ -228,6 +228,17 @@ export class GameClient {
     return this.emit('room:color', { colorIndex });
   }
 
+  /** 대기실에서 내 이름 바꾸기. 바뀌면 이 기기에 저장한 자리 정보와 다음에 쓸 닉네임도 새 이름으로 바꾼다. */
+  async setNickname(nickname: string): Promise<AckResult<{ nickname: string }>> {
+    const res = await this.emit<{ nickname: string }>('room:nickname', { nickname });
+    const s = this.snap.session;
+    if (res.ok && s) {
+      saveNickname(res.nickname);
+      if (s.nickname !== res.nickname) this.set({ session: saveSession({ roomCode: s.roomCode, playerId: s.playerId, token: s.token, nickname: res.nickname }) });
+    }
+    return res;
+  }
+
   /** 게임 중 자리 비움(자동): 켜 두면 서버가 내 대신 둔다 */
   setAuto(on: boolean): Promise<AckResult> {
     return this.emit('room:auto', { on });

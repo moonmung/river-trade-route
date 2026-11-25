@@ -317,6 +317,8 @@ export interface ClientToServerEvents {
   'room:ready': (p: { ready: boolean }, ack: Ack) => void;
   /** 대기실에서 내 색 바꾸기 (0 ~ PLAYER_COLOR_COUNT-1, 남이 쓰는 색은 안 된다) */
   'room:color': (p: { colorIndex: number }, ack: Ack) => void;
+  /** 대기실에서 내 이름 바꾸기 (1~12자, 같은 방에서 겹치지 않게). 정리한 이름을 돌려준다. */
+  'room:nickname': (p: { nickname: string }, ack: Ack<{ nickname: string }>) => void;
   /** 게임 중 자리 비움(자동): 켜 두면 서버가 내 차례와 할 일을 대신 둔다. 직접 두면 저절로 꺼진다. */
   'room:auto': (p: { on: boolean }, ack: Ack) => void;
   'room:start': (p: Record<string, never>, ack: Ack) => void;

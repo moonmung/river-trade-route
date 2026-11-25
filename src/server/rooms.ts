@@ -29,7 +29,9 @@ import {
   normalizeTurnSeconds,
   normalizeWinPoints,
   PLAYER_COLOR_COUNT,
+  NICKNAME_MAX,
 } from '../shared/constants';
+import { normalizeNickname } from '../shared/validate';
 import { SEAT_CODE_LENGTH, type AckResult, type RoomListing, type RoomPeek, type SeatHandover } from '../shared/protocol';
 import { DEFAULT_MAP, mapCardDefaults, maxPlayersFor, normalizeMapArrange, normalizeMapShape } from '../shared/maps';
 import { normalizeDiceMode, type DiceMode } from '../shared/fairDice';
@@ -265,6 +267,26 @@ export class RoomManager {
     p.colorIndex = colorIndex;
     this.changed();
     return null;
+  }
+
+  /**
+   * 대기실에서 내 이름을 바꾼다. 들어올 때와 같은 규칙(1~12자, 같은 방에서 겹치지 않게)으로 확인하고, 준비 상태는 그대로 둔다.
+   * 바뀐 이름(정리한 값)을 돌려준다.
+   */
+  setNickname(room: Room, playerId: string, raw: unknown): { nickname: string } | RoomError {
+    if (room.phase !== 'lobby') return { error: '대기실에서만 이름을 바꿀 수 있습니다.' };
+    const p = room.players.find((x) => x.id === playerId);
+    if (!p) return { error: '방에 없는 참가자입니다.' };
+    const nickname = normalizeNickname(raw);
+    if (!nickname) return { error: `이름은 1~${NICKNAME_MAX}자로 입력하세요.` };
+    if (nickname === p.nickname) return { nickname };
+    const lower = nickname.toLocaleLowerCase('ko');
+    if (room.players.some((x) => x.id !== playerId && x.nickname.toLocaleLowerCase('ko') === lower)) {
+      return { error: '이 방에서 이미 쓰고 있는 이름입니다.', code: 'NICK_TAKEN' };
+    }
+    p.nickname = nickname;
+    this.changed();
+    return { nickname };
   }
 
   /** 방장이 대기실에서 승리 점수를 바꾼다. */

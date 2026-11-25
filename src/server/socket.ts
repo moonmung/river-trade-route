@@ -217,6 +217,21 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
       reply({ ok: true });
     });
 
+    socket.on('room:nickname', (payload, ack) => {
+      const reply = safeAck(ack);
+      const cur = current(socket);
+      if (!cur) return reply(fail('방에 연결되어 있지 않습니다.'));
+      const before = cur.player.nickname;
+      const res = rooms.setNickname(cur.room, cur.player.id, (payload as { nickname?: unknown } | undefined)?.nickname);
+      if (isRoomError(res)) return reply(fail(res.error, res.code));
+      if (res.nickname !== before) {
+        log(`[이름 바꿈] ${cur.room.code} ${before} → ${res.nickname}`);
+        broadcast(cur.room);
+      }
+      const ok: AckResult<{ nickname: string }> = { ok: true, nickname: res.nickname };
+      reply(ok);
+    });
+
     socket.on('room:auto', (payload, ack) => {
       const reply = safeAck(ack);
       const cur = current(socket);
