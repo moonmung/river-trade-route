@@ -967,6 +967,28 @@ h2 {
   font-weight: 700;
 }
 
+/* 내 이름 바꾸기: 참가자 목록 아래 "내 이름 [입력칸] [바꾸기]" 한 줄 */
+.name-editor {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+
+.name-editor-label {
+  font-weight: 700;
+  font-size: 0.92rem;
+  white-space: nowrap;
+}
+
+.name-editor-input {
+  flex: 1;
+  min-width: 0;
+  max-width: 16em;
+  padding: 6px 10px;
+  font-size: 1rem;
+}
+
 /* 내 색 고르기: 참가자 목록 아래 12가지 색 동그라미 (넓으면 한 줄, 좁으면 6개씩 두 줄) */
 .color-picker {
   display: flex;
