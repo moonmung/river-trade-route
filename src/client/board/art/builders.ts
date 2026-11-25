@@ -56,7 +56,8 @@ export type PropKey =
   | 'trader'
   | 'ship'
   | 'soldier'
-  | 'soldierarm';
+  | 'soldierarm'
+  | 'shore';
 
 type Vec3 = [number, number, number];
 /** 밝기 배율. 숫자 하나는 밝기만 바꾸고, 세 값은 색조까지 바꾼다 (이끼 낀 돌처럼). */
@@ -1665,6 +1666,74 @@ export function buildSoldierArm(): PropPart[] {
   return k.build(0.01, 1);
 }
 
+/**
+ * 바닷가 모래 위에 드문드문 놓는 가벼운 소품. 0 볕에 바랜 유목 한 토막, 1 조개껍데기 두 개와 작은 소라, 2 갯그령 한 포기.
+ * 흙 땅 테두리가 모래 해변으로 이어져 보이게 하는 장식이라 모두 작고 낮다. 원점 = 모래 바닥.
+ */
+export function buildShore(variant = 0): PropPart[] {
+  const rand = mulberry32(variant * 29 + 5);
+  const k = new Kit();
+  const round = (_p: THREE.Vector3, n: THREE.Vector3) => skyShade(n, 0.72, 1.08);
+  if (variant === 0) {
+    // 유목: 껍질이 벗겨지고 볕에 바래 희끗한 통나무. 결을 따라 밝기가 조금씩 다르고 한쪽 끝은 모래에 살짝 묻혔다.
+    const len = 0.42;
+    k.add('paint', cyl(0.034, 0.046, len, 9), {
+      position: [0, 0.028, 0],
+      rotation: [0.05, 0, Math.PI / 2 + 0.06],
+      color: '#cdc3b2',
+      shade: (p, n) => skyShade(n, 0.7, 1.1) * (0.9 + 0.12 * Math.sin(Math.atan2(p.z, p.y - 0.028) * 7)),
+    });
+    k.add('paint', cyl(0.043, 0.043, 0.006, 9), { position: [len / 2 - 0.012, 0.038, 0], rotation: [0, 0, Math.PI / 2 + 0.06], color: '#e9dfcb' });
+    // 부러진 가지 그루터기 둘
+    k.add('paint', cyl(0.011, 0.017, 0.12, 6), { position: [0.05, 0.068, 0.03], rotation: aim(0.55, 1, 0.45), color: '#c4b9a6', shade: round });
+    k.add('paint', cyl(0.009, 0.013, 0.08, 6), { position: [-0.13, 0.05, -0.028], rotation: aim(-0.6, 0.7, -0.5), color: '#c4b9a6', shade: round });
+    return k.build(0.02, 0.86);
+  }
+  if (variant === 1) {
+    // 가리비 두 개(하나는 엎어지고 하나는 기울었다)와 작은 소라 하나
+    const scallop = (at: Vec3, yaw: number, tilt: number, r: number, color: string) => {
+      const fan = warp(new THREE.CircleGeometry(r, 10, -Math.PI * 0.08, Math.PI * 1.16), (v) => {
+        const d = Math.hypot(v.x, v.y) / r;
+        v.z = 0.32 * r * (1 - d * d);
+      });
+      k.add('paint', fan, {
+        position: at,
+        rotation: [-Math.PI / 2 + tilt, 0, yaw],
+        color,
+        flat: true,
+        // 부챗살 골: 각도마다 밝기를 번갈아
+        faceShade: (c, n) => (Math.floor((Math.atan2(c.z - at[2], c.x - at[0]) + Math.PI) * 5) % 2 ? 0.9 : 1.04) * skyShade(n, 0.75, 1.08),
+      });
+    };
+    scallop([-0.04, 0.008, 0.01], 0.4, 0, 0.038, '#f1d5c4');
+    scallop([0.045, 0.014, -0.02], -1.1, 0.35, 0.032, '#f3e6d2');
+    k.add('paint', new THREE.ConeGeometry(0.016, 0.052, 7), {
+      position: [0.0, 0.012, 0.05],
+      rotation: [Math.PI / 2, 0, 0.9],
+      color: '#e6cfa8',
+      shade: (p, n) => skyShade(n, 0.72, 1.08) * (0.88 + 0.14 * Math.sin(p.z * 160)),
+    });
+    return k.build(0.01, 0.9);
+  }
+  // 갯그령: 가늘고 긴 잎이 한쪽(바닷바람 쪽)으로 기운 모래 언덕 풀 한 포기. 잎 재질이라 바람에 조금 흔들린다.
+  const blades = 9;
+  for (let i = 0; i < blades; i++) {
+    const a = (i / blades) * Math.PI * 2 + rand() * 0.5;
+    const h = 0.11 + rand() * 0.07;
+    const lean = 0.35 + rand() * 0.35;
+    const blade = new THREE.ConeGeometry(0.008, h, 3);
+    blade.translate(0, h / 2, 0);
+    k.add('leaf', blade, {
+      position: [Math.cos(a) * 0.015, 0, Math.sin(a) * 0.015],
+      rotation: aim(Math.cos(a) * 0.25 + lean, 1, Math.sin(a) * 0.25),
+      scale: [1, 1, 0.5],
+      color: new THREE.Color('#f2e3a2').multiplyScalar(0.9 + rand() * 0.2),
+      flat: true,
+    });
+  }
+  return k.build(0.05, 0.8);
+}
+
 /** 광장 가운데 둥근 두 단 돌 단: 기사단 동상이 처음 서 있는 자리. 동상이 떠나면 빈 단만 남는다. */
 export function buildDais(): PropPart[] {
   const k = new Kit();
@@ -2347,6 +2416,7 @@ export const PROP_VARIANTS: Record<PropKey, number> = {
   ship: 1,
   soldier: 1,
   soldierarm: 1,
+  shore: 3,
 };
 
 export function buildProp(key: PropKey, variant = 0): PropPart[] {
@@ -2436,6 +2506,8 @@ export function buildProp(key: PropKey, variant = 0): PropPart[] {
       return buildSoldier();
     case 'soldierarm':
       return buildSoldierArm();
+    case 'shore':
+      return buildShore(variant);
   }
 }
 
