@@ -310,8 +310,7 @@ export class RoomManager {
       next.sevenDiscard === room.sevenDiscard;
     if (same) return null;
     Object.assign(room, next);
-    // 규칙이 바뀌면 다른 사람은 다시 확인하고 준비하도록 준비를 푼다.
-    for (const pl of room.players) if (pl.id !== room.hostId) pl.ready = false;
+    // 규칙을 바꿔도 다른 사람의 준비는 그대로 둔다 (바뀐 규칙은 모두의 대기실 화면에 바로 보인다).
     this.changed();
     return null;
   }
