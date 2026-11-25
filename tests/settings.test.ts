@@ -87,8 +87,10 @@ describe('방 설정', () => {
     guest.ready = true;
     expect(m.setWinPoints(room, host.id, 18)).toBeNull();
     expect(room.winPoints).toBe(18);
-    // 점수가 바뀌면 손님은 다시 준비해야 한다
-    expect(guest.ready).toBe(false);
+    // 점수를 바꿔도 손님의 준비는 풀리지 않는다
+    expect(guest.ready).toBe(true);
+    expect(m.setSettings(room, host.id, { sevenDiscard: false, turnSeconds: 90 })).toBeNull();
+    expect(guest.ready).toBe(true);
 
     for (const p of room.players) {
       p.connected = true;

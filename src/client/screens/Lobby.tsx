@@ -391,7 +391,7 @@ export function Lobby({ view }: { view: RoomView }) {
             </p>
           </div>
           <p className="muted small">
-            {isHost ? '바꾸면 다른 사람은 다시 준비해야 합니다. ' : '방장이 정한 규칙입니다. '}
+            {isHost ? '바꾸면 모두의 화면에 바로 보이고, 다른 사람의 준비는 풀리지 않습니다. ' : '방장이 정한 규칙입니다. '}
             {sevenDiscard
               ? `7이 나오면 자원이 ${view.handLimit}장보다 많은 사람이 절반을 버립니다.`
               : '7이 나와도 자원을 버리지 않고 동상 옮기기와 빼앗기만 합니다.'}{' '}
