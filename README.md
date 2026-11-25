@@ -39,6 +39,26 @@ npm start
 - 포트를 바꾸려면 PowerShell 에서 `$env:PORT=3001; npm start` 처럼 실행한다.
 - 서버 창을 닫거나 `Ctrl+C` 를 누르면 서버가 꺼진다. 진행 중인 게임은 `data` 폴더에 저장되어 있어 서버를 다시 켜면 이어 할 수 있다(아래 「끊겼을 때 다시 들어오기」). 방장 브라우저만 닫는 것도 괜찮다.
 
+## 클라우드 서버에 올리기 (AWS Lightsail)
+
+같은 와이파이가 아니어도 들어올 수 있게 AWS Lightsail 서버 한 대에 올려 두었다. 주소는 `http://54.253.64.26/` 이고, 초대 링크와 QR 코드도 접속한 주소를 그대로 쓰므로 이 주소로 나온다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 서버 | Lightsail 시드니(ap-southeast-2)의 `devilsland-server`. Ubuntu 24.04, 1GB·2 vCPU·40GB(`micro_3_2`, 월 7달러)에 고정 IP `devilsland-ip` 를 붙였다. |
+| 지역과 요금 | 지금 계정은 AWS 무료 플랜이라 조직 정책(SCP)이 서버 만들기를 시드니에서만 허용한다(서울·도쿄·버지니아와 EC2 는 막혀 있다). 요금은 가입 크레딧 100달러에서 빠지고, 무료 플랜은 2027-05-25 에 끝나거나 크레딧을 다 쓰면 계정이 멈춘다. 계속 쓰려면 그 전에 유료 플랜으로 올린다. |
+| 방화벽 | 80번은 모두에게 열고 22번(SSH)은 방장 PC 공인 IP 와 Lightsail 브라우저 접속에만 연다. 다른 곳에서 올리려면 Lightsail 콘솔 → 네트워킹에서 22번 허용 IP 를 바꾼다. |
+| 실행 | systemd 서비스 `devilsland` 가 `node dist/server/index.js` 를 80번 포트로 바로 띄운다(PORT=80, DATA_DIR=/var/lib/devilsland, 한국 시간). 같은 서버 안에 nginx 같은 프록시를 두면 모든 접속이 127.0.0.1 에서 온 것으로 보여 "서버를 켠 PC에서만" 되는 방 목록·지우기가 누구에게나 열리므로 두지 않았다. 그래서 클라우드에서는 첫 화면의 남은 방 목록이 아무에게도 보이지 않는다. |
+| 접속 키 | 방장 PC 의 `~/.ssh/devilsland_aws`. 공개 키만 Lightsail 키 페어 `devilsland` 로 등록했다. |
+
+수정본은 프로젝트 폴더에서 아래 한 줄로 올린다. 빌드한 뒤 dist·package.json·package-lock.json 을 묶어 올리고, 서버에서 새 release 폴더에 풀어 실행 패키지만 설치한 다음 서비스를 다시 켠다(지난 release 는 3개까지 남긴다). 다시 켜는 동안 접속한 사람은 잠깐 끊겼다가 다시 붙고 진행 중인 방은 rooms.json 에서 되살아난다.
+
+```powershell
+.\deploy\deploy.ps1 -HostName 54.253.64.26
+```
+
+새 서버에는 `-Setup` 을 붙여 처음 한 번 `deploy/setup-server.sh`(Node 22 설치, 실행 계정, 스왑 1GB, 서비스 등록, 한국 시간)를 돌린다. Lightsail 시작 스크립트는 `/bin/sh` 로 합쳐져 돌아서 이 스크립트를 넣으면 첫 줄에서 멈추므로 SSH 로 돌린다. 서버 기록은 `ssh -i ~/.ssh/devilsland_aws ubuntu@54.253.64.26 'sudo journalctl -u devilsland -f'` 로 본다.
+
 ## 휴대폰으로 참가하기
 
 1. **방 만들기.** 방장 PC 브라우저에서 `http://localhost:3000` 을 열고 닉네임을 넣은 뒤 **승리 점수**(기본 10점, −·+ 로 10~20점)를 고르고 **방 만들기**를 누른다. 승리 점수는 게임을 시작하기 전까지 대기실에서 방장이 다시 바꿀 수 있다. 승리 점수를 포함해 대기실 규칙을 바꿔도 다른 사람의 준비는 풀리지 않고, 바뀐 규칙은 모두의 화면에 바로 보인다.
