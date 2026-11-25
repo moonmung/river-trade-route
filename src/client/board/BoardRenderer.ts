@@ -223,13 +223,13 @@ const PATH_FIELD_REACH = 0.22;
 const PATH_FIELD_PPU = 40;
 /** 갈림길에서 세 갈래를 부드럽게 합치는 정도 (작을수록 날카롭다) */
 const PATH_JOIN = 0.02;
-/** 바닷가 변에서 흙 땅이 바다 쪽으로 더 나간 폭 */
-const LAND_MARGIN = 0.3;
+/** 바닷가 변에서 흙 땅이 바다 쪽으로 더 나간 폭 (바닷가 마을·도시와 길 판자가 올라설 만큼만) */
+const LAND_MARGIN = 0.18;
 /** 모래밭이 물 밑으로 잠기는 끝의 높이 (물은 0) */
 const BEACH_LOW = -0.07;
 /** 모래밭 띠의 안쪽(흙 땅 끝 바로 안쪽, 땅 밑)과 바깥쪽(물 밑) 끝: 바닷가 변에서 떨어진 거리 */
 const BEACH_IN = LAND_MARGIN - 0.02;
-const BEACH_OUT = LAND_MARGIN + 0.62;
+const BEACH_OUT = LAND_MARGIN + 0.42;
 /** 모래밭이 시작하는 높이: 흙 땅 윗면보다 아주 조금 높아 땅 끝에 턱이나 흙 옆면(가는 갈색 선)이 드러나지 않는다 */
 const BEACH_HIGH = PLATFORM_TOP + 0.0015;
 /** 모래밭 띠를 바닷가와 나란히 나누는 줄 수 (높이 곡선을 부드럽게) */
@@ -248,16 +248,16 @@ function beachHeight(o: number): number {
 /** 모래밭이 물과 만나는 줄 (물가): beachHeight 가 0 이 되는 거리 (평평한 시작 구간보다 바깥이다) */
 const WATERLINE = LAND_MARGIN + (BEACH_OUT - LAND_MARGIN) * (1 - Math.sqrt(1 - BEACH_HIGH / (BEACH_HIGH - BEACH_LOW)));
 /** 흙 땅 윗면이 바닷가 쪽에서 모래로 바뀌는 폭 (흙 땅 끝에서 안쪽으로). 잡음으로 경계를 흐트러뜨린다. */
-const SHORE_SAND = 0.24;
+const SHORE_SAND = 0.14;
 /** 물가에서 이만큼 나가면 깊은 물(장면 배경색)이 된다 */
 const SEA_REACH = 3.4;
 /** 물가에서 떨어진 거리별 물빛: 젖은 모래 → 옥빛 → 얕은 물 → 깊은 물 */
 const SEA_RAMP: [number, string][] = [
   [0, '#cfdcbf'],
-  [0.18, '#acdcd0'],
-  [0.7, '#8ccad0'],
-  [1.6, '#72b4c4'],
-  [2.5, '#619fbb'],
+  [0.08, '#acdcd0'],
+  [0.5, '#8ccad0'],
+  [1.3, '#72b4c4'],
+  [2.2, '#619fbb'],
   [SEA_REACH, WATER_COLOR],
 ];
 
@@ -279,7 +279,7 @@ function seaColor(d: number): string {
   return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * s)).join(', ')})`;
 }
 /** 바닷가 변 가운데에서 교역로 부두 중심까지 거리 */
-const HARBOR_REACH = 1.0;
+const HARBOR_REACH = 0.74;
 /** 화면에 담을 범위: 타일 꼭짓점 바깥으로 이만큼 더 (모래밭이 조금 보이게) */
 const FIT_PAD = 0.32;
 const STATUE_SCALE = 0.86;
@@ -2567,7 +2567,7 @@ export class BoardRenderer {
       const count = roll < 0.3 ? 0 : roll < 0.8 ? 1 : 2;
       for (let i = 0; i < count; i++) {
         const t = count === 2 ? (i === 0 ? 0.18 + rand() * 0.25 : 0.57 + rand() * 0.25) : 0.22 + rand() * 0.56;
-        const o = LAND_MARGIN + 0.1 + rand() * (WATERLINE - LAND_MARGIN - 0.17);
+        const o = LAND_MARGIN + 0.05 + rand() * (WATERLINE - LAND_MARGIN - 0.1);
         const p = s.a.clone().lerp(s.b, t).addScaledVector(s.n, o);
         const pick = rand();
         const [key, variant, scale]: [PropKey, number, number] =
@@ -2629,7 +2629,7 @@ export class BoardRenderer {
       placements.push({ key: 'dock', variant: 0, x: s.dock.x, y: 0.09, z: s.dock.z, rotY: yaw, scale: 0.52, shadow: 0 });
       for (const v of [s.a, s.b]) {
         // 잔교는 꼭짓점 바로 앞 흙 둑에서 나와 부두 모서리로 이어진다 (교역로 하나에 길 두 갈래).
-        const start = v.clone().addScaledVector(s.n, 0.2);
+        const start = v.clone().addScaledVector(s.n, LAND_MARGIN - 0.06);
         const toward = v.clone().sub(s.mid).normalize();
         const end = s.dock.clone().addScaledVector(toward, 0.17).addScaledVector(s.n, -0.1);
         const mid = start.clone().add(end).multiplyScalar(0.5);
