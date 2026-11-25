@@ -1,6 +1,9 @@
 // 승리 연출 박자: 처음 지은 차례대로 건물을 세고 달성·승점 카드를 더한 뒤 마무리한다 (3D 보드와 점수판이 같이 쓴다)
 import { describe, expect, it } from 'vitest';
-import { VICTORY_FINALE_MS, VICTORY_STOP_MIN_MS, victoryPlan, victoryStepLabel } from '../src/client/board/victory';
+import { VICTORY_QUICK_PACE, victoryPlan, victoryStepLabel } from '../src/client/board/victory';
+
+const VICTORY_FINALE_MS = VICTORY_QUICK_PACE.finale;
+const VICTORY_STOP_MIN_MS = VICTORY_QUICK_PACE.stopMin;
 
 const village = (vertexId: string) => ({ vertexId, kind: 'village' as const });
 const city = (vertexId: string) => ({ vertexId, kind: 'city' as const });
@@ -48,6 +51,18 @@ describe('승리 연출 박자', () => {
     });
     expect(many.end).toBeLessThanOrEqual(7000);
     for (const s of many.steps.filter((x) => x.vertexId)) expect(s.span).toBeGreaterThanOrEqual(VICTORY_STOP_MIN_MS);
+  });
+
+  it('길 위를 걷는 카메라는 건물마다 조금 더 머물고, 10점 승리면 7초 안팎이며 건물이 아주 많아도 10초를 넘지 않는다', () => {
+    const buildings = [city('a'), village('b'), city('c'), village('d'), village('e'), village('f')];
+    const quick = victoryPlan({ buildings, longestRoad: true, largestArmy: false, score: 10 });
+    const walk = victoryPlan({ buildings, longestRoad: true, largestArmy: false, score: 10, walk: true });
+    expect(walk.steps[0].span).toBeGreaterThan(quick.steps[0].span);
+    expect(walk.steps.map((s) => s.total)).toEqual(quick.steps.map((s) => s.total));
+    expect(walk.end).toBeGreaterThan(5500);
+    expect(walk.end).toBeLessThanOrEqual(7500);
+    const many = victoryPlan({ buildings: Array.from({ length: 20 }, (_, i) => village(`v${i}`)), longestRoad: true, largestArmy: true, score: 25, walk: true });
+    expect(many.end).toBeLessThanOrEqual(10000);
   });
 
   it('건물이 하나도 없으면(실험실) 바로 마무리한다', () => {

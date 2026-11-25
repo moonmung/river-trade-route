@@ -158,15 +158,20 @@ const SHIP_MS = 2800;
 /** 배가 들어오기를 마치는 때와 떠나기 시작하는 때 (연출 길이 대비) */
 const SHIP_IN = 0.3;
 const SHIP_OUT = 0.72;
-/**
- * 승리 연출: 마을·도시를 비출 때 화면에 담을 땅 넓이(변 하나는 1.32), 카메라가 바라보는 높이(집 몸통 가운데),
- * 빛이 닿은 뒤 남는 밝기, 보드 전체로 물러나는 데 걸리는 시간, 끝나고 빛이 사그라드는 시간
- */
-const VICTORY_SHOT = { w: 4.6, h: 3.4 };
-const VICTORY_FOCUS_Y = PLATFORM_TOP + 0.3;
+/** 승리 연출: 빛이 닿은 뒤 남는 밝기, 보드 전체 위쪽 보기로 물러나는 데 걸리는 시간, 끝나고 빛이 사그라드는 시간 */
 const VICTORY_GLOW_FLOOR = 0.42;
-const VICTORY_HOME_MS = 850;
+const VICTORY_HOME_MS = 1000;
 const VICTORY_FADE_MS = 600;
+/**
+ * 승리 연출의 길 위 카메라: 눈높이(길 판자 윗면에서 조금 위, 교역인 키 정도), 세로 시야각,
+ * 위쪽 보기와 같은 그림을 낼 때 쓰는 아주 좁은 시야각, 걷는 빠르기(초당 거리, 변 하나는 1.32),
+ * 그 사람의 길이 카메라보다 앞서 금빛으로 물드는 거리
+ */
+const STREET_EYE = PLATFORM_TOP + ROAD_DECK_TOP + 0.11;
+const STREET_FOV = 54;
+const STREET_FAR_FOV = 9;
+const STREET_SPEED = 2.6;
+const STREET_LEAD = 0.8;
 /** 가마 하나에서 동시에 피어오르는 연기 공 수 */
 const SMOKE_PUFFS = 5;
 /** 바람·양·연기만 움직일 때 프레임 간격 (약 30fps) */
@@ -488,23 +493,76 @@ interface Trader {
   scale: number;
 }
 
-/** 승리 연출 카메라의 확대: 정한 배율이거나, 그만한 땅(가로 w × 세로 h)이 화면에 들어오는 배율 */
-type CamZoom = { zoom: number } | { fit: { w: number; h: number } };
+/** 승리 연출 원근 카메라의 자세: 바라보는 곳, 그곳에서 카메라 쪽으로 향한 방향, 거리, 세로 시야각(도) */
+interface CamPose {
+  look: THREE.Vector3;
+  dir: THREE.Vector3;
+  dist: number;
+  fov: number;
+}
 
-/** 승리 연출 카메라가 한 곳에서 다음 곳으로 옮겨 가는 구간 */
-interface CamLeg {
-  from: number;
-  to: number;
-  /** 지나가는 점 (처음과 끝 포함). 이긴 사람의 길로 이어진 두 건물 사이는 길을 따라 꺾인다. */
-  pts: THREE.Vector3[];
-  /** 점마다 처음부터 잰 길이 */
-  cum: number[];
-  zoomFrom: CamZoom;
-  zoomTo: CamZoom;
-  /** 멀리 날아갈 때 가운데에서 살짝 물러나는 정도 */
-  dip: number;
-  /** 지나가며 빛낼 길(r:)과 이음목(v:), 경로 위 위치 */
-  marks: { key: string; s: number }[];
+/** 승리 연출 카메라의 한 장면: 두 자세 사이를 부드럽게 옮겨 가거나(blend) 길 위를 걷는다(walk) */
+type CamShot =
+  | { kind: 'blend'; from: number; to: number; a: CamPose; b: CamPose; linear?: boolean }
+  | {
+      kind: 'walk';
+      from: number;
+      to: number;
+      /** 눈높이로 걷는 길 (시작 → 건물 앞 멈출 곳)과 점마다 처음부터 잰 길이 */
+      pts: THREE.Vector3[];
+      cum: number[];
+      /** 멈춰서 올려다볼 곳 (건물 몸통) */
+      focus: THREE.Vector3;
+      /** 걸으며 빛낼 길과 그 길에 닿는 걸은 거리 */
+      marks: { key: string; s: number }[];
+    };
+
+/** eye 에서 look 을 보는 자세 */
+function poseOf(eye: THREE.Vector3, look: THREE.Vector3, fov: number): CamPose {
+  const d = eye.clone().sub(look);
+  const dist = Math.max(0.001, d.length());
+  return { look: look.clone(), dir: d.multiplyScalar(1 / dist), dist, fov };
+}
+
+/**
+ * 두 자세 사이. 바라보는 곳과 방향은 곧게 옮기고, 바라보는 곳에서 보이는 크기는 로그로, 시야각은 tan 의 로그로 옮긴다.
+ * 그래서 좁은 시야로 멀리서 보던 위쪽 보기에서 길 위로 내려앉을 때 장면이 한 번에 줄었다 커지지 않고 고르게 다가온다.
+ */
+function blendPose(a: CamPose, b: CamPose, e: number): CamPose {
+  const t = (fov: number) => Math.tan(THREE.MathUtils.degToRad(fov) / 2);
+  const ta = t(a.fov);
+  const tb = t(b.fov);
+  const tf = Math.exp(Math.log(ta) + (Math.log(tb) - Math.log(ta)) * e);
+  const ha = a.dist * ta;
+  const hb = b.dist * tb;
+  const h = Math.exp(Math.log(ha) + (Math.log(hb) - Math.log(ha)) * e);
+  // 길 위에서 솟아오를 때는 먼저 고개를 들어 위로 돌고, 내려앉을 때는 끝까지 위에서 내려다보다가 마지막에 눕는다.
+  // 그래야 낮은 자리에서 옆으로 미끄러지며 나무·바위·집 속을 지나가지 않는다.
+  const rise = b.dir.y - a.dir.y;
+  const ed = rise > 0.2 ? 1 - Math.pow(1 - e, 3) : rise < -0.2 ? Math.pow(e, 3) : e;
+  return {
+    look: a.look.clone().lerp(b.look, e),
+    dir: a.dir.clone().lerp(b.dir, ed).normalize(),
+    dist: h / tf,
+    fov: THREE.MathUtils.radToDeg(Math.atan(tf) * 2),
+  };
+}
+
+/** 꺾은선 위에서 처음부터 s 만큼 간 점 (새 벡터) */
+function pointOnPolyline(pts: THREE.Vector3[], cum: number[], s: number): THREE.Vector3 {
+  if (pts.length < 2 || s <= 0) return pts[0].clone();
+  let i = 1;
+  while (i < cum.length - 1 && cum[i] < s) i++;
+  const seg = cum[i] - cum[i - 1];
+  return pts[i - 1].clone().lerp(pts[i], seg > 0 ? Math.min(1, (s - cum[i - 1]) / seg) : 1);
+}
+
+/** 꺾은선에서 처음부터 잰 길이 from ~ to 사이만 잘라 낸다 */
+function slicePolyline(pts: THREE.Vector3[], cum: number[], from: number, to: number): THREE.Vector3[] {
+  const out = [pointOnPolyline(pts, cum, from)];
+  for (let i = 0; i < pts.length; i++) if (cum[i] > from && cum[i] < to) out.push(pts[i].clone());
+  out.push(pointOnPolyline(pts, cum, to));
+  return out;
 }
 
 /** 진행 중인 승리 연출 하나 */
@@ -512,8 +570,10 @@ interface VictoryRun {
   playerId: string;
   plan: VictoryPlan;
   camera: boolean;
-  /** 첫 그림에서 그때의 카메라 자리로부터 만든다 (화면 가장자리 여백이 바뀐 뒤) */
-  legs: CamLeg[] | null;
+  /** 카메라 장면들. 첫 그림에서 그때의 카메라 자리로부터 만든다 (화면 가장자리 여백이 바뀐 뒤) */
+  shots: CamShot[] | null;
+  /** 원근 카메라로 그리는 중인지 */
+  street: boolean;
   /** 빛이 닿은 때 (조각 키 → 연출 시작부터 ms) */
   lit: Map<string, number>;
   /** 마을·도시가 톡 부푼 때 */
@@ -528,6 +588,7 @@ interface VictoryRun {
 const tmpM = new THREE.Matrix4();
 const tmpQ = new THREE.Quaternion();
 const tmpQ2 = new THREE.Quaternion();
+const tmpQ3 = new THREE.Quaternion();
 const tmpV = new THREE.Vector3();
 const tmpS = new THREE.Vector3();
 const tmpE = new THREE.Euler();
@@ -733,6 +794,10 @@ export class BoardRenderer {
   private victoryGlow = new Map<string, number>();
   /** 진행 중인 승리 연출 (그동안 보드 조작과 마우스 올림 표시를 막는다) */
   private victory: VictoryRun | null = null;
+  /** 승리 연출에서 길 위를 걷는 원근 카메라와 그때의 하늘 배경 */
+  private readonly streetCam = new THREE.PerspectiveCamera(STREET_FOV, 1, 0.012, 80);
+  private sky: THREE.Texture | null = null;
+  private edgesAtVertex: Map<string, EdgeDef[]> | null = null;
   private glowMesh: THREE.InstancedMesh | null = null;
   private sparkleMesh: THREE.InstancedMesh | null = null;
   private sparkles: Sparkle[] = [];
@@ -1274,6 +1339,9 @@ export class BoardRenderer {
   private placeTraders(dt = 0): void {
     const shadow = this.traderShadow;
     if (!shadow) return;
+    // 승리 연출의 길 위 카메라 바로 앞(바라보는 건물과의 사이)에 선 교역인은 건물을 가리므로 그동안 숨긴다.
+    const eye = this.victory?.street ? this.streetCam.position : null;
+    const ahead = eye ? this.streetCam.getWorldDirection(new THREE.Vector3()).setY(0).normalize() : null;
     let i = 0;
     for (const tr of this.traders) {
       const ends = this.edgeEnds(tr.edge);
@@ -1289,6 +1357,12 @@ export class BoardRenderer {
       const dz = ends.b.z - ends.a.z;
       const x = ends.a.x + dx * tr.t + (-dz / ends.len) * tr.lat;
       const z = ends.a.z + dz * tr.t + (dx / ends.len) * tr.lat;
+      if (eye && ahead) {
+        const fx = x - eye.x;
+        const fz = z - eye.z;
+        const along = fx * ahead.x + fz * ahead.z;
+        if (along > -0.2 && along < 1.6 && Math.abs(fx * ahead.z - fz * ahead.x) < 0.35) continue;
+      }
       const step = walking && this.motion ? 1 : 0;
       const bob = step * Math.abs(Math.sin(tr.stride)) * 0.012;
       const roll = step * Math.sin(tr.stride) * 0.12;
@@ -2703,12 +2777,16 @@ export class BoardRenderer {
     if (!mesh || (!this.sparkles.length && !mesh.count)) return false;
     this.sparkles = this.sparkles.filter((s) => now < s.start + s.duration);
     const color = new THREE.Color();
+    // 별 모양은 위쪽 보기 카메라를 향해 세워 두었다. 승리 연출의 길 위 카메라에서는 그 기울기를 풀고 카메라 쪽으로 돌린다.
+    const street = this.victory?.street ? this.streetCam.quaternion : null;
+    const unTilt = tmpQ2.setFromAxisAngle(xAxis, ELEVATION_RAD);
     let n = 0;
     for (const s of this.sparkles) {
       if (now < s.start || n >= SPARKLE_MAX) continue;
       const t = (now - s.start) / s.duration;
       const k = t < 0.22 ? easeOutBack(t / 0.22) : 1 - smoothstep(0.35, 1, t);
-      tmpQ.setFromAxisAngle(VIEW_AXIS, s.spin * t);
+      if (street) tmpQ.copy(street).multiply(tmpQ3.setFromAxisAngle(zAxis, s.spin * t)).multiply(unTilt);
+      else tmpQ.setFromAxisAngle(VIEW_AXIS, s.spin * t);
       mesh.setMatrixAt(n, tmpM.compose(tmpV.set(s.pos.x, s.pos.y + s.rise * t, s.pos.z), tmpQ, tmpS.setScalar(Math.max(0.001, s.size * k))));
       mesh.setColorAt(n, color.setRGB(1, 0.92, 0.66).multiplyScalar(Math.min(1, 1.5 * (1 - t))));
       n++;
@@ -3758,11 +3836,13 @@ export class BoardRenderer {
   // ───────────────────────── 승리 연출 ─────────────────────────
 
   /**
-   * 승리 연출. 카메라가 이긴 사람이 처음 지었던 차례대로 마을·도시를 찾아가고(두 건물이 그 사람의 길로 이어져 있으면 길을 따라간다),
-   * 닿을 때마다 그 건물이 금빛으로 부풀며 반짝이와 +1·+2 가 뜬다. 카메라가 지나간 길도 금빛으로 남는다.
-   * 최장 교역로를 가졌으면 그 길 전체가 화면에 들어오게 물러나 금빛이 훑고, 최강 기사단이면 동상이 뛴다.
-   * 마지막에 보드 전체로 물러나며 그 사람의 길과 건물이 가운데부터 물결처럼 다시 빛난다.
-   * 박자는 board/victory.ts 의 plan 이고 화면 위 점수판(ui/spectacle 의 VictoryShow)과 같다. delay 뒤에 시작한다.
+   * 승리 연출. 지금 보던 위쪽 보기에서 원근 카메라로 바꿔 길 위로 내려앉고, 이긴 사람이 처음 지었던 차례대로 마을·도시마다
+   * 그 사람의 길(앞 건물에서 이어진 길, 없으면 그 건물에 닿은 자기 길이나 샛길)을 사람 눈높이로 걸어 들어가 건물 앞에 멈춰 올려다본다.
+   * 멈추는 순간 건물이 금빛으로 부풀며 반짝이와 +1·+2 가 뜨고, 걷는 길은 앞쪽부터 금빛으로 물든다. 건물과 건물 사이는 장면을 끊어 넘어간다.
+   * 최장 교역로를 가졌으면 길 전체가 내려다보이게 솟아올라 금빛이 훑고, 최강 기사단이면 동상을 낮은 데서 올려다본다.
+   * 마지막에 보드 전체 위쪽 보기로 물러나며 길과 건물이 다시 빛난다. 끝 자세는 시야를 좁혀 멀리서 보므로 원래 정사영 카메라와 같은 그림이라
+   * 카메라를 되돌려도 화면이 튀지 않는다.
+   * 박자는 board/victory.ts 의 plan 이고 화면 위 점수판(ui/spectacle 의 VictoryOverlay)과 같다. delay 뒤에 시작한다.
    * 연출하는 동안 보드를 끌거나 누를 수 없다. camera 가 false 면(동작 줄이기) 카메라는 그대로 두고 빛만 낸다.
    */
   playVictory(playerId: string, plan: VictoryPlan, opts: { delay?: number; camera?: boolean; onDone?: () => void } = {}): void {
@@ -3772,7 +3852,8 @@ export class BoardRenderer {
       playerId,
       plan,
       camera: opts.camera ?? true,
-      legs: null,
+      shots: null,
+      street: false,
       lit: new Map(),
       bumps: new Map(),
       fired: 0,
@@ -3813,12 +3894,58 @@ export class BoardRenderer {
     this.victory = null;
     this.victoryGlow.clear();
     for (const key of run.bumps.keys()) this.growing.delete(key);
+    this.leaveStreet(run);
     if (run.camera) this.placeCamera(this.defaultTarget, 1);
     this.controls.enabled = true;
     this.updatePieceInstances();
     this.syncHover();
     this.requestRender();
     run.onDone?.();
+  }
+
+  /** 지금 그리는 카메라: 승리 연출 중 길 위의 원근 카메라, 평소에는 위쪽 정사영 카메라 */
+  private get viewCamera(): THREE.OrthographicCamera | THREE.PerspectiveCamera {
+    return this.victory?.street ? this.streetCam : this.camera;
+  }
+
+  /** 원근 카메라로 바꾼다: 하늘빛 배경을 깔고 숫자 패·교역로 표지 같은 위쪽 보기용 표지는 숨긴다 (+1 같은 떠오르는 글자만 남긴다). */
+  private enterStreet(run: VictoryRun): void {
+    if (run.street) return;
+    run.street = true;
+    this.scene.background = this.skyTexture();
+    this.overlay.classList.add('is-cinematic');
+  }
+
+  /** 원래 위쪽 보기(정사영)로 돌아온다. */
+  private leaveStreet(run: VictoryRun): void {
+    if (!run.street) return;
+    run.street = false;
+    this.scene.background = new THREE.Color(WATER_COLOR);
+    this.overlay.classList.remove('is-cinematic');
+    this.placeCamera(this.defaultTarget, 1);
+    // 확대 수준에 맞춘 표지 크기를 다시 잰다.
+    this.overlayScale = 0;
+  }
+
+  /** 길 위에서 올려다볼 때 건물 너머로 보이는 하늘 (위로 갈수록 옅어지는 물빛) */
+  private skyTexture(): THREE.Texture {
+    if (this.sky) return this.sky;
+    const canvas = document.createElement('canvas');
+    canvas.width = 2;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const g = ctx.createLinearGradient(0, 0, 0, 256);
+      g.addColorStop(0, '#dcedf0');
+      g.addColorStop(0.55, '#a8d2dc');
+      g.addColorStop(1, WATER_COLOR);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 2, 256);
+    }
+    const tex = this.own(new THREE.CanvasTexture(canvas));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    this.sky = tex;
+    return tex;
   }
 
   /**
@@ -3836,59 +3963,80 @@ export class BoardRenderer {
     this.camera.updateProjectionMatrix();
   }
 
-  /** 확대 배율. fit 이면 그만한 땅이 지금 화면(가장자리 여백을 뺀 곳)에 들어오는 배율이다. */
-  private zoomFor(z: CamZoom): number {
-    if ('zoom' in z) return z.zoom;
-    const viewW = this.camera.right - this.camera.left;
-    const viewH = this.camera.top - this.camera.bottom;
-    const fit = Math.min(viewW / z.fit.w, viewH / (z.fit.h * Math.sin(ELEVATION_RAD) + 0.6));
-    return THREE.MathUtils.clamp(fit, 1, this.controls.maxZoom);
+  /**
+   * 위쪽 정사영 보기와 같은 그림이 나오는 원근 자세: 같은 방향에서 시야를 아주 좁혀 멀리서 본다.
+   * axis 는 정사영 카메라 축이 닿는 곳(controls.target), zoom 은 그때의 확대 배율이다.
+   */
+  private orthoPose(axis: THREE.Vector3, zoom: number): CamPose {
+    const c = this.camera;
+    // 화면 한가운데는 시야 가운데이고, 여백이 있으면 카메라 축에서 비껴 있다 (확대해도 시야 가운데는 그대로다).
+    const look = axis
+      .clone()
+      .addScaledVector(xAxis, (c.left + c.right) / 2)
+      .addScaledVector(SCREEN_UP, (c.top + c.bottom) / 2);
+    const h = (c.top - c.bottom) / zoom;
+    return { look, dir: VIEW_AXIS.clone(), dist: h / (2 * Math.tan(THREE.MathUtils.degToRad(STREET_FAR_FOV) / 2)), fov: STREET_FAR_FOV };
   }
 
-  /** 승리 연출 한 단계에서 카메라가 비출 곳 (승점 카드는 보드에 자리가 없어 그대로 둔다) */
-  private victoryFocus(run: VictoryRun, step: VictoryStep): { at: THREE.Vector3; zoom: CamZoom; vertex?: string } | null {
-    if (step.vertexId) {
-      const p = this.vertexWorld(step.vertexId);
-      return p ? { at: p.setY(VICTORY_FOCUS_Y), zoom: { fit: VICTORY_SHOT }, vertex: step.vertexId } : null;
+  /** 최장 교역로 전체가 화면에 들어오게 비스듬히 내려다보는 자세 */
+  private roadOverviewPose(playerId: string): CamPose | null {
+    const pts = this.longestPath(playerId)
+      .vertices.map((v) => this.vertexWorld(v))
+      .filter((p): p is THREE.Vector3 => !!p);
+    if (!pts.length) return null;
+    const box = new THREE.Box3().setFromPoints(pts);
+    const look = box.getCenter(new THREE.Vector3()).setY(TILE_TOP);
+    const el = THREE.MathUtils.degToRad(44);
+    const fov = 44;
+    const tanV = Math.tan(THREE.MathUtils.degToRad(fov) / 2);
+    const tanH = tanV * (this.width / Math.max(1, this.height));
+    const w = box.max.x - box.min.x + 2;
+    const h = (box.max.z - box.min.z + 2) * Math.sin(el) + 0.8;
+    const dist = Math.max(w / (2 * tanH), h / (2 * tanV), 3);
+    return { look, dir: new THREE.Vector3(0, Math.sin(el), Math.cos(el)), dist, fov };
+  }
+
+  /** 길 위 카메라의 세로 시야각. 세로로 긴 휴대폰 화면에서는 옆이 너무 좁아지지 않게 조금 넓힌다. */
+  private streetFov(): number {
+    const aspect = this.width / Math.max(1, this.height);
+    return aspect >= 1 ? STREET_FOV : Math.min(78, STREET_FOV + (1 - aspect) * 40);
+  }
+
+  /** 기사단 동상을 낮은 데서 올려다보는 자세 (동상이 안 보이면 광장) */
+  private statuePose(): CamPose | null {
+    const plaza = this.options.tiles.find((t) => t.kind === 'plaza');
+    const at = this.statue?.visible ? this.statue.position.clone() : plaza ? tileCenter(plaza, this.metrics) : null;
+    if (!at) return null;
+    return { look: at.setY(TILE_TOP + 0.42), dir: new THREE.Vector3(0, 0.24, 1).normalize(), dist: 1.6, fov: this.streetFov() };
+  }
+
+  /** 꼭짓점마다 닿은 변 (걸어 들어올 길을 거슬러 찾을 때 쓴다) */
+  private edgesAt(v: string): EdgeDef[] {
+    if (!this.edgesAtVertex) {
+      const m = new Map<string, EdgeDef[]>();
+      for (const e of this.geo.edges) for (const x of [e.a, e.b]) m.set(x, [...(m.get(x) ?? []), e]);
+      this.edgesAtVertex = m;
     }
-    if (step.kind === 'longest_road') {
-      const pts = this.longestPath(run.playerId)
-        .vertices.map((v) => this.vertexWorld(v))
-        .filter((p): p is THREE.Vector3 => !!p);
-      if (!pts.length) return null;
-      const box = new THREE.Box3().setFromPoints(pts);
-      const c = box.getCenter(new THREE.Vector3());
-      return { at: c.setY(VICTORY_FOCUS_Y), zoom: { fit: { w: box.max.x - box.min.x + 2.4, h: box.max.z - box.min.z + 2.2 } } };
-    }
-    if (step.kind === 'largest_army') {
-      const plaza = this.options.tiles.find((t) => t.kind === 'plaza');
-      const at = this.statue?.visible ? this.statue.position.clone() : plaza ? tileCenter(plaza, this.metrics) : null;
-      return at ? { at: at.setY(VICTORY_FOCUS_Y + 0.15), zoom: { fit: { w: 5.6, h: 4.2 } } } : null;
-    }
-    return null;
+    return this.edgesAtVertex.get(v) ?? [];
   }
 
   /** 이긴 사람의 길만 밟아 두 꼭짓점 사이를 가는 가장 짧은 길 (이어져 있지 않으면 null) */
   private roadRoute(playerId: string, from: string, to: string): { vertices: string[]; edges: string[] } | null {
     if (from === to) return null;
-    const adj = new Map<string, { v: string; e: string }[]>();
-    for (const r of this.state.roads) {
-      const e = r.owner === playerId ? this.geo.edgeMap[r.edgeId] : undefined;
-      if (!e) continue;
-      adj.set(e.a, [...(adj.get(e.a) ?? []), { v: e.b, e: e.id }]);
-      adj.set(e.b, [...(adj.get(e.b) ?? []), { v: e.a, e: e.id }]);
-    }
+    const mine = new Set(this.state.roads.filter((r) => r.owner === playerId).map((r) => r.edgeId));
     const prev = new Map<string, { v: string; e: string }>();
     const queue = [from];
     const seen = new Set([from]);
     while (queue.length) {
       const cur = queue.shift()!;
       if (cur === to) break;
-      for (const n of adj.get(cur) ?? []) {
-        if (seen.has(n.v)) continue;
-        seen.add(n.v);
-        prev.set(n.v, { v: cur, e: n.e });
-        queue.push(n.v);
+      for (const e of this.edgesAt(cur)) {
+        if (!mine.has(e.id)) continue;
+        const n = e.a === cur ? e.b : e.a;
+        if (seen.has(n)) continue;
+        seen.add(n);
+        prev.set(n, { v: cur, e: e.id });
+        queue.push(n);
       }
     }
     if (!prev.has(to)) return null;
@@ -3903,54 +4051,185 @@ export class BoardRenderer {
     return { vertices, edges };
   }
 
-  /** 카메라가 한 곳에서 다음 곳으로 옮겨 가는 구간. 길을 따라갈 때는 꺾인 곳을 둥글게 다듬는다. */
-  private camLeg(from: number, to: number, path: THREE.Vector3[], zoomFrom: CamZoom, zoomTo: CamZoom, route: { vertices: string[]; edges: string[] } | null): CamLeg {
-    const pts = path.length > 2 ? smoothOpen(path, 2) : path;
+  /**
+   * 건물 앞까지 걸어 들어오는 길 (눈높이, 걷는 차례). 건물 꼭짓점에서 거꾸로 거슬러 올라가며 walk + stop 만큼 모은다.
+   * 앞 건물에서 그 사람의 길로 이어져 있으면 그 길을, 아니면 그 사람의 길을 먼저, 없으면 샛길을 곧게 이어 고른다.
+   * 다른 마을·도시가 선 꼭짓점은 지나가지 않고 그 집 바로 앞에서 걷기 시작한다. 끝은 건물에서 stop 만큼 떨어진 멈출 곳이다.
+   * marks 는 걸으며 빛낼 그 사람의 길과 걷는 길 위 위치 (걷기 전에 이미 지난 곳은 0 이라 장면이 바뀌자마자 빛난다).
+   */
+  private approachPath(playerId: string, v: string, prev: string | undefined, walk: number, stop: number): { pts: THREE.Vector3[]; cum: number[]; marks: { key: string; s: number }[] } {
+    const route = prev ? this.roadRoute(playerId, prev, v) : null;
+    const back = route ? [...route.vertices].reverse() : null;
+    const mine = new Set(this.state.roads.filter((r) => r.owner === playerId).map((r) => r.edgeId));
+    const built = new Set(this.state.buildings.map((b) => b.vertexId));
+    const need = walk + stop;
+    const chain = [this.vertexWorld(v)!];
+    const chainEdges: string[] = [];
+    let cur = v;
+    let from: string | null = null;
+    let len = 0;
+    let onRoute = !!route;
+    for (let k = 0; len < need && k < 12; k++) {
+      let next: { v: string; e: string } | null = null;
+      // 앞 건물에서 이어진 길을 따라 거슬러 가되, 그 길이 바로 다음 꼭짓점의 집에 막히면 다른 변을 고른다.
+      if (k === 0 && back && built.has(back[1])) onRoute = false;
+      if (onRoute && back && route && k + 1 < back.length) {
+        next = { v: back[k + 1], e: route.edges[route.edges.length - 1 - k] };
+      } else {
+        // 자기 길을 먼저, 그다음은 지나온 방향과 가장 곧게 이어지는 변. 집이 선 꼭짓점 쪽은 걸을 거리가 짧아 되도록 피한다.
+        const here = this.vertexWorld(cur)!;
+        const heading = from ? here.clone().sub(this.vertexWorld(from)!).normalize() : null;
+        let best: { v: string; e: string; score: number } | null = null;
+        for (const e of this.edgesAt(cur)) {
+          const n = e.a === cur ? e.b : e.a;
+          if (n === from) continue;
+          const d = this.vertexWorld(n)!.sub(here).normalize();
+          const score = (mine.has(e.id) ? 2 : 0) + (heading ? d.dot(heading) : 0) + (built.has(n) ? -4 : 0);
+          if (!best || score > best.score) best = { v: n, e: e.id, score };
+        }
+        next = best;
+      }
+      if (!next) break;
+      const a = this.vertexWorld(cur)!;
+      const b = this.vertexWorld(next.v)!;
+      const seg = a.distanceTo(b);
+      chainEdges.push(next.e);
+      if (built.has(next.v)) {
+        // 남의 집(또는 내 다른 집) 안을 지나가지 않게 그 집 바로 앞에서 시작한다.
+        chain.push(a.clone().lerp(b, 0.6));
+        len += seg * 0.6;
+        break;
+      }
+      chain.push(b);
+      len += seg;
+      from = cur;
+      cur = next.v;
+    }
+    // 걷는 차례로 뒤집고, 너무 길면 앞을 잘라 need 만큼만 걷는다.
+    const full = chain.reverse().map((p) => p.setY(STREET_EYE));
+    const edgesFwd = chainEdges.reverse();
+    const fullCum = [0];
+    for (let i = 1; i < full.length; i++) fullCum.push(fullCum[i - 1] + full[i].distanceTo(full[i - 1]));
+    const total = fullCum[fullCum.length - 1];
+    const cut = Math.max(0, total - need);
+    const end = Math.max(cut + 0.05, total - stop);
+    const pts = smoothOpen(slicePolyline(full, fullCum, cut, end), 2);
     const cum = [0];
     for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
-    // 지나가며 빛낼 길과 빈 꼭짓점의 이음목: 다듬기 전 꺾인 길 위 위치를 전체 길이 대비 몫으로 잰다.
-    const marks: CamLeg['marks'] = [];
-    if (route) {
-      const raw = [0];
-      for (let i = 1; i < path.length; i++) raw.push(raw[i - 1] + path[i].distanceTo(path[i - 1]));
-      const total = raw[raw.length - 1] || 1;
-      const built = new Set(this.state.buildings.map((b) => b.vertexId));
-      route.edges.forEach((e, i) => marks.push({ key: `r:${e}`, s: (raw[i] + raw[i + 1]) / 2 / total }));
-      route.vertices.forEach((v, i) => {
-        if (i > 0 && i < route.vertices.length - 1 && !built.has(v)) marks.push({ key: `v:${v}`, s: raw[i] / total });
-      });
-    }
-    const straight = path[0].distanceTo(path[path.length - 1]);
-    return { from, to: Math.max(from + 1, to), pts, cum, zoomFrom, zoomTo, dip: Math.min(0.45, straight / 14), marks };
+    // 그 사람의 길은 카메라보다 조금 앞서 금빛으로 물든다.
+    const marks: { key: string; s: number }[] = [];
+    edgesFwd.forEach((e, i) => {
+      if (mine.has(e)) marks.push({ key: `r:${e}`, s: Math.max(0, (fullCum[i] + fullCum[i + 1]) / 2 - cut - STREET_LEAD) });
+    });
+    for (const e of route?.edges ?? []) if (!edgesFwd.includes(e)) marks.push({ key: `r:${e}`, s: 0 });
+    return { pts, cum, marks };
   }
 
-  /** 승리 연출의 카메라 길: 단계마다 비출 곳으로 옮겨 가고, 마지막에 보드 전체로 물러난다. */
-  private victoryLegs(run: VictoryRun): CamLeg[] {
-    if (!run.camera) return [];
-    const legs: CamLeg[] = [];
-    let prev: { at: THREE.Vector3; zoom: CamZoom; vertex?: string } = { at: this.controls.target.clone(), zoom: { zoom: this.camera.zoom } };
-    let leave = 0;
+  /** 승리 연출의 카메라 장면들: 내려앉기, 건물마다 걸어 들어가 올려다보기, 달성 장면, 보드 전체로 물러나기 */
+  private victoryShots(run: VictoryRun): CamShot[] {
+    const shots: CamShot[] = [];
+    let cur = this.orthoPose(this.controls.target, this.camera.zoom);
+    let free = 0;
+    let prev: string | undefined;
+    let first = true;
     for (const step of run.plan.steps) {
-      const f = this.victoryFocus(run, step);
-      if (!f) continue;
-      const route = prev.vertex && f.vertex ? this.roadRoute(run.playerId, prev.vertex, f.vertex) : null;
-      const path = route ? route.vertices.map((v) => this.vertexWorld(v)!.setY(VICTORY_FOCUS_Y)) : [prev.at.clone(), f.at.clone()];
-      legs.push(this.camLeg(leave, step.at, path, prev.zoom, f.zoom, route));
-      prev = f;
-      // 닿은 곳에서 조금 머물렀다가 다음 곳으로 떠난다.
-      leave = step.at + Math.min(220, step.span * 0.35);
+      if (step.vertexId) {
+        const city = step.kind === 'city';
+        const hold = Math.min(step.span * 0.42, 320);
+        const walkLen = first ? 0.25 : THREE.MathUtils.clamp((STREET_SPEED * (step.at - free)) / 1000, 0.45, 2.6);
+        const path = this.approachPath(run.playerId, step.vertexId, prev, walkLen, city ? 1.3 : 1.0);
+        const focus = this.vertexWorld(step.vertexId)!.setY(TILE_TOP + (city ? 0.45 : 0.3));
+        const eye = path.pts[path.pts.length - 1];
+        const stopPose = poseOf(eye, focus, this.streetFov());
+        // 첫 건물은 위쪽 보기에서 곧장 내려앉고, 그다음부터는 장면을 끊어 길 위에서 걸어 들어간다.
+        if (first) shots.push({ kind: 'blend', from: free, to: step.at, a: cur, b: stopPose });
+        else shots.push({ kind: 'walk', from: free, to: step.at, pts: path.pts, cum: path.cum, focus, marks: path.marks });
+        // 멈춘 뒤에는 한 걸음 다가서며 지붕 쪽으로 고개를 든다.
+        const toward = focus.clone().sub(eye).setY(0).normalize();
+        const pushed = poseOf(eye.clone().addScaledVector(toward, 0.07), focus.clone().add(new THREE.Vector3(0, 0.09, 0)), this.streetFov());
+        shots.push({ kind: 'blend', from: step.at, to: step.at + hold, a: stopPose, b: pushed, linear: true });
+        cur = pushed;
+        free = step.at + hold;
+        prev = step.vertexId;
+        first = false;
+        continue;
+      }
+      const target = step.kind === 'longest_road' ? this.roadOverviewPose(run.playerId) : step.kind === 'largest_army' ? this.statuePose() : null;
+      if (!target) continue;
+      const arrive = step.at + step.span * 0.4;
+      shots.push({ kind: 'blend', from: free, to: arrive, a: cur, b: target });
+      const drift: CamPose = { look: target.look.clone(), dir: target.dir.clone(), dist: target.dist * 0.93, fov: target.fov };
+      shots.push({ kind: 'blend', from: arrive, to: step.at + step.span, a: target, b: drift, linear: true });
+      cur = drift;
+      free = step.at + step.span;
+      first = false;
     }
-    // 마무리: 승점 카드를 펼칠 때(없으면 마무리 때) 보드 전체로 물러나기 시작한다.
+    // 마무리: 승점 카드를 펼칠 때(없으면 마무리 때) 보드 전체 위쪽 보기로 물러나기 시작한다.
     const cards = run.plan.steps.find((s) => s.kind === 'cards');
-    const back = Math.max(leave, cards ? cards.at : run.plan.finaleAt);
-    legs.push(this.camLeg(back, run.plan.finaleAt + VICTORY_HOME_MS, [prev.at.clone(), this.defaultTarget.clone()], prev.zoom, { zoom: 1 }, null));
-    return legs;
+    const back = Math.max(free, cards ? cards.at : run.plan.finaleAt);
+    shots.push({ kind: 'blend', from: back, to: Math.max(back + 600, run.plan.finaleAt + VICTORY_HOME_MS), a: cur, b: this.orthoPose(this.defaultTarget, 1) });
+    return shots;
+  }
+
+  /** ms 때의 카메라 자세. 걷는 장면이면 지금 걸은 거리도 함께 돌려준다 (걸으며 길을 빛낸다). */
+  private shotPose(run: VictoryRun, ms: number): { pose: CamPose; shot: CamShot; s: number } | null {
+    let shot: CamShot | null = null;
+    for (const s of run.shots ?? []) {
+      if (ms < s.from) break;
+      shot = s;
+    }
+    if (!shot) return null;
+    const u = THREE.MathUtils.clamp((ms - shot.from) / Math.max(1, shot.to - shot.from), 0, 1);
+    if (shot.kind === 'blend') return { pose: blendPose(shot.a, shot.b, shot.linear ? u : easeInOut(u)), shot, s: 0 };
+    // 걷기: 장면이 바뀐 자리에서 걷던 빠르기 그대로 출발해 건물 앞에서 천천히 멈춘다.
+    const e = 1 - (1 - u) * (1 - u);
+    const total = shot.cum[shot.cum.length - 1];
+    const s = e * total;
+    const eye = pointOnPolyline(shot.pts, shot.cum, s);
+    // 발걸음: 걸음마다 살짝 오르내리고, 멈출수록 잦아든다.
+    eye.y += 0.007 * Math.abs(Math.sin((s / 0.17) * Math.PI)) * (1 - e);
+    // 걷는 동안은 길 앞쪽을 보다가 다가갈수록 건물로 고개를 돌린다.
+    const ahead = pointOnPolyline(shot.pts, shot.cum, s + 0.9);
+    if (s + 0.9 > total) {
+      const n = shot.pts.length;
+      ahead.addScaledVector(shot.pts[n - 1].clone().sub(shot.pts[n - 2] ?? shot.pts[0]).normalize(), s + 0.9 - total);
+    }
+    ahead.y += 0.05;
+    const look = ahead.lerp(shot.focus, smoothstep(0.3, 1, e));
+    return { pose: poseOf(eye, look, this.streetFov()), shot, s };
+  }
+
+  private applyStreetPose(p: CamPose): void {
+    const cam = this.streetCam;
+    cam.fov = p.fov;
+    cam.aspect = this.width / Math.max(1, this.height);
+    // 길 위에서는 코앞까지, 멀리서 볼 때는 깊이 정밀도를 아끼도록 가까운 면을 앞으로 당긴다.
+    cam.near = 0.012 + Math.max(0, p.dist - 3) * 0.3;
+    cam.far = p.dist + 60;
+    cam.position.copy(p.look).addScaledVector(p.dir, p.dist);
+    cam.up.set(0, 1, 0);
+    cam.lookAt(p.look);
+    cam.updateProjectionMatrix();
   }
 
   private updateVictory(run: VictoryRun, ms: number): void {
     if (this.victory !== run) return;
-    if (!run.legs) run.legs = this.victoryLegs(run);
-    if (run.camera) this.moveVictoryCamera(run, ms);
+    if (run.camera) {
+      if (!run.shots) {
+        run.shots = this.victoryShots(run);
+        this.enterStreet(run);
+      }
+      if (ms < run.plan.end) {
+        const at = this.shotPose(run, ms);
+        if (at) {
+          this.applyStreetPose(at.pose);
+          if (at.shot.kind === 'walk') for (const m of at.shot.marks) if (at.s >= m.s && !run.lit.has(m.key)) run.lit.set(m.key, ms);
+        }
+      } else {
+        // 결과 창이 열릴 때 원래 카메라로 돌아온다 (끝 자세가 같은 그림이라 튀지 않는다).
+        this.leaveStreet(run);
+      }
+    }
     const steps = run.plan.steps;
     while (run.fired < steps.length && ms >= steps[run.fired].at) this.victoryBeat(run, steps[run.fired++], ms);
     if (!run.finale && ms >= run.plan.finaleAt) {
@@ -3978,29 +4257,6 @@ export class BoardRenderer {
     this.updatePieceInstances();
   }
 
-  private moveVictoryCamera(run: VictoryRun, ms: number): void {
-    const legs = run.legs ?? [];
-    if (!legs.length) return;
-    let leg = legs[0];
-    for (const l of legs) {
-      if (ms < l.from) break;
-      leg = l;
-    }
-    const u = ms >= leg.to ? 1 : easeInOut(Math.max(0, (ms - leg.from) / (leg.to - leg.from)));
-    const total = leg.cum[leg.cum.length - 1];
-    const s = u * total;
-    let i = 1;
-    while (i < leg.cum.length - 1 && leg.cum[i] < s) i++;
-    const seg = leg.cum[i] - leg.cum[i - 1];
-    const target = leg.pts[i - 1].clone().lerp(leg.pts[i], seg > 0 ? Math.min(1, (s - leg.cum[i - 1]) / seg) : 1);
-    const z0 = this.zoomFor(leg.zoomFrom);
-    const z1 = this.zoomFor(leg.zoomTo);
-    // 멀리 날아갈 때는 가운데에서 살짝 물러났다가 다가간다.
-    const zoom = (z0 + (z1 - z0) * u) / (1 + leg.dip * Math.sin(Math.PI * u));
-    this.placeCamera(target, Math.max(this.controls.minZoom, zoom));
-    for (const m of leg.marks) if (u >= m.s && !run.lit.has(m.key)) run.lit.set(m.key, ms);
-  }
-
   /** 점수가 오르는 순간: 마을·도시는 부풀며 반짝이고 +1·+2 가 뜬다. 최장 교역로는 금빛이 훑고, 최강 기사단은 동상이 뛴다. */
   private victoryBeat(run: VictoryRun, step: VictoryStep, ms: number): void {
     if (step.vertexId) {
@@ -4010,8 +4266,11 @@ export class BoardRenderer {
       const p = this.vertexWorld(step.vertexId);
       if (!p) return;
       const lift = BADGE_LIFT[step.kind === 'city' ? 'city' : 'village'];
-      this.sparkBurst(p.clone().add(new THREE.Vector3(0, lift * 0.8, 0)), 0, step.kind === 'city' ? 9 : 6, 0.34, 0.11);
-      this.spawnFloating(p.clone().add(new THREE.Vector3(0, lift + 0.3, 0)), `+${step.points}`, 'float-label float-vp');
+      const street = run.street;
+      // 길 위에서 올려다볼 때는 글자가 화면 밖으로 나가지 않게 지붕 높이에서 카메라 쪽으로 조금 띄운다.
+      const toward = street ? this.streetCam.position.clone().sub(p).setY(0).normalize().multiplyScalar(0.28) : new THREE.Vector3();
+      this.sparkBurst(p.clone().add(new THREE.Vector3(0, lift * 0.8, 0)), 0, step.kind === 'city' ? 9 : 6, street ? 0.26 : 0.34, street ? 0.07 : 0.11);
+      this.spawnFloating(p.clone().add(toward).add(new THREE.Vector3(0, street ? lift * 0.62 : lift + 0.3, 0)), `+${step.points}`, 'float-label float-vp');
       return;
     }
     if (step.kind === 'longest_road') {
@@ -4261,7 +4520,7 @@ export class BoardRenderer {
     if (this.disposed) return;
     this.renderer.info.reset();
     this.flushShadows();
-    this.painter.render(this.scene, this.camera);
+    this.painter.render(this.scene, this.viewCamera);
     this.updateOverlay();
   }
 
@@ -4528,7 +4787,7 @@ export class BoardRenderer {
     const t0 = performance.now();
     this.renderer.info.reset();
     this.flushShadows();
-    this.painter.render(this.scene, this.camera);
+    this.painter.render(this.scene, this.viewCamera);
     this.perf.renderMs = performance.now() - t0;
     this.updateOverlay();
     const continuous = this.interacting || moving || animating;
@@ -4584,10 +4843,13 @@ export class BoardRenderer {
   private updateOverlay(): void {
     const w = this.width;
     const h = this.height;
+    const cam = this.viewCamera;
     const place = (item: OverlayItem) => {
-      const p = tmpV.copy(item.world).project(this.camera);
-      const x = Math.round(((p.x + 1) / 2) * w);
-      const y = Math.round(((1 - p.y) / 2) * h);
+      const p = tmpV.copy(item.world).project(cam);
+      // 원근 카메라 뒤쪽에 있는 자리는 화면 밖으로 치운다.
+      const behind = p.z > 1;
+      const x = behind ? -9999 : Math.round(((p.x + 1) / 2) * w);
+      const y = behind ? -9999 : Math.round(((1 - p.y) / 2) * h);
       if (x !== item.lastX || y !== item.lastY) {
         item.el.style.transform = `translate(${x}px, ${y}px) ${item.anchor}`;
         item.lastX = x;
@@ -4595,11 +4857,14 @@ export class BoardRenderer {
       }
     };
     // 숫자 패·교역로 표지는 확대 수준에 맞춰 크기를 조금 바꾼다 (타일 크기에 비례하되 너무 작거나 크지 않게).
-    const pxPerUnit = (w * this.camera.zoom) / Math.max(0.001, this.camera.right - this.camera.left);
-    const tz = Math.round(Math.min(1.6, Math.max(0.72, pxPerUnit / 46)) * 20) / 20;
-    if (tz !== this.overlayScale) {
-      this.overlayScale = tz;
-      this.overlay.style.setProperty('--tz', String(tz));
+    // 승리 연출의 길 위 카메라에서는 이 표지들을 숨기므로 그대로 둔다.
+    if (cam === this.camera) {
+      const pxPerUnit = (w * this.camera.zoom) / Math.max(0.001, this.camera.right - this.camera.left);
+      const tz = Math.round(Math.min(1.6, Math.max(0.72, pxPerUnit / 46)) * 20) / 20;
+      if (tz !== this.overlayScale) {
+        this.overlayScale = tz;
+        this.overlay.style.setProperty('--tz', String(tz));
+      }
     }
     if (this.tileLabelsVisible) this.tileLabels.forEach(place);
     this.numberTokens.forEach(place);

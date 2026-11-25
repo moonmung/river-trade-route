@@ -1112,6 +1112,11 @@ h2 {
   will-change: transform;
 }
 
+/* 승리 연출의 길 위 카메라: 숫자 패·교역로 표지처럼 위쪽 보기에 맞춘 표지는 숨기고 +1 같은 떠오르는 글자만 남긴다. */
+.board-overlay.is-cinematic > :not(.float-label) {
+  visibility: hidden;
+}
+
 /* 칸 이름: 수채화 보드와 어울리게 양피지 조각에 먹으로 쓴 글씨처럼 */
 .tile-label {
   font: 700 11px/1 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, var(--font-title);

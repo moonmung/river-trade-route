@@ -311,13 +311,16 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             sfx.gameEnd(e.winners.includes(me));
             break;
           }
-          // 승리 연출: 이긴 사람이 처음 지은 차례대로 마을·도시를 찾아가며 점수를 세고(최장 교역로·최강 기사단·승점 카드까지)
-          // 보드 전체로 물러나 승리를 알린 뒤 결과 창을 연다. 효과음은 연출 화면이 박자에 맞춰 낸다.
+          // 승리 연출: 카메라가 길 위로 내려앉아 이긴 사람이 처음 지은 차례대로 마을·도시까지 걸어가 올려다보며 점수를 세고
+          // (최장 교역로·최강 기사단·승점 카드까지) 보드 전체로 물러나 승리를 알린 뒤 결과 창을 연다. 효과음은 연출 화면이 박자에 맞춰 낸다.
+          // 2D 보드나 동작 줄이기 설정이면 카메라 없이 점수만 빠르게 센다.
+          const walk = !!rendererRef.current && !reducedMotion();
           const plan = victoryPlan({
             buildings: g.buildings.filter((b) => b.owner === winner).map((b) => ({ vertexId: b.vertexId, kind: b.kind })),
             longestRoad: g.longestRoad.holder === winner,
             largestArmy: g.largestArmy.holder === winner,
             score: g.players.find((p) => p.id === winner)?.score ?? 0,
+            walk,
           });
           // 마지막에 지은 조각이 솟아오를 틈을 두고 시작한다.
           const delay = fresh.slice(0, i).some((x) => x.kind === 'build' || x.kind === 'award') ? 650 : 250;
@@ -330,7 +333,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             delay,
             onSkip: () => rendererRef.current?.stopVictory(),
           });
-          rendererRef.current?.playVictory(winner, plan, { delay, camera: !reducedMotion() });
+          rendererRef.current?.playVictory(winner, plan, { delay, camera: walk });
           break;
         }
         default:
