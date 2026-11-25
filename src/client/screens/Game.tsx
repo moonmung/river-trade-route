@@ -36,7 +36,7 @@ import { PersonIcon } from '../ui/icons';
 import { showToast } from '../ui/toast';
 import { FullscreenButton } from '../ui/FullscreenButton';
 import { AwayBanner, AwayButton, useAwayNotices } from '../game/away';
-import { SpectacleHost } from '../ui/spectacle';
+import { SpectacleHost, useVictoryActive, victoryBarHeight } from '../ui/spectacle';
 import { DiceTray } from '../dice/DiceTray';
 
 const DEFAULT_SETTINGS: GameSettings = { quality: 'auto', flat: false, perf: false };
@@ -189,6 +189,13 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
 
   useGameEffects(view, renderer, players);
   useAwayNotices(view, players);
+  /** 승리 연출 중: 손 카드·패널을 숨기고 위아래 영화 띠 사이에 보드를 맞추며, 끝날 때까지 결과 창을 미룬다 */
+  const victoryOn = useVictoryActive();
+  const boardInsets = useMemo<Insets>(() => {
+    if (!victoryOn) return insets;
+    const bar = victoryBarHeight();
+    return { top: bar, bottom: bar, left: 0, right: 0 };
+  }, [victoryOn, insets]);
   /** 내가 자리 비움(자동) 중인지: 서버가 대신 두므로 주사위 던지기 자리를 띄우지 않는다 */
   const away = !!players.get(view.you)?.auto && g.phase !== 'finished';
   const takeRenderer = (r: BoardRenderer | null) => {
@@ -275,7 +282,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     ) : null;
 
   return (
-    <div className={`game ${wide ? 'game-wide' : 'game-narrow'} ${pingMode ? 'is-pinging' : ''}`}>
+    <div className={`game ${wide ? 'game-wide' : 'game-narrow'} ${pingMode ? 'is-pinging' : ''} ${victoryOn ? 'is-victory' : ''}`}>
       <div className="board-layer">
         {useFlat ? (
           <div className="flat-wrap" style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8, paddingRight: insets.right + 8 }}>
@@ -286,7 +293,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
           <BoardView
             tiles={boardOf(g).tiles}
             state={boardState}
-            insets={insets}
+            insets={boardInsets}
             quality={settings.quality}
             showTileLabels={false}
             motion={settings.motion ?? !prefersReducedMotion()}
@@ -506,8 +513,8 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       <SpectacleHost />
       {!away && <DiceTray view={view} paused={dialog !== null} hold={!!wait} />}
       {away && <AwayBanner />}
-      {g.phase === 'finished' && showResult && <ResultOverlay view={view} players={players} onClose={() => setShowResult(false)} />}
-      {g.phase === 'finished' && !showResult && (
+      {g.phase === 'finished' && showResult && !victoryOn && <ResultOverlay view={view} players={players} onClose={() => setShowResult(false)} />}
+      {g.phase === 'finished' && !showResult && !victoryOn && (
         <button className="btn btn-primary result-reopen" onClick={() => setShowResult(true)}>
           결과 보기
         </button>
