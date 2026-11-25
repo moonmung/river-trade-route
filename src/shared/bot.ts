@@ -1,13 +1,22 @@
-// 실험실 모의 게임의 봇. tests/helpers.ts 의 봇과 같은 규칙에 순서 주사위, 마을 → 길 시작 배치, 교환 응답을 더했다.
+// 컴퓨터가 두는 수: 실험실 모의 게임의 봇과, 자리를 비운 사람 대신 서버가 두는 자동 모드(rooms.ts)가 같이 쓴다.
+// tests/helpers.ts 의 봇과 같은 규칙에 순서 주사위, 마을 → 길 시작 배치, 교환 응답을 더했다.
 // 화면 정보(RoomView)만 보고 고르므로 실제 참가자가 볼 수 있는 것 이상은 쓰지 않는다.
-import { boardOf } from '../../shared/board';
-import { DEV_COST, PIECE_COST, RESOURCES, emptyBundle, hasBundle, numberPips } from '../../shared/constants';
-import type { RoomView } from '../../shared/protocol';
-import { buildableRoads, buildableVillages, pieceCount, pieceLimit, placeableVertices, setupRoadEdges, upgradableVillages } from '../../shared/rules';
-import type { GameAction } from '../../shared/types';
+import { boardOf } from './board';
+import { DEV_COST, PIECE_COST, RESOURCES, emptyBundle, hasBundle, numberPips } from './constants';
+import type { RoomView } from './protocol';
+import { buildableRoads, buildableVillages, pieceCount, pieceLimit, placeableVertices, setupRoadEdges, upgradableVillages } from './rules';
+import type { GameAction } from './types';
+
+export interface BotOptions {
+  /**
+   * 사람끼리 교환을 하는지 (기본 true). 자리를 비운 사람 대신 둘 때는 false 로, 받은 제안은 모두 거절하고 제안도 하지 않는다.
+   * 자리 비운 사이에 남이 불리한 교환을 받아 가지 못하게 하고, 제안해 놓고 답을 기다리느라 차례를 붙잡지 않게 한다.
+   */
+  trades?: boolean;
+}
 
 /** 차례가 아니어도 해야 하는 일 (순서 주사위, 7 버리기, 받은 교환 제안에 답하기). 없으면 null. */
-export function botSideAction(v: RoomView, random: () => number = Math.random): GameAction | null {
+export function botSideAction(v: RoomView, random: () => number = Math.random, opts: BotOptions = {}): GameAction | null {
   const g = v.game!;
   const me = v.you;
   if (g.phase === 'order') return g.startPending.includes(me) ? { type: 'order_roll' } : null;
@@ -25,6 +34,7 @@ export function botSideAction(v: RoomView, random: () => number = Math.random): 
   }
   for (const t of g.trades) {
     if (t.from === me || !t.to.includes(me) || t.responses[me] !== 'pending') continue;
+    if (opts.trades === false) return { type: 'trade_reject', tradeId: t.id };
     // 낼 수 있으면 대개 받아들이고, 가끔은 거절한다
     const can = hasBundle(g.myResources, t.get);
     return can && random() < 0.75 ? { type: 'trade_accept', tradeId: t.id } : { type: 'trade_reject', tradeId: t.id };
@@ -33,7 +43,7 @@ export function botSideAction(v: RoomView, random: () => number = Math.random): 
 }
 
 /** 차례인 봇의 다음 행동. 매 행동이 자원을 쓰거나 단계를 넘기므로 같은 턴에 끝없이 돌지 않는다. */
-export function botTurnAction(v: RoomView, seat: number, random: () => number = Math.random): GameAction | null {
+export function botTurnAction(v: RoomView, seat: number, random: () => number = Math.random, opts: BotOptions = {}): GameAction | null {
   const g = v.game!;
   const board = boardOf(g);
   const me = v.you;
@@ -105,7 +115,7 @@ export function botTurnAction(v: RoomView, seat: number, random: () => number = 
     // 남는 자원 1장으로 모두에게 1:1 교환을 제안해 본다 (턴마다 한 번)
     const spare = RESOURCES.find((x) => x !== missing && r[x] > target[x]);
     const proposedThisTurn = g.events.some((e) => e.kind === 'trade_proposed' && e.from === me && e.turn === g.turn);
-    if (spare && !proposedThisTurn && random() < 0.6) {
+    if (opts.trades !== false && spare && !proposedThisTurn && random() < 0.6) {
       return { type: 'trade_propose', give: { ...emptyBundle(), [spare]: 1 }, get: { ...emptyBundle(), [missing]: 1 } };
     }
   }

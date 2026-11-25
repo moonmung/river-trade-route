@@ -24,11 +24,16 @@ export interface PlayerInfo {
   colorIndex: number;
   connected: boolean;
   isHost: boolean;
+  /** 자리 비움: 컴퓨터가 대신 두는 중 */
+  auto: boolean;
 }
 
 export function playerMap(view: RoomView): Map<string, PlayerInfo> {
   return new Map(
-    view.players.map((p) => [p.id, { id: p.id, nickname: p.nickname, colorIndex: p.colorIndex, connected: p.connected, isHost: p.isHost }]),
+    view.players.map((p) => [
+      p.id,
+      { id: p.id, nickname: p.nickname, colorIndex: p.colorIndex, connected: p.connected, isHost: p.isHost, auto: p.auto === true },
+    ]),
   );
 }
 

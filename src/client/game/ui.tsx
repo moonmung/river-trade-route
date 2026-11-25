@@ -18,6 +18,20 @@ export function setActionSink(sink: ((action: GameAction) => Promise<AckResult>)
   actionSink = sink;
 }
 
+/** 자리 비움을 서버 대신 받는 곳 (실험실 모의 게임) */
+let autoSink: ((on: boolean) => AckResult) | null = null;
+
+export function setAutoSink(sink: ((on: boolean) => AckResult) | null): void {
+  autoSink = sink;
+}
+
+/** 자리 비움(자동)을 켜고 끈다. 거절되면 이유를 보여 준다. */
+export async function sendAuto(on: boolean): Promise<boolean> {
+  const res = autoSink ? autoSink(on) : await client.setAuto(on);
+  if (!res.ok) showToast(res.error, 'error', 4200);
+  return res.ok;
+}
+
 /** 행동을 서버에 보내고, 거절되면 이유를 보여 준다. */
 export async function sendAction(action: GameAction): Promise<boolean> {
   const res = actionSink ? await actionSink(action) : await client.act(action);

@@ -26,8 +26,10 @@ import {
 import { SEAT_CODE_LENGTH, type AckResult, type RoomListing, type RoomPeek, type SeatHandover } from '../shared/protocol';
 import { DEFAULT_MAP, mapCardDefaults, maxPlayersFor, normalizeMapArrange, normalizeMapShape } from '../shared/maps';
 import { normalizeDiceMode, type DiceMode } from '../shared/fairDice';
-import { applyAction, autoPlay, clockKey, createGame, type GameState } from '../shared/rules';
+import { applyAction, autoPlay, clockKey, createGame, currentPlayer, placementPlayer, type GameState } from '../shared/rules';
+import { botSideAction, botTurnAction } from '../shared/bot';
 import type { GameAction, MapConfig } from '../shared/types';
+import { buildRoomView } from './view';
 
 export interface RoomPlayer {
   id: string;
@@ -36,6 +38,8 @@ export interface RoomPlayer {
   nickname: string;
   colorIndex: number;
   ready: boolean;
+  /** 자리 비움(자동): 이 사람 대신 서버가 둔다. 본인이 끄거나 직접 두면 꺼진다. */
+  auto: boolean;
   connected: boolean;
   socketId: string | null;
   /** 같은 요청이 두 번 도착해도 한 번만 반영하기 위한 최근 요청 결과 */
@@ -88,6 +92,14 @@ function secureRandom(): number {
 }
 
 /**
+ * 자리 비움(자동) 한 수 사이의 쉬는 시간 (ms). 다른 사람 화면의 연출을 볼 틈을 둔다.
+ * 굴린 뒤에는 3D 주사위가 멈추고(3초 안) 생산물이 날아갈 때까지, 동상을 옮긴 뒤에는 동상이 내려앉을 때까지 더 기다린다.
+ */
+export const AUTO_STEP_MS = 1500;
+export const AUTO_AFTER_ROLL_MS = 4200;
+export const AUTO_AFTER_ROBBER_MS = 2000;
+
+/**
  * 새 방의 기본값. 저장해 둔 방을 되살릴 때도 이 값 위에 저장된 값을 덮어쓴다.
  * Room 에 필드를 더하면 여기에 기본값을 넣어 두어야 예전 저장 파일에서 되살린 방도 그 필드를 갖는다.
  */
@@ -124,6 +136,9 @@ export class RoomManager {
   private readonly clocks = new Map<string, { key: string; deadline: number; timer: ReturnType<typeof setTimeout> }>();
   /** 시간이 다 되어 서버가 대신 진행했을 때 부른다 (socket.ts 가 모두에게 새 화면을 보낸다). */
   onAutoPlay: ((room: Room) => void) | null = null;
+  /** 방 코드 → 자리 비운 사람 대신 둘 다음 수의 타이머 */
+  private readonly autoTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private autoSeq = 0;
 
   constructor(private readonly maxRooms = MAX_ROOMS) {}
 
@@ -133,6 +148,7 @@ export class RoomManager {
 
   private deleteRoom(code: string): void {
     this.stopClock(code);
+    this.stopAuto(code);
     this.rooms.delete(code);
     this.handovers.delete(code);
     this.handoverFails.delete(code);
@@ -157,6 +173,7 @@ export class RoomManager {
       nickname,
       colorIndex,
       ready: false,
+      auto: false,
       connected: false,
       socketId: null,
       recent: new Map(),
@@ -420,6 +437,7 @@ export class RoomManager {
     this.stopClock(room.code);
     for (const p of room.players) {
       p.ready = false;
+      p.auto = false;
       p.recent.clear();
     }
     this.changed();
@@ -430,7 +448,7 @@ export class RoomManager {
    * 게임 행동 처리. requestId 가 같은 요청은 처음 결과를 그대로 돌려주고 다시 반영하지 않는다.
    * changed 가 true 면 상태가 바뀐 것이므로 모두에게 새 화면 정보를 보낸다.
    */
-  act(room: Room, playerId: string, requestId: string, action: GameAction): { result: AckResult; changed: boolean } {
+  act(room: Room, playerId: string, requestId: string, action: GameAction, opts: { auto?: boolean } = {}): { result: AckResult; changed: boolean } {
     const player = room.players.find((p) => p.id === playerId);
     if (!player) return { result: { ok: false, error: '방에 없는 참가자입니다.' }, changed: false };
     const cached = player.recent.get(requestId);
@@ -446,12 +464,83 @@ export class RoomManager {
       const oldest = player.recent.keys().next().value;
       if (oldest !== undefined) player.recent.delete(oldest);
     }
+    // 자리를 비웠던 사람이 직접 두면 돌아온 것으로 보고 자동을 끈다.
+    if (r.ok && !opts.auto && player.auto) player.auto = false;
     const changed = room.game.version !== before;
     if (changed) {
       this.syncClock(room);
       this.changed();
     }
     return { result, changed };
+  }
+
+  // ───────────────────────── 자리 비움 (자동) ─────────────────────────
+
+  /** 게임 중에 자리 비움을 켜고 끈다. 켜 두면 그 사람이 해야 할 일을 서버가 잠시 뒤 대신 둔다. */
+  setAuto(room: Room, playerId: string, on: boolean): RoomError | null {
+    const p = room.players.find((x) => x.id === playerId);
+    if (!p) return { error: '방에 없는 참가자입니다.' };
+    if (on && (room.phase !== 'game' || !room.game || room.game.phase === 'finished')) return { error: '게임 중에만 자리 비움을 켤 수 있습니다.' };
+    if (p.auto === on) return null;
+    p.auto = on;
+    this.changed();
+    this.scheduleAuto(room);
+    return null;
+  }
+
+  private stopAuto(code: string): void {
+    const t = this.autoTimers.get(code);
+    if (t) clearTimeout(t);
+    this.autoTimers.delete(code);
+  }
+
+  /**
+   * 자리 비운 사람이 해야 할 일이 있으면 잠시 뒤 한 수를 둔다 (한 번에 한 수씩, 다른 사람이 연출을 볼 수 있게).
+   * 상태나 연결이 바뀔 때마다(syncClock) 다시 맞춘다. 아무도 접속해 있지 않으면 차례 시계처럼 멈춘다.
+   */
+  private scheduleAuto(room: Room): void {
+    this.stopAuto(room.code);
+    const g = room.game;
+    if (!g || room.phase !== 'game' || g.phase === 'finished') return;
+    if (!room.players.some((p) => p.auto) || !room.players.some((p) => p.connected)) return;
+    if (!this.autoMove(room)) return;
+    const last = g.events[g.events.length - 1]?.kind;
+    const wait = last === 'roll' ? AUTO_AFTER_ROLL_MS : last === 'robber' || last === 'steal' ? AUTO_AFTER_ROBBER_MS : AUTO_STEP_MS;
+    const timer = setTimeout(() => this.autoStep(room.code), wait);
+    (timer as { unref?: () => void }).unref?.();
+    this.autoTimers.set(room.code, timer);
+  }
+
+  private autoStep(code: string): void {
+    this.autoTimers.delete(code);
+    const room = this.rooms.get(code);
+    const g = room?.game;
+    if (!room || !g) return;
+    const move = this.autoMove(room);
+    if (!move) return;
+    const id = move.player.id;
+    let { result, changed } = this.act(room, id, `auto-${++this.autoSeq}`, move.action, { auto: true });
+    // 고른 수가 막히면 (규칙과 어긋난 경우) 그 차례를 넘겨 멈추지 않게 한다.
+    if (!result.ok && g.phase === 'playing' && g.step === 'main' && currentPlayer(g) === id) {
+      ({ result, changed } = this.act(room, id, `auto-${++this.autoSeq}`, { type: 'end_turn' }, { auto: true }));
+    }
+    if (changed) this.onAutoPlay?.(room);
+  }
+
+  /** 자리 비운 사람의 다음 수: 차례와 상관없는 일(순서 주사위, 7 버리기, 받은 교환 거절)부터, 그다음 차례인 사람이면 그 차례의 수. */
+  private autoMove(room: Room): { player: RoomPlayer; action: GameAction } | null {
+    const g = room.game;
+    if (!g) return null;
+    const away = room.players.filter((p) => p.auto);
+    for (const p of away) {
+      const a = botSideAction(buildRoomView(room, p.id), secureRandom, { trades: false });
+      if (a) return { player: p, action: a };
+    }
+    const turnId = g.phase === 'placement' ? placementPlayer(g) : g.phase === 'playing' ? currentPlayer(g) : null;
+    const p = away.find((x) => x.id === turnId);
+    if (!p) return null;
+    const a = botTurnAction(buildRoomView(room, p.id), Math.max(0, g.order.indexOf(p.id)), secureRandom, { trades: false });
+    return a ? { player: p, action: a } : null;
   }
 
   // ───────────────────────── 차례 시계 ─────────────────────────
@@ -472,6 +561,11 @@ export class RoomManager {
    * 아무도 접속해 있지 않으면 멈춘다 (서버를 다시 켜 되살린 방이 혼자 진행되지 않게). 누군가 돌아오면 그 차례를 처음부터 다시 잰다.
    */
   syncClock(room: Room, now = Date.now()): void {
+    this.syncTurnClock(room, now);
+    this.scheduleAuto(room);
+  }
+
+  private syncTurnClock(room: Room, now: number): void {
     const g = room.game;
     const key = g && room.phase === 'game' ? clockKey(g) : null;
     if (!key || room.turnSeconds <= 0 || !room.players.some((p) => p.connected)) {
@@ -501,6 +595,7 @@ export class RoomManager {
   /** 서버를 끌 때 시계를 모두 멈춘다. */
   stopAllClocks(): void {
     for (const code of [...this.clocks.keys()]) this.stopClock(code);
+    for (const code of [...this.autoTimers.keys()]) this.stopAuto(code);
   }
 
   /**

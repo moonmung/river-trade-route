@@ -26,6 +26,8 @@ export interface LobbyPlayerView {
   colorIndex: number;
   isHost: boolean;
   ready: boolean;
+  /** 자리 비움: 컴퓨터가 대신 두는 중 */
+  auto: boolean;
   connected: boolean;
 }
 
@@ -300,6 +302,8 @@ export interface ClientToServerEvents {
   /** 새 기기: 받은 코드로 그 자리를 넘겨받는다 */
   'seat:claim': (p: { code: string; seatCode: string }, ack: Ack<SessionInfo>) => void;
   'room:ready': (p: { ready: boolean }, ack: Ack) => void;
+  /** 게임 중 자리 비움(자동): 켜 두면 서버가 내 차례와 할 일을 대신 둔다. 직접 두면 저절로 꺼진다. */
+  'room:auto': (p: { on: boolean }, ack: Ack) => void;
   'room:start': (p: Record<string, never>, ack: Ack) => void;
   'room:leave': (p: Record<string, never>, ack: Ack) => void;
   'room:kick': (p: { playerId: string }, ack: Ack) => void;

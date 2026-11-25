@@ -69,6 +69,92 @@
   top: calc(8px + var(--safe-top));
   right: calc(var(--side-w) + 8px);
   z-index: 12;
+  display: flex;
+  gap: 6px;
+}
+
+/* 자리 비움(자동) 단추: 넓은 화면은 글자도 쓰고, 켜져 있으면 황토색으로 눈에 띈다 */
+.away-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0;
+  color: var(--ink);
+}
+
+.away-btn.away-labeled {
+  padding: 0 10px 0 8px;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.hud-fs .away-btn {
+  height: 38px;
+  box-shadow:
+    0 1.5px 0 rgba(58, 42, 31, 0.3),
+    0 2px 8px rgba(30, 20, 10, 0.25);
+}
+
+.away-btn.away-on {
+  background-color: #e8b04a;
+  border-color: #8a5a12;
+  color: #3a2410;
+}
+
+.turn-status .away-btn {
+  min-width: 30px;
+  height: 28px;
+}
+
+.turn-status .away-btn svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* 내가 자리 비움 중일 때 보드 위쪽 가운데 띠 */
+.away-banner {
+  position: absolute;
+  z-index: 13;
+  top: calc(var(--safe-top) + 58px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  background: #f6e2b0 var(--tex-grain);
+  border: 1.5px solid #8a5a12;
+  border-radius: var(--wobble-sm);
+  box-shadow: 0 3px 12px rgba(30, 20, 10, 0.3);
+  font-size: 0.9rem;
+  color: #3a2410;
+}
+
+.game-wide .away-banner {
+  left: calc((100% - var(--side-w)) / 2);
+}
+
+.game-narrow .away-banner {
+  top: calc(var(--safe-top) + 30vh);
+  font-size: 0.82rem;
+}
+
+.away-banner svg {
+  flex: none;
+}
+
+.away-banner .btn {
+  flex: none;
+}
+
+/* 상태 창의 '자동' 꼬리표 (자리 비움) */
+.tag-auto {
+  background: #e8b04a;
+  color: #3a2410;
+  border-color: #8a5a12;
 }
 
 .fullscreen-btn {
