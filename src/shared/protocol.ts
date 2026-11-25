@@ -315,6 +315,8 @@ export interface ClientToServerEvents {
   /** 새 기기: 받은 코드로 그 자리를 넘겨받는다 */
   'seat:claim': (p: { code: string; seatCode: string }, ack: Ack<SessionInfo>) => void;
   'room:ready': (p: { ready: boolean }, ack: Ack) => void;
+  /** 대기실에서 내 색 바꾸기 (0 ~ PLAYER_COLOR_COUNT-1, 남이 쓰는 색은 안 된다) */
+  'room:color': (p: { colorIndex: number }, ack: Ack) => void;
   /** 게임 중 자리 비움(자동): 켜 두면 서버가 내 차례와 할 일을 대신 둔다. 직접 두면 저절로 꺼진다. */
   'room:auto': (p: { on: boolean }, ack: Ack) => void;
   'room:start': (p: Record<string, never>, ack: Ack) => void;

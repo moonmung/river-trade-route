@@ -1,9 +1,10 @@
 import QRCode from 'qrcode';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { RoomView, ServerInfo } from '../../shared/protocol';
 import { client } from '../net/client';
 import { navigate } from '../router';
-import { playerColor } from '../theme';
+import { PLAYER_COLORS, playerColor } from '../theme';
+import { josa } from '../ui/josa';
 import { useChat } from '../net/chat';
 import { ChatBox, EmoteBar } from '../ui/chat';
 import { AsyncButton, Brand, CloseRoomButton, copyText } from '../ui/common';
@@ -110,6 +111,53 @@ export function QrCode({ text }: { text: string }) {
   }, [text]);
   // QR 이미지는 이 앱이 만든 초대 링크로만 생성된 SVG 다.
   return <div className="qr" aria-label="초대 링크 QR 코드" role="img" dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+
+/**
+ * 내 색 고르기: 12가지 색 동그라미 가운데 남이 쓰지 않는 색을 누르면 바로 바뀐다.
+ * 내 색에는 ✓ 와 고리가 둘리고, 남이 쓰는 색은 빗금이 그어져 누를 수 없다(눌러 보면 누가 쓰는지 제목에 나온다).
+ */
+function ColorPicker({ view }: { view: RoomView }) {
+  const [busy, setBusy] = useState(false);
+  const me = view.players.find((p) => p.id === view.you);
+  if (!me) return null;
+  const owners = new Map(view.players.map((p) => [p.colorIndex, p]));
+  return (
+    <div className="color-picker">
+      <span className="color-picker-label" id="color-picker-label">
+        내 색
+      </span>
+      <div className="color-swatches" role="group" aria-labelledby="color-picker-label">
+        {PLAYER_COLORS.map((c, i) => {
+          const owner = owners.get(i);
+          const mine = owner?.id === me.id;
+          const taken = !!owner && !mine;
+          const title = mine ? `${c.word} · 지금 내 색` : taken ? `${c.word} · ${owner!.nickname} 님이 쓰는 색` : `${josa(c.word, '으로/로')} 바꾸기`;
+          return (
+            <button
+              key={c.hex}
+              type="button"
+              className={`swatch${mine ? ' is-mine' : ''}${taken ? ' is-taken' : ''}`}
+              style={{ ['--sw' as string]: c.hex } as CSSProperties}
+              aria-pressed={mine}
+              aria-label={title}
+              title={title}
+              disabled={taken || busy}
+              onClick={async () => {
+                if (mine) return;
+                setBusy(true);
+                const res = await client.setColor(i);
+                setBusy(false);
+                if (!res.ok) showToast(res.error, 'error');
+              }}
+            >
+              {mine ? '✓' : ''}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export function Lobby({ view }: { view: RoomView }) {
@@ -532,6 +580,7 @@ export function Lobby({ view }: { view: RoomView }) {
               ),
             )}
           </ul>
+          <ColorPicker view={view} />
         </section>
 
         <div className="lobby-actions">

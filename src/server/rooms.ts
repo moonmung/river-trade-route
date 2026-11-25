@@ -28,6 +28,7 @@ import {
   normalizeResourceCards,
   normalizeTurnSeconds,
   normalizeWinPoints,
+  PLAYER_COLOR_COUNT,
 } from '../shared/constants';
 import { SEAT_CODE_LENGTH, type AckResult, type RoomListing, type RoomPeek, type SeatHandover } from '../shared/protocol';
 import { DEFAULT_MAP, mapCardDefaults, maxPlayersFor, normalizeMapArrange, normalizeMapShape } from '../shared/maps';
@@ -246,6 +247,22 @@ export class RoomManager {
     const p = room.players.find((x) => x.id === playerId);
     if (!p) return { error: '방에 없는 참가자입니다.' };
     p.ready = ready;
+    this.changed();
+    return null;
+  }
+
+  /** 대기실에서 내 색을 바꾼다. 다른 사람이 쓰는 색은 고를 수 없고, 준비 상태는 그대로 둔다. */
+  setColor(room: Room, playerId: string, colorIndex: unknown): RoomError | null {
+    if (room.phase !== 'lobby') return { error: '대기실에서만 색을 바꿀 수 있습니다.' };
+    const p = room.players.find((x) => x.id === playerId);
+    if (!p) return { error: '방에 없는 참가자입니다.' };
+    if (typeof colorIndex !== 'number' || !Number.isInteger(colorIndex) || colorIndex < 0 || colorIndex >= PLAYER_COLOR_COUNT) {
+      return { error: '고를 수 없는 색입니다.' };
+    }
+    if (p.colorIndex === colorIndex) return null;
+    const owner = room.players.find((x) => x.id !== playerId && x.colorIndex === colorIndex);
+    if (owner) return { error: `${owner.nickname} 님이 쓰는 색입니다.` };
+    p.colorIndex = colorIndex;
     this.changed();
     return null;
   }
