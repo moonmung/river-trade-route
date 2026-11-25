@@ -48,7 +48,7 @@ let nextId = 1;
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((fn) => fn());
 
-/** 달성 공지: 화면 위쪽에 "빨강 플레이어 최장 교역로 달성"을 그 색으로 크게 띄운다 (약 4초) */
+/** 달성 공지: 화면 위쪽에 "철수 최장 교역로 달성"을 그 사람 색으로 크게 띄운다 (약 4초) */
 export function showAward(award: AwardShow['award'], who: AwardWho): void {
   const id = nextId++;
   state = { ...state, award: { id, award, ...who } };
@@ -91,7 +91,7 @@ export function SpectacleHost() {
 
 /**
  * 달성 공지: 띠나 도장 없이 글자만 보드 위에 크게 띄운다. 어떤 칸 위에서도 읽히게 글자에 먹 테두리를 두르고,
- * 색 이름은 그 플레이어 색으로 칠한다. 움직임 없이 나타났다가 흐려지며 사라진다.
+ * 맨 앞 닉네임을 그 플레이어 색으로 칠한다. 아래 줄에 색 이름과 덧붙임이 온다. 움직임 없이 나타났다가 흐려지며 사라진다.
  */
 function AwardBanner({ show }: { show: AwardShow }) {
   const color = playerColor(show.colorIndex);
@@ -102,15 +102,16 @@ function AwardBanner({ show }: { show: AwardShow }) {
       className="award-banner"
       role="status"
       aria-live="assertive"
-      aria-label={`${word} 플레이어 ${show.brag ? `${josa(label, '을/를')} 뽐냅니다` : `${label} 달성`}. ${show.nickname}${show.mine ? '(나)' : ''}, ${show.detail}`}
+      aria-label={`${show.nickname}${show.mine ? '(나)' : ''} ${show.brag ? `님이 ${josa(label, '을/를')} 뽐냅니다` : `${label} 달성`}. ${word} 플레이어, ${show.detail}`}
       style={{ ['--pc' as string]: color.hex, ['--pc-ink' as string]: color.ink } as CSSProperties}
     >
       <div className="award-headline">
-        <span className="award-color">{word} 플레이어</span>{' '}
+        <span className="award-color">{show.nickname}</span>
+        {show.brag ? ' 님이 ' : ' '}
         <span className="award-what">{show.brag ? `${josa(label, '을/를')} 뽐냅니다` : `${label} 달성`}</span>
       </div>
       <div className="award-sub">
-        {show.nickname}
+        {word} 플레이어
         {show.mine ? ' (나)' : ''} · {show.detail}
       </div>
     </div>

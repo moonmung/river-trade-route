@@ -967,6 +967,79 @@ h2 {
   font-weight: 700;
 }
 
+/* 내 색 고르기: 참가자 목록 아래 12가지 색 동그라미 (넓으면 한 줄, 좁으면 6개씩 두 줄) */
+.color-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+
+.color-picker-label {
+  font-weight: 700;
+  font-size: 0.92rem;
+  white-space: nowrap;
+}
+
+.color-swatches {
+  display: grid;
+  grid-template-columns: repeat(12, 30px);
+  gap: 7px;
+}
+
+@media (max-width: 640px) {
+  .color-swatches {
+    grid-template-columns: repeat(6, 34px);
+    gap: 9px;
+  }
+}
+
+.swatch {
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(29, 26, 22, 0.6);
+  background: var(--sw);
+  color: #fff;
+  font-weight: 900;
+  font-size: 1rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  text-shadow:
+    0 0 2px #1d1a16,
+    0 0 2px #1d1a16;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.swatch:hover:not(:disabled),
+.swatch:focus-visible {
+  transform: scale(1.12);
+}
+
+.swatch.is-mine {
+  box-shadow:
+    0 0 0 3px var(--parchment-hi),
+    0 0 0 5px var(--ink);
+  cursor: default;
+}
+
+/* 남이 쓰는 색: 흐리게, 빗금 */
+.swatch.is-taken {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background:
+    linear-gradient(135deg, transparent 44%, rgba(29, 26, 22, 0.85) 44% 56%, transparent 56%),
+    var(--sw);
+}
+
+.swatch:disabled:not(.is-taken) {
+  cursor: progress;
+}
+
 /* 작은 꼬리표 */
 .tag {
   font-size: 0.72rem;

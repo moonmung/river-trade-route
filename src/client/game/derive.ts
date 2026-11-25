@@ -16,6 +16,7 @@ import type { GameView, RoomView } from '../../shared/protocol';
 import { buildableRoads, buildableVillages, pieceCount, pieceLimit, placeableVertices, setupRoadEdges, upgradableVillages } from '../../shared/rules';
 import type { Bundle, DevKind, GameAction, GameEvent, PieceKind, TradeCloseReason } from '../../shared/types';
 import { josa } from '../ui/josa';
+import { playerColor } from '../theme';
 
 export interface PlayerInfo {
   id: string;
@@ -104,11 +105,9 @@ export function tradeBlocker(view: RoomView): string | null {
   return null;
 }
 
-/** 플레이어 깃발 색을 부르는 말 (공지용): "빨강 플레이어" */
-const COLOR_WORDS = ['빨강', '파랑', '주황', '보라'] as const;
-
+/** 플레이어 색을 부르는 말: "빨강", "하늘" (12가지 모두 다르다) */
 export function colorWord(index: number): string {
-  return COLOR_WORDS[((index % COLOR_WORDS.length) + COLOR_WORDS.length) % COLOR_WORDS.length];
+  return playerColor(index).word;
 }
 
 export function buyDevBlocker(view: RoomView): string | null {

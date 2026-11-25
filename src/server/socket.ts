@@ -207,6 +207,16 @@ export function attachSocketHandlers(io: IOServer, rooms: RoomManager, log: (msg
       reply({ ok: true });
     });
 
+    socket.on('room:color', (payload, ack) => {
+      const reply = safeAck(ack);
+      const cur = current(socket);
+      if (!cur) return reply(fail('방에 연결되어 있지 않습니다.'));
+      const err = rooms.setColor(cur.room, cur.player.id, (payload as { colorIndex?: unknown } | undefined)?.colorIndex);
+      if (err) return reply(fail(err.error));
+      broadcast(cur.room);
+      reply({ ok: true });
+    });
+
     socket.on('room:auto', (payload, ack) => {
       const reply = safeAck(ack);
       const cur = current(socket);

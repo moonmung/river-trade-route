@@ -66,6 +66,8 @@ export function numberPips(n: number): number {
 /** 2명이면 일대일 대결로 같은 규칙을 쓴다. 보통 맵은 4명까지, 대형 맵은 8명까지 (맵마다 인원은 maps.ts 의 maxPlayersFor). */
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 8;
+/** 고를 수 있는 플레이어 색 개수 (client/theme.ts 의 PLAYER_COLORS 와 같다). 대기실에서 서로 다른 색을 하나씩 골라 쓴다. */
+export const PLAYER_COLOR_COUNT = 12;
 /** 이 승점에 먼저 닿으면 이긴다 (자기 턴에 판정). 방장이 방을 만들 때 WIN_POINTS_MIN~WIN_POINTS_MAX 사이로 바꿀 수 있다. */
 export const WIN_POINTS = 10;
 export const WIN_POINTS_MIN = 10;
