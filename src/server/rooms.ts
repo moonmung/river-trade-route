@@ -18,6 +18,12 @@ import {
   WIN_POINTS_MAX,
   WIN_POINTS_MIN,
   normalizeDevCards,
+  normalizeDevMix,
+  normalizePieceLimits,
+  PIECE_LIMIT,
+  DEV_KIND_MAX,
+  type DevMix,
+  type PieceLimits,
   normalizeHandLimit,
   normalizeResourceCards,
   normalizeTurnSeconds,
@@ -71,6 +77,10 @@ export interface Room {
   diceMode: DiceMode;
   /** 방장이 정한 7 버리기 (기본 있음, 다음 게임부터 쓴다) */
   sevenDiscard: boolean;
+  /** 방장이 정한 한 사람의 길·마을·도시 개수 (기본 15·5·4) */
+  pieceLimits: PieceLimits;
+  /** 방장이 종류마다 정한 발전 카드 장수. null 이면 devCards 를 기본 비율로 나눈다. */
+  devMix: DevMix | null;
   createdAt: number;
   /** 마지막으로 상태가 바뀐 시각 (오래 비어 있는 방 정리용) */
   touchedAt: number;
@@ -120,6 +130,8 @@ export function blankRoom(code: string, now = Date.now()): Room {
     unlimited: false,
     diceMode: 'balanced',
     sevenDiscard: true,
+    pieceLimits: { ...PIECE_LIMIT },
+    devMix: null,
     createdAt: now,
     touchedAt: now,
   };
@@ -258,6 +270,8 @@ export class RoomManager {
       unlimited: room.unlimited,
       diceMode: room.diceMode,
       sevenDiscard: room.sevenDiscard,
+      pieceLimits: { ...room.pieceLimits },
+      devMix: room.devMix ? { ...room.devMix } : null,
     };
     if (p.winPoints !== undefined) {
       const n = normalizeWinPoints(p.winPoints);
@@ -283,7 +297,7 @@ export class RoomManager {
       const was = mapCardDefaults(room.map.shape);
       const now = mapCardDefaults(shape);
       if (p.resourceCards === undefined && room.resourceCards === was.resourceCards) next.resourceCards = now.resourceCards;
-      if (p.devCards === undefined && room.devCards === was.devCards) next.devCards = now.devCards;
+      if (p.devCards === undefined && !room.devMix && room.devCards === was.devCards) next.devCards = now.devCards;
       next.map.shape = shape;
     }
     if (p.mapArrange !== undefined) {
@@ -312,7 +326,19 @@ export class RoomManager {
     if (p.devCards !== undefined) {
       const n = normalizeDevCards(p.devCards);
       if (n === null) return { error: `발전 카드는 ${DEV_CARDS_MIN}~${DEV_CARDS_MAX}장 사이로 정하세요.` };
+      // 총 장수를 바꾸면 종류별로 정한 것은 풀고 기본 비율로 나눈다.
       next.devCards = n;
+      next.devMix = null;
+    }
+    if (p.devMix !== undefined) {
+      const mix = normalizeDevMix(p.devMix);
+      if (!mix) return { error: `발전 카드는 종류마다 0~${DEV_KIND_MAX}장, 모두 합쳐 1~${DEV_CARDS_MAX}장 사이로 정하세요.` };
+      next.devMix = mix;
+    }
+    if (p.pieceLimits !== undefined) {
+      const limits = normalizePieceLimits(p.pieceLimits);
+      if (!limits) return { error: '길 5~40개, 마을 2~15개, 도시 1~12개 사이로 정하세요.' };
+      next.pieceLimits = limits;
     }
     const same =
       next.winPoints === room.winPoints &&
@@ -324,7 +350,9 @@ export class RoomManager {
       next.devCards === room.devCards &&
       next.unlimited === room.unlimited &&
       next.diceMode === room.diceMode &&
-      next.sevenDiscard === room.sevenDiscard;
+      next.sevenDiscard === room.sevenDiscard &&
+      JSON.stringify(next.pieceLimits) === JSON.stringify(room.pieceLimits) &&
+      JSON.stringify(next.devMix) === JSON.stringify(room.devMix);
     if (same) return null;
     Object.assign(room, next);
     // 규칙을 바꿔도 다른 사람의 준비는 그대로 둔다 (바뀐 규칙은 모두의 대기실 화면에 바로 보인다).
@@ -353,6 +381,8 @@ export class RoomManager {
         map: { ...room.map },
         resourceCards: room.resourceCards,
         devCards: room.devCards,
+        devMix: room.devMix ?? undefined,
+        pieceLimits: { ...room.pieceLimits },
         unlimited: room.unlimited,
         diceMode: room.diceMode,
         sevenDiscard: room.sevenDiscard,

@@ -13,6 +13,7 @@ import {
   DEV_CARDS_MAX,
   DEV_CARDS_MIN,
   DEV_DECK,
+  DEV_KIND_MAX,
   DEV_LABEL,
   DISCARD_LIMIT,
   HAND_LIMIT_MAX,
@@ -38,6 +39,8 @@ import {
   normalizeWinPoints,
   normalizeHandLimit,
   normalizeDevCards,
+  normalizeDevMix,
+  normalizePieceLimits,
   normalizeResourceCards,
   devDeckFor,
   numberPips,
@@ -46,6 +49,7 @@ import {
   emptyBundle,
   hasBundle,
 } from './constants';
+import type { DevMix, PieceLimits } from './constants';
 import type {
   Building,
   Bundle,
@@ -124,6 +128,8 @@ export interface GameState {
   devDeck: DevKind[];
   /** 개수 제한 없음: 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않는다 (방장이 고른 규칙) */
   unlimited: boolean;
+  /** 한 사람이 가질 수 있는 길·마을·도시 개수 (방장이 정한 값) */
+  pieceLimits: PieceLimits;
   /** 주사위 방식: random 은 그냥 굴리기, balanced 는 고르게 굴리기 (fairDice.ts) */
   diceMode: DiceMode;
   /** 7 버리기: 7이 나오면 보유 한도보다 많이 든 사람이 절반을 버린다 (방장이 끌 수 있다. 꺼도 동상 옮기기·빼앗기는 그대로) */
@@ -199,6 +205,10 @@ export interface GameOptions {
   resourceCards?: number;
   /** 발전 카드 더미의 총 장수 (기본 25, 종류 비율은 그대로) */
   devCards?: number;
+  /** 발전 카드 종류별 장수. 주면 devCards 대신 이 구성으로 더미를 만든다 (방장이 종류마다 정했을 때) */
+  devMix?: DevMix;
+  /** 한 사람이 가질 수 있는 길·마을·도시 개수 (기본 15·5·4) */
+  pieceLimits?: PieceLimits;
   /** 개수 제한 없음: 길·마을·도시 개수 제한과 발전 카드 소진이 없다 (기본 false) */
   unlimited?: boolean;
   /** 주사위 방식 (기본 random: 규칙 테스트가 난수로 눈을 정한다. 방은 balanced 가 기본) */
@@ -207,9 +217,9 @@ export interface GameOptions {
   sevenDiscard?: boolean;
 }
 
-/** 한 사람이 가질 수 있는 조각 수. 개수 제한 없음이면 끝이 없다. */
-export function pieceLimit(s: { unlimited?: boolean }, kind: PieceKind): number {
-  return s.unlimited ? Infinity : PIECE_LIMIT[kind];
+/** 한 사람이 가질 수 있는 조각 수 (방장이 정한 개수, 없으면 기본값). 개수 제한 없음이면 끝이 없다. */
+export function pieceLimit(s: { unlimited?: boolean; pieceLimits?: PieceLimits }, kind: PieceKind): number {
+  return s.unlimited ? Infinity : (s.pieceLimits?.[kind] ?? PIECE_LIMIT[kind]);
 }
 
 export function createGame(playerIds: string[], random: () => number = Math.random, opts: number | GameOptions = {}): GameState {
@@ -223,7 +233,11 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
   const resourceCards = o.resourceCards ?? cardDefaults.resourceCards;
   const devCards = o.devCards ?? cardDefaults.devCards;
   if (normalizeResourceCards(resourceCards) === null) throw new Error(`자원 카드는 종류마다 ${RESOURCE_CARDS_MIN}~${RESOURCE_CARDS_MAX}장이어야 합니다.`);
-  if (normalizeDevCards(devCards) === null) throw new Error(`발전 카드는 ${DEV_CARDS_MIN}~${DEV_CARDS_MAX}장이어야 합니다.`);
+  if (!o.devMix && normalizeDevCards(devCards) === null) throw new Error(`발전 카드는 ${DEV_CARDS_MIN}~${DEV_CARDS_MAX}장이어야 합니다.`);
+  const devMix = o.devMix ? normalizeDevMix(o.devMix) : null;
+  if (o.devMix && !devMix) throw new Error(`발전 카드는 종류마다 0~${DEV_KIND_MAX}장, 모두 합쳐 1~${DEV_CARDS_MAX}장이어야 합니다.`);
+  const pieceLimits = o.pieceLimits ? normalizePieceLimits(o.pieceLimits) : { ...PIECE_LIMIT };
+  if (!pieceLimits) throw new Error('길·마을·도시 개수가 고를 수 있는 범위를 벗어났습니다.');
   const maxPlayers = maxPlayersFor(mapConfig.shape);
   if (playerIds.length < MIN_PLAYERS || playerIds.length > maxPlayers) {
     throw new Error(`플레이어는 ${MIN_PLAYERS}~${maxPlayers}명이어야 합니다.`);
@@ -232,7 +246,7 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
   const order = o.rollForOrder ? [...playerIds] : shuffle(playerIds, random);
   const players: Record<string, PlayerGameState> = {};
   for (const id of order) players[id] = { id, resources: emptyBundle(), devCards: [], knightsPlayed: 0 };
-  const counts = devDeckFor(devCards);
+  const counts = devMix ?? devDeckFor(devCards);
   const deck = (Object.keys(counts) as DevKind[]).flatMap((k) => Array<DevKind>(counts[k]).fill(k));
   const map = buildMap(mapConfig, random);
   const state: GameState = {
@@ -261,6 +275,7 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     roads: [],
     devDeck: shuffle(deck, random),
     unlimited: !!o.unlimited,
+    pieceLimits,
     diceMode: o.diceMode ?? 'random',
     sevenDiscard: o.sevenDiscard !== false,
     fairDice: o.diceMode === 'balanced' ? newFairDice(order) : null,
@@ -801,7 +816,7 @@ function doSteal(s: GameState, playerId: string, from: string, random: () => num
 /** 비용과 보유 한도를 확인한다 */
 function checkPiece(s: GameState, playerId: string, kind: PieceKind, free = false): ActionResult | null {
   if (pieceCount(s.buildings, s.roads, playerId, kind) >= pieceLimit(s, kind)) {
-    return fail('LIMIT', `${PIECE_LABEL[kind]}은(는) 최대 ${PIECE_LIMIT[kind]}개까지 가질 수 있습니다.`);
+    return fail('LIMIT', `${PIECE_LABEL[kind]}은(는) 최대 ${pieceLimit(s, kind)}개까지 가질 수 있습니다.`);
   }
   if (!free && !hasBundle(s.players[playerId].resources, PIECE_COST[kind])) {
     return fail('NOT_ENOUGH', `${PIECE_LABEL[kind]}을(를) 지으려면 ${bundleLabel(PIECE_COST[kind])}가 필요합니다.`);

@@ -1,5 +1,6 @@
 // 브라우저 ↔ 서버 Socket.IO 메시지 형식.
 import type { DiceMode } from './fairDice';
+import type { DevMix, PieceLimits } from './constants';
 import type {
   Building,
   Bundle,
@@ -110,6 +111,8 @@ export interface GameView {
   diceMode: DiceMode;
   /** 7이 나오면 보유 한도보다 많이 든 사람이 절반을 버리는지 */
   sevenDiscard: boolean;
+  /** 한 사람이 가질 수 있는 길·마을·도시 개수 (방장이 정한 값) */
+  pieceLimits: PieceLimits;
   devPlayedThisTurn: boolean;
   freeRoads: number;
   longestRoad: { holder: string | null; length: number };
@@ -153,8 +156,14 @@ export interface RoomView {
   map: MapConfig;
   /** 방장이 정한 은행 자원 카드 수 (자원마다) */
   resourceCards: number;
-  /** 방장이 정한 발전 카드 총 장수 */
+  /** 방장이 정한 발전 카드 총 장수 (종류별로 정했으면 그 합) */
   devCards: number;
+  /** 발전 카드 종류별 장수 (종류별로 정하지 않았으면 총 장수를 기본 비율로 나눈 값) */
+  devMix: DevMix;
+  /** 방장이 발전 카드를 종류마다 따로 정했는지 */
+  devMixCustom: boolean;
+  /** 방장이 정한 한 사람의 길·마을·도시 개수 */
+  pieceLimits: PieceLimits;
   /** 방장이 정한 개수 제한 없음 (길·마을·도시·발전 카드) */
   unlimited: boolean;
   /** 방장이 정한 주사위 방식 */
@@ -171,7 +180,11 @@ export interface RoomSettingsPatch {
   mapShape?: MapShape;
   mapArrange?: MapArrange;
   resourceCards?: number;
+  /** 총 장수만 정한다 (종류는 기본 비율로 나눈다) */
   devCards?: number;
+  /** 종류마다 장수를 정한다 */
+  devMix?: DevMix;
+  pieceLimits?: PieceLimits;
   unlimited?: boolean;
   diceMode?: DiceMode;
   sevenDiscard?: boolean;

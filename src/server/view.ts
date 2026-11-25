@@ -1,6 +1,6 @@
 // 각 브라우저에 보낼 화면 정보를 만든다.
 // 게임 부분은 shared/gameView.ts 가 만들고, 여기서는 방·자리 정보를 더한다.
-import { MIN_PLAYERS } from '../shared/constants';
+import { MIN_PLAYERS, devDeckFor, devMixTotal } from '../shared/constants';
 import { maxPlayersFor } from '../shared/maps';
 import { buildGameView } from '../shared/gameView';
 import type { RoomView } from '../shared/protocol';
@@ -32,7 +32,10 @@ export function buildRoomView(room: Room, viewer: string, deadline: number | nul
     turnSeconds: room.turnSeconds,
     map: { ...room.map },
     resourceCards: room.resourceCards,
-    devCards: room.devCards,
+    devCards: room.devMix ? devMixTotal(room.devMix) : room.devCards,
+    devMix: room.devMix ? { ...room.devMix } : devDeckFor(room.devCards),
+    devMixCustom: !!room.devMix,
+    pieceLimits: { ...room.pieceLimits },
     unlimited: room.unlimited,
     diceMode: room.diceMode,
     sevenDiscard: room.sevenDiscard,

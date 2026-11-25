@@ -7,7 +7,7 @@
 //  - 끝난 게임과 maxAgeMs(기본 하루) 넘게 아무 일도 없던 방은 저장하지도 되살리지도 않는다.
 import fs from 'node:fs';
 import path from 'node:path';
-import { DISCARD_LIMIT, TILES, WIN_POINTS, normalizeDevCards, normalizeResourceCards } from '../shared/constants';
+import { DISCARD_LIMIT, PIECE_LIMIT, TILES, WIN_POINTS, normalizeDevCards, normalizeDevMix, normalizePieceLimits, normalizeResourceCards } from '../shared/constants';
 import { normalizeMapArrange, normalizeMapShape } from '../shared/maps';
 import { normalizeDiceMode } from '../shared/fairDice';
 import type { AckResult } from '../shared/protocol';
@@ -128,6 +128,8 @@ function reviveRoom(raw: unknown): Room | null {
     if (!('fairDice' in game)) game.fairDice = null;
     // 7 버리기를 끌 수 있기 전에 저장한 게임은 늘 버렸다.
     if (!('sevenDiscard' in game)) game.sevenDiscard = true;
+    // 길·마을·도시 개수를 정할 수 있기 전에 저장한 게임은 기본 개수였다.
+    if (!('pieceLimits' in game)) game.pieceLimits = { ...PIECE_LIMIT };
     const keys = requiredGameKeys();
     if (keys && keys.some((k) => !(k in game))) return null;
     const ids = new Set(players.map((p) => p.id));
@@ -153,6 +155,8 @@ function reviveRoom(raw: unknown): Room | null {
     devCards: normalizeDevCards(raw.devCards) ?? base.devCards,
     unlimited: raw.unlimited === true,
     sevenDiscard: raw.sevenDiscard !== false,
+    pieceLimits: normalizePieceLimits(raw.pieceLimits) ?? { ...PIECE_LIMIT },
+    devMix: normalizeDevMix(raw.devMix),
     diceMode: normalizeDiceMode(raw.diceMode) ?? base.diceMode,
     gameNumber: typeof raw.gameNumber === 'number' ? raw.gameNumber : base.gameNumber,
     touchedAt: typeof raw.touchedAt === 'number' ? raw.touchedAt : base.touchedAt,
