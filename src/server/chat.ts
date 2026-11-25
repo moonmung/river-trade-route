@@ -1,7 +1,7 @@
 // 방 채팅. 방마다 최근 메시지를 메모리에 보관하고 길이·간격 제한을 둔다.
 // rooms.ts 의 Room 을 건드리지 않으려고 방 객체를 키로 하는 WeakMap 에 둔다. 방이 사라지면 기록도 함께 사라진다.
 import { boardOf } from '../shared/board';
-import { BRAG_GAP_MS, CHAT_EMOTES, CHAT_HISTORY, PING_SLOW_TEXT, takePingToken, type PingBucket } from '../shared/constants';
+import { BRAG_GAP_MS, BRAG_LINE_COUNT, VICTORY_BRAG_GAP_MS, CHAT_EMOTES, CHAT_HISTORY, PING_SLOW_TEXT, takePingToken, type PingBucket } from '../shared/constants';
 import type { ChatBrag, ChatEmote, ChatMessage, ChatPing } from '../shared/protocol';
 import { normalizeChatText } from '../shared/validate';
 import type { Room, RoomPlayer } from './rooms';
@@ -109,19 +109,33 @@ export class ChatHub {
     return { ok: true, ping: { id: c.pingSeq, from: player.id, kind, target, at: now } };
   }
 
-  /** 지금 가진 달성(최장 교역로·최강 기사단)만 뽐낼 수 있고, 한 사람이 BRAG_GAP_MS 에 한 번. 보관하지 않는다. */
+  /**
+   * 자랑하기. 게임 중에는 지금 가진 달성(최장 교역로·최강 기사단)만, 게임이 끝난 뒤에는 이긴 사람만 승리를 뽐낼 수 있다.
+   * 한 사람이 BRAG_GAP_MS(승리는 VICTORY_BRAG_GAP_MS)에 한 번이고, line 은 함께 띄울 한마디 번호다. 보관하지 않는다.
+   */
   brag(room: Room, player: RoomPlayer, raw: unknown, now = Date.now()): { ok: true; brag: ChatBrag } | ChatFail {
     const award = (raw as { award?: unknown } | null)?.award;
-    if (award !== 'longest_road' && award !== 'largest_army') return { ok: false, error: '뽐낼 수 있는 달성이 아닙니다.', code: 'BRAG_BAD' };
+    const rawLine = (raw as { line?: unknown } | null)?.line;
+    if (award !== 'longest_road' && award !== 'largest_army' && award !== 'victory') return { ok: false, error: '뽐낼 수 있는 달성이 아닙니다.', code: 'BRAG_BAD' };
+    const line = rawLine === undefined ? 0 : rawLine;
+    if (typeof line !== 'number' || !Number.isInteger(line) || line < 0 || line >= BRAG_LINE_COUNT) return { ok: false, error: '알 수 없는 한마디입니다.', code: 'BRAG_BAD' };
     const g = room.game;
-    if (!g || g.phase !== 'playing') return { ok: false, error: '게임 중에만 자랑할 수 있습니다.', code: 'BRAG_NO_GAME' };
-    const held = award === 'longest_road' ? g.longestRoad : g.largestArmy;
-    if (held.holder !== player.id) return { ok: false, error: '가지고 있는 달성만 자랑할 수 있습니다.', code: 'BRAG_NOT_HOLDER' };
+    let size: number;
+    if (award === 'victory') {
+      if (!g || g.phase !== 'finished' || !g.result) return { ok: false, error: '게임이 끝난 뒤에 승리를 자랑할 수 있습니다.', code: 'BRAG_NO_GAME' };
+      if (!g.result.winners.includes(player.id)) return { ok: false, error: '이긴 사람만 승리를 자랑할 수 있습니다.', code: 'BRAG_NOT_WINNER' };
+      size = g.result.ranking.find((e) => e.playerId === player.id)?.score ?? 0;
+    } else {
+      if (!g || g.phase !== 'playing') return { ok: false, error: '게임 중에만 자랑할 수 있습니다.', code: 'BRAG_NO_GAME' };
+      const held = award === 'longest_road' ? g.longestRoad : g.largestArmy;
+      if (held.holder !== player.id) return { ok: false, error: '가지고 있는 달성만 자랑할 수 있습니다.', code: 'BRAG_NOT_HOLDER' };
+      size = 'length' in held ? held.length : held.size;
+    }
     const c = this.of(room);
     const last = c.bragTimes.get(player.id);
-    if (last !== undefined && now - last < BRAG_GAP_MS - PING_SLACK_MS) return { ok: false, error: '자랑은 잠시 뒤에 다시 할 수 있습니다.', code: 'BRAG_SLOW' };
+    const gap = award === 'victory' ? VICTORY_BRAG_GAP_MS : BRAG_GAP_MS;
+    if (last !== undefined && now - last < gap - PING_SLACK_MS) return { ok: false, error: '자랑은 잠시 뒤에 다시 할 수 있습니다.', code: 'BRAG_SLOW' };
     c.bragTimes.set(player.id, now);
-    const size = 'length' in held ? held.length : held.size;
-    return { ok: true, brag: { from: player.id, award, size, at: now } };
+    return { ok: true, brag: { from: player.id, award, size, line, at: now } };
   }
 }

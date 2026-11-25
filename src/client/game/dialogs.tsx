@@ -9,6 +9,7 @@ import { CloseRoomButton } from '../ui/common';
 import { CrownIcon, PersonIcon, ResourceIcon } from '../ui/icons';
 import { josa } from '../ui/josa';
 import { RulesSummary } from '../ui/RulesSummary';
+import { VictoryBragButton } from '../ui/spectacle';
 import { showToast } from '../ui/toast';
 import { setSoundSettings, sfx, useSoundSettings } from '../sound/sfx';
 import type { BoardSelection } from '../board/BoardRenderer';
@@ -411,6 +412,8 @@ export function ResultOverlay({ view, players, onClose }: { view: RoomView; play
           <button className="btn" onClick={onClose}>
             보드 보기
           </button>
+          {/* 이긴 사람은 여기서도 승리를 뽐낼 수 있다. 누를 때마다 다른 한마디가 모두의 화면에 뜬다. */}
+          {result.winners.includes(view.you) && <VictoryBragButton className="btn btn-brag" />}
           {isHost ? (
             <ActionButton
               className="btn btn-primary"

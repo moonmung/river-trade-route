@@ -81,7 +81,7 @@ export function LabGame({ onScene }: { onScene: () => void }) {
         sb.ping(sb.you, kind, target);
         return { ok: true };
       },
-      brag: async (award) => sb.brag(sb.you, award),
+      brag: async (award, line) => sb.brag(sb.you, award, line),
     });
     sb.onChat = (m) => injectChat(LAB_CODE, m);
     sb.onEmote = (e) => injectEmote(LAB_CODE, e);

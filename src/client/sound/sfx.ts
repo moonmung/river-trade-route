@@ -425,6 +425,13 @@ export const sfx = {
     if (golden) for (let i = 0; i < 8; i++) tone({ at: salute + 0.6 + i * 0.07, freq: NOTE.C6 * (1 + i * 0.2), dur: 0.25, gain: 0.03 });
   },
   /** 게임 끝: 이기면 팡파르, 아니면 짧은 마침 */
+  /** 승리 자랑: 짧은 나팔 세 마디 */
+  fanfare(): void {
+    brass(0, NOTE.G4, 0.12, 0.06);
+    brass(0.12, NOTE.C5, 0.12, 0.06);
+    brass(0.24, NOTE.E5, 0.5, 0.07);
+    brass(0.24, NOTE.C5, 0.5, 0.04);
+  },
   /** 승리 연출에서 점수가 오를 때: 단계마다 종소리가 한 음씩 오르고, 달성·승점 카드(big)는 화음으로 울린다 */
   victoryCount(n: number, big = false): void {
     const scale = [NOTE.C5, NOTE.D5, NOTE.E5, NOTE.G5, NOTE.A5, NOTE.C6, NOTE.E6, NOTE.G6];

@@ -503,7 +503,7 @@ interface CamPose {
 
 /** 승리 연출 카메라의 한 장면: 두 자세 사이를 부드럽게 옮겨 가거나(blend) 길 위를 걷는다(walk) */
 type CamShot =
-  | { kind: 'blend'; from: number; to: number; a: CamPose; b: CamPose; linear?: boolean }
+  | { kind: 'blend'; from: number; to: number; a: CamPose; b: CamPose }
   | {
       kind: 'walk';
       from: number;
@@ -4144,11 +4144,8 @@ export class BoardRenderer {
         // 첫 건물은 위쪽 보기에서 곧장 내려앉고, 그다음부터는 장면을 끊어 길 위에서 걸어 들어간다.
         if (first) shots.push({ kind: 'blend', from: free, to: step.at, a: cur, b: stopPose });
         else shots.push({ kind: 'walk', from: free, to: step.at, pts: path.pts, cum: path.cum, focus, marks: path.marks });
-        // 멈춘 뒤에는 한 걸음 다가서며 지붕 쪽으로 고개를 든다.
-        const toward = focus.clone().sub(eye).setY(0).normalize();
-        const pushed = poseOf(eye.clone().addScaledVector(toward, 0.07), focus.clone().add(new THREE.Vector3(0, 0.09, 0)), this.streetFov());
-        shots.push({ kind: 'blend', from: step.at, to: step.at + hold, a: stopPose, b: pushed, linear: true });
-        cur = pushed;
+        // 멈춘 뒤에는 더 다가서지 않고 그 자리에서 건물을 올려다본 채 머문다 (장면 사이에 마지막 자세가 그대로 이어진다).
+        cur = stopPose;
         free = step.at + hold;
         prev = step.vertexId;
         first = false;
@@ -4158,9 +4155,7 @@ export class BoardRenderer {
       if (!target) continue;
       const arrive = step.at + step.span * 0.4;
       shots.push({ kind: 'blend', from: free, to: arrive, a: cur, b: target });
-      const drift: CamPose = { look: target.look.clone(), dir: target.dir.clone(), dist: target.dist * 0.93, fov: target.fov };
-      shots.push({ kind: 'blend', from: arrive, to: step.at + step.span, a: target, b: drift, linear: true });
-      cur = drift;
+      cur = target;
       free = step.at + step.span;
       first = false;
     }
@@ -4180,7 +4175,7 @@ export class BoardRenderer {
     }
     if (!shot) return null;
     const u = THREE.MathUtils.clamp((ms - shot.from) / Math.max(1, shot.to - shot.from), 0, 1);
-    if (shot.kind === 'blend') return { pose: blendPose(shot.a, shot.b, shot.linear ? u : easeInOut(u)), shot, s: 0 };
+    if (shot.kind === 'blend') return { pose: blendPose(shot.a, shot.b, easeInOut(u)), shot, s: 0 };
     // 걷기: 장면이 바뀐 자리에서 걷던 빠르기 그대로 출발해 건물 앞에서 천천히 멈춘다.
     const e = 1 - (1 - u) * (1 - u);
     const total = shot.cum[shot.cum.length - 1];

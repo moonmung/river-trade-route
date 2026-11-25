@@ -8,8 +8,11 @@ import type { BoardRenderer } from '../board/BoardRenderer';
 import { josa } from '../ui/josa';
 import { rollDice, settleDice } from '../dice';
 import { onChatBrag } from '../net/chat';
-import { hideVictory, showAward, showGoldenKnight, showVictory } from '../ui/spectacle';
-import { victoryPlan } from '../board/victory';
+import { hideVictory, showAward, showGoldenKnight, showVictory, showVictoryQuote, type VictoryCard } from '../ui/spectacle';
+import { victoryPlan, type VictoryPlan } from '../board/victory';
+import { bragLine } from '../ui/bragLines';
+import { DEV_ART, DEV_BACK_ART, PIECE_ART } from '../ui/art';
+import type { GameView } from '../../shared/protocol';
 import { showToast } from '../ui/toast';
 import { flyCards, holdCards, stealCard, type FlyCard } from './cardFly';
 import { paradeTiming } from '../board/parade';
@@ -62,6 +65,43 @@ function buzz(ms: number): void {
   }
 }
 
+/**
+ * 승리 연출에서 오른쪽 위에 한 장씩 놓을 카드 (plan.steps 와 같은 차례)와 마무리의 모아 보기 카드.
+ * 마을·도시 카드에는 몇 번째로 언제 지었는지와 닿은 땅(자원·숫자 패), 길 카드에는 길 수와 이어진 길, 기사 카드에는 쓴 기사 수를 적는다.
+ */
+export function victoryCards(g: GameView, winner: string, plan: VictoryPlan): { cards: VictoryCard[]; summary: VictoryCard } {
+  const board = boardOf(g);
+  const info = g.players.find((p) => p.id === winner);
+  const mine = g.buildings.filter((b) => b.owner === winner);
+  const cards = plan.steps.map((step): VictoryCard => {
+    if (step.vertexId) {
+      const order = mine.findIndex((b) => b.vertexId === step.vertexId) + 1;
+      const turn = mine[order - 1]?.builtTurn ?? 0;
+      const city = step.kind === 'city';
+      const when = turn === 0 ? '시작 배치' : city ? `${turn}턴에 도시로` : `${turn}턴에 지음`;
+      const tiles = (board.vertexMap[step.vertexId]?.tiles ?? [])
+        .map((t) => board.tileMap[t])
+        .filter((t) => t && t.kind !== 'plaza')
+        .map((t) => ({ resource: t.kind as Resource, number: g.numbers[t.id] ?? null }));
+      return { art: PIECE_ART[city ? 'city' : 'village'], title: city ? '도시' : '마을', points: step.points, lines: [`${order}번째 건물 · ${when}`], tiles };
+    }
+    if (step.kind === 'longest_road') {
+      return { art: PIECE_ART.road, title: '최장 교역로', points: step.points, lines: [`길 ${info?.roads ?? 0}개`, `이어진 길 ${g.longestRoad.length}칸`] };
+    }
+    if (step.kind === 'largest_army') return { art: DEV_ART.knight, title: '최강 기사단', points: step.points, lines: [`기사 ${info?.knightsPlayed ?? 0}장 사용`] };
+    return { art: DEV_ART.victory, title: '승점 카드', points: step.points, lines: [`숨겨 둔 카드 ${step.count ?? step.points}장`] };
+  });
+  const hidden = plan.steps.find((s) => s.kind === 'cards')?.points ?? 0;
+  const summary: VictoryCard = {
+    art: DEV_BACK_ART,
+    title: '합계',
+    points: plan.score,
+    total: true,
+    lines: [`마을 ${info?.villages ?? 0} · 도시 ${info?.cities ?? 0}`, `길 ${info?.roads ?? 0}개 · 기사 ${info?.knightsPlayed ?? 0}장`, ...(hidden ? [`승점 카드 ${hidden}장`] : [])],
+  };
+  return { cards, summary };
+}
+
 export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, players: Map<string, PlayerInfo>): void {
   const lastSeq = useRef<number | null>(null);
   const lastGame = useRef<number>(view.gameNumber);
@@ -73,14 +113,22 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
   const youRef = useRef(view.you);
   youRef.current = view.you;
 
-  // 자랑하기: 누가 뽐내면 모두의 화면에 달성 연출을 다시 띄운다 (글만 "뽐냅니다"로 다르다).
+  // 자랑하기: 누가 뽐내면 모두의 화면에 달성 연출을 다시 띄운다 (글만 "뽐냅니다"로 다르다). 그 사람이 고른 한마디가 함께 뜬다.
+  // 이긴 사람의 승리 자랑은 한마디만 두루마리로 띄운다.
   useEffect(
     () =>
       onChatBrag((b) => {
         const p = playersRef.current.get(b.from);
         const colorIndex = p?.colorIndex ?? 0;
+        const who = { colorIndex, nickname: p?.nickname ?? '?', mine: b.from === youRef.current };
+        const quote = bragLine(b.award, b.line);
+        if (b.award === 'victory') {
+          showVictoryQuote({ ...who, quote });
+          sfx.fanfare();
+          return;
+        }
         const unit = b.award === 'longest_road' ? `이어진 길 ${b.size}칸` : `기사 ${b.size}장`;
-        showAward(b.award, { colorIndex, nickname: p?.nickname ?? '?', mine: b.from === youRef.current, detail: unit, brag: true });
+        showAward(b.award, { ...who, detail: unit, brag: true, quote });
         rendererRef.current?.playAward(b.award, colorIndex, b.from);
         awardSound(b.award);
       }),
@@ -330,6 +378,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             mine: winner === me,
             winPoints: g.winPoints,
             plan,
+            ...victoryCards(g, winner, plan),
             delay,
             onSkip: () => rendererRef.current?.stopVictory(),
           });

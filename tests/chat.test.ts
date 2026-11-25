@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { STANDARD_BOARD } from '../src/shared/board';
-import { BRAG_GAP_MS, CHAT_EMOTES, CHAT_HISTORY, CHAT_MAX_LENGTH, PING_LIMIT } from '../src/shared/constants';
+import { BRAG_GAP_MS, BRAG_LINE_COUNT, VICTORY_BRAG_GAP_MS, CHAT_EMOTES, CHAT_HISTORY, CHAT_MAX_LENGTH, PING_LIMIT } from '../src/shared/constants';
 import type { ChatBrag, ChatEmote, ChatMessage, ChatPing, SessionInfo } from '../src/shared/protocol';
 import type { GameState } from '../src/shared/rules';
 import { normalizeChatText } from '../src/shared/validate';
@@ -155,14 +155,44 @@ describe('ChatHub', () => {
     // 남의 달성은 뽐낼 수 없다
     expect(hub.brag(room, a, { award: 'largest_army' }, 0)).toMatchObject({ ok: false, code: 'BRAG_NOT_HOLDER' });
     const t0 = 100_000;
-    expect(hub.brag(room, a, { award: 'longest_road' }, t0)).toEqual({ ok: true, brag: { from: 'pa', award: 'longest_road', size: 6, at: t0 } });
-    expect(hub.brag(room, a, { award: 'longest_road' }, t0 + 1000)).toMatchObject({ ok: false, code: 'BRAG_SLOW' });
+    // 한마디 번호를 안 보내면 첫 줄이고, 보내면 그 줄이 함께 간다.
+    expect(hub.brag(room, a, { award: 'longest_road' }, t0)).toEqual({ ok: true, brag: { from: 'pa', award: 'longest_road', size: 6, line: 0, at: t0 } });
+    expect(hub.brag(room, a, { award: 'longest_road', line: 3 }, t0 + 1000)).toMatchObject({ ok: false, code: 'BRAG_SLOW' });
     // 다른 사람은 따로 센다
-    expect(hub.brag(room, b, { award: 'largest_army' }, t0 + 1000)).toMatchObject({ ok: true, brag: { from: 'pb', size: 4 } });
+    expect(hub.brag(room, b, { award: 'largest_army', line: 7 }, t0 + 1000)).toMatchObject({ ok: true, brag: { from: 'pb', size: 4, line: 7 } });
     expect(hub.brag(room, a, { award: 'longest_road' }, t0 + BRAG_GAP_MS)).toMatchObject({ ok: true });
-    // 게임이 끝나면 자랑하지 않는다
+    // 게임 중에는 승리를 자랑할 수 없다
+    expect(hub.brag(room, a, { award: 'victory' }, t0 + BRAG_GAP_MS * 3)).toMatchObject({ ok: false, code: 'BRAG_NO_GAME' });
+    // 게임이 끝나면 달성은 자랑하지 않는다
     (room.game as unknown as { phase: string }).phase = 'finished';
     expect(hub.brag(room, a, { award: 'longest_road' }, t0 + BRAG_GAP_MS * 3)).toMatchObject({ ok: false, code: 'BRAG_NO_GAME' });
+  });
+
+  it('게임이 끝나면 이긴 사람만 승리를 한마디와 함께 2초에 한 번 뽐낼 수 있다', () => {
+    const hub = new ChatHub();
+    const { room, a, b } = fakeRoom();
+    room.phase = 'game';
+    room.game = {
+      phase: 'finished',
+      longestRoad: { holder: null, length: 0 },
+      largestArmy: { holder: null, size: 0 },
+      result: {
+        winners: ['pa'],
+        decidedBy: 'score',
+        ranking: [
+          { playerId: 'pa', score: 11, resourceTotal: 0, rank: 1 },
+          { playerId: 'pb', score: 6, resourceTotal: 0, rank: 2 },
+        ],
+      },
+    } as unknown as GameState;
+    for (const line of [-1, BRAG_LINE_COUNT, 1.5, '2', null]) {
+      expect(hub.brag(room, a, { award: 'victory', line }, 0)).toMatchObject({ ok: false, code: 'BRAG_BAD' });
+    }
+    expect(hub.brag(room, b, { award: 'victory', line: 1 }, 0)).toMatchObject({ ok: false, code: 'BRAG_NOT_WINNER' });
+    const t0 = 50_000;
+    expect(hub.brag(room, a, { award: 'victory', line: 4 }, t0)).toEqual({ ok: true, brag: { from: 'pa', award: 'victory', size: 11, line: 4, at: t0 } });
+    expect(hub.brag(room, a, { award: 'victory', line: 5 }, t0 + 1000)).toMatchObject({ ok: false, code: 'BRAG_SLOW' });
+    expect(hub.brag(room, a, { award: 'victory', line: 5 }, t0 + VICTORY_BRAG_GAP_MS)).toMatchObject({ ok: true, brag: { line: 5 } });
   });
 });
 

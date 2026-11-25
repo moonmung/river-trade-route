@@ -15,6 +15,7 @@ import { buildBlocker, buyDevBlocker, isMyTurn, shortfall, turnBlocker, type Pla
 import { canBankNow, tradeButtonBlocker } from './trade';
 import { ActionButton, sendAction } from './ui';
 import { bragWait, sendChatBrag } from '../net/chat';
+import { nextBragLine } from '../ui/bragLines';
 
 type Players = Map<string, PlayerInfo>;
 type Award = 'longest_road' | 'largest_army';
@@ -37,9 +38,10 @@ function useBrag(): { cooling: boolean; brag: (award: Award) => void } {
     return () => window.clearTimeout(t);
   }, [cooling]);
   const brag = (award: Award) => {
-    if (bragWait() > 0) return;
+    if (bragWait(award) > 0) return;
     setCooling(true);
-    void sendChatBrag(award).then((res) => {
+    // 누를 때마다 다른 한마디가 함께 뜬다.
+    void sendChatBrag(award, nextBragLine(award)).then((res) => {
       if (!res.ok && res.code !== 'BRAG_SLOW') showToast(res.error, 'error');
     });
   };

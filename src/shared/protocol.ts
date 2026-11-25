@@ -276,12 +276,20 @@ export interface ChatPing {
   at: number;
 }
 
-/** 최장 교역로·최강 기사단을 가진 사람이 모두의 화면에 달성 연출을 다시 띄워 뽐낸다 (보관하지 않는다). */
+/** 자랑할 수 있는 것: 지금 가진 최장 교역로·최강 기사단(게임 중), 이긴 사람의 승리(게임이 끝난 뒤) */
+export type BragKind = 'longest_road' | 'largest_army' | 'victory';
+
+/**
+ * 자랑하기: 최장 교역로·최강 기사단을 가진 사람은 모두의 화면에 달성 연출을 다시 띄워 뽐내고, 이긴 사람은 승리를 뽐낸다.
+ * 누를 때마다 그 사람이 고른 한마디(line)가 함께 뜬다. 보관하지 않는다.
+ */
 export interface ChatBrag {
   from: string;
-  award: 'longest_road' | 'largest_army';
-  /** 뽐낼 때의 길 칸 수 또는 쓴 기사 장수 */
+  award: BragKind;
+  /** 뽐낼 때의 길 칸 수, 쓴 기사 장수, 또는 승리 점수 */
   size: number;
+  /** 한마디 번호 (0 ~ BRAG_LINE_COUNT-1, 글은 화면이 갖고 있다) */
+  line: number;
   at: number;
 }
 
@@ -335,8 +343,8 @@ export interface ClientToServerEvents {
   'chat:emote': (p: { emote: string }, ack: Ack) => void;
   /** 보드 한 자리를 가리킨다 (연달아 3번, 그 뒤 1초에 한 번) */
   'chat:ping': (p: { kind: 'tile' | 'vertex' | 'edge'; target: string }, ack: Ack) => void;
-  /** 내가 가진 달성(최장 교역로·최강 기사단)을 모두에게 뽐낸다 (5초에 한 번) */
-  'chat:brag': (p: { award: 'longest_road' | 'largest_army' }, ack: Ack) => void;
+  /** 내가 가진 달성(최장 교역로·최강 기사단, 5초에 한 번)이나 승리(2초에 한 번)를 한마디와 함께 모두에게 뽐낸다 */
+  'chat:brag': (p: { award: BragKind; line?: number }, ack: Ack) => void;
 }
 
 /** Socket.IO 연결 때 보내는 인증 정보 (재접속 시 같은 자리 복구용) */
