@@ -225,15 +225,30 @@ const PATH_FIELD_PPU = 40;
 const PATH_JOIN = 0.02;
 /** 바닷가 변에서 흙 땅이 바다 쪽으로 더 나간 폭 */
 const LAND_MARGIN = 0.3;
-/** 모래밭 윗면 높이 (흙 땅보다 낮다). 흙 땅 가장자리 밑에서 이 높이로 시작해 바다 쪽으로 비스듬히 내려간다. */
-const BEACH_TOP = 0.13;
 /** 모래밭이 물 밑으로 잠기는 끝의 높이 (물은 0) */
 const BEACH_LOW = -0.07;
-/** 모래밭 띠의 안쪽(흙 땅 밑)과 바깥쪽(물 밑) 끝: 바닷가 변에서 떨어진 거리 */
-const BEACH_IN = LAND_MARGIN - 0.04;
-const BEACH_OUT = LAND_MARGIN + 0.66;
-/** 모래밭이 물과 만나는 줄 (물가) */
-const WATERLINE = BEACH_IN + ((BEACH_OUT - BEACH_IN) * BEACH_TOP) / (BEACH_TOP - BEACH_LOW);
+/** 모래밭 띠의 안쪽(흙 땅 끝 바로 안쪽, 땅 밑)과 바깥쪽(물 밑) 끝: 바닷가 변에서 떨어진 거리 */
+const BEACH_IN = LAND_MARGIN - 0.02;
+const BEACH_OUT = LAND_MARGIN + 0.62;
+/** 모래밭이 시작하는 높이: 흙 땅 윗면보다 아주 조금 높아 땅 끝에 턱이나 흙 옆면(가는 갈색 선)이 드러나지 않는다 */
+const BEACH_HIGH = PLATFORM_TOP + 0.0015;
+/** 모래밭 띠를 바닷가와 나란히 나누는 줄 수 (높이 곡선을 부드럽게) */
+const BEACH_RINGS = 16;
+/** 모래밭이 흙 땅 끝에서 평평하게 시작해 비탈로 휘어 들어가는 구간 (모래밭 폭 대비) */
+const BEACH_EASE = 0.2;
+/**
+ * 바닷가 변에서 o 만큼 떨어진 모래밭 높이. 흙 땅 끝에서 윗면 높이 그대로 평평하게 이어 나와
+ * 낮은 모래 둑처럼 휘어 내려가고, 물가로 갈수록 완만해져 물 밑으로 잠긴다. 땅 끝에서 기울기가 0 이라 꺾인 선이 없다.
+ */
+function beachHeight(o: number): number {
+  const u = Math.min(1, Math.max(0, (o - LAND_MARGIN) / (BEACH_OUT - LAND_MARGIN)));
+  const ease = Math.min(1, u / BEACH_EASE);
+  return BEACH_HIGH - (BEACH_HIGH - BEACH_LOW) * (1 - (1 - u) * (1 - u)) * ease * ease * (3 - 2 * ease);
+}
+/** 모래밭이 물과 만나는 줄 (물가): beachHeight 가 0 이 되는 거리 (평평한 시작 구간보다 바깥이다) */
+const WATERLINE = LAND_MARGIN + (BEACH_OUT - LAND_MARGIN) * (1 - Math.sqrt(1 - BEACH_HIGH / (BEACH_HIGH - BEACH_LOW)));
+/** 흙 땅 윗면이 바닷가 쪽에서 모래로 바뀌는 폭 (흙 땅 끝에서 안쪽으로). 잡음으로 경계를 흐트러뜨린다. */
+const SHORE_SAND = 0.24;
 /** 물가에서 이만큼 나가면 깊은 물(장면 배경색)이 된다 */
 const SEA_REACH = 3.4;
 /** 물가에서 떨어진 거리별 물빛: 젖은 모래 → 옥빛 → 얕은 물 → 깊은 물 */
@@ -517,6 +532,27 @@ const FOOTPATH_FRAGMENT = /* glsl */ `
     diffuseColor.rgb = mix( diffuseColor.rgb, pathCol, onPath );
   }`;
 
+const SHORE_UNIFORMS = /* glsl */ `
+uniform sampler2D uShoreField;
+uniform vec4 uShoreBox;
+uniform float uShoreReach;
+uniform float uShoreSand;
+uniform sampler2D uSandMap;
+uniform vec3 uSandTint;`;
+
+const SHORE_FRAGMENT = /* glsl */ `
+  {
+    // 바닷가 쪽 흙은 모래로 바뀐다: 흙 땅 끝(모래밭이 시작하는 곳)에서 안쪽으로 갈수록 흙이 섞인다.
+    // 넓은 얼룩과 잔 알갱이로 경계를 흐트러뜨려 테두리 띠처럼 보이지 않게 한다.
+    float shoreD = texture2D( uShoreField, ( vPaintWorld.xz - uShoreBox.xy ) * uShoreBox.zw ).r * uShoreReach;
+    float shoreWob = ( texture2D( uPaintNoise, vPaintWorld.xz * 0.47 + 0.19 ).b - 0.5 ) * 0.12
+      + ( texture2D( uPaintNoise, vPaintWorld.xz * 1.9 + 0.61 ).r - 0.5 ) * 0.05;
+    float sandy = 1.0 - smoothstep( uShoreSand * 0.35, uShoreSand, shoreD + shoreWob );
+    // 모래밭과 같은 텍스처·좌표라 흙 땅 끝에서 모래밭으로 이음매 없이 이어진다.
+    vec3 sandCol = texture2D( uSandMap, vPaintWorld.xz * 0.5 ).rgb * uSandTint;
+    diffuseColor.rgb = mix( diffuseColor.rgb, sandCol, sandy );
+  }`;
+
 function easeOutBack(t: number): number {
   const c1 = 1.70158;
   const c3 = c1 + 1;
@@ -641,7 +677,8 @@ export class BoardRenderer {
   /** 해상 교역로 표지 (HTML)와 부두 소품 */
   private harborLabels: OverlayItem[] = [];
   private harborGroup: THREE.Group | null = null;
-  private harborKey = '';
+  /** 지금 놓인 교역로 (바뀌면 부두와 바닷가 소품을 다시 놓는다). 처음엔 null 이라 교역로가 없어도 바닷가 소품을 한 번 놓는다. */
+  private harborKey: string | null = null;
   /** 화면에 꼭 담을 범위 (타일 + 교역로 부두) */
   private fitX = 0;
   private fitZ = 0;
@@ -791,6 +828,7 @@ export class BoardRenderer {
       { key: 'ship' as PropKey, variant: 0 },
       { key: 'soldier' as PropKey, variant: 0 },
       { key: 'soldierarm' as PropKey, variant: 0 },
+      ...[0, 1, 2].map((variant) => ({ key: 'shore' as PropKey, variant })),
     ];
     const art = await loadArtLibrary(this.renderer, propList, (p) => {
       if (!this.disposed) this.options.onLoadProgress?.(p);
@@ -1212,13 +1250,14 @@ export class BoardRenderer {
     // 높이가 뚝 끊기는 곳이 없어야 후처리 먹선이 바닷가에 울퉁불퉁한 테두리를 긋지 않는다.
     for (const c of coasts) this.buildBeachSlope(c);
     this.buildSea(coasts);
-    const landShape = new THREE.Shape(toV2(offsetLoop(coasts[0], LAND_MARGIN)));
+    // 땅 끝은 모래밭 첫 줄과 같은 둥근 선이라 모래밭이 땅 끝에서 틈이나 각 없이 이어진다.
+    const landShape = new THREE.Shape(toV2(chaikin(offsetLoop(coasts[0], LAND_MARGIN), 3)));
     // 가운데 바다는 흙 땅에 뚫린 구멍이다 (안쪽 고리도 바다 쪽으로 같은 폭만큼 넓힌다).
-    for (const hole of coasts.slice(1)) landShape.holes.push(new THREE.Path(toV2(offsetLoop(hole, LAND_MARGIN))));
+    for (const hole of coasts.slice(1)) landShape.holes.push(new THREE.Path(toV2(chaikin(offsetLoop(hole, LAND_MARGIN), 3))));
     const landGeo = this.own(new THREE.ExtrudeGeometry(landShape, { depth: PLATFORM_TOP, bevelEnabled: false }).rotateX(-Math.PI / 2));
     scaleUV(landGeo, 0.5);
     // 윗면에는 빈 변마다 희끄무레한 샛길을 함께 칠한다 (따로 그리는 띠가 없어 그리기 호출이 늘지 않는다).
-    const dirtTop = this.withFootpaths(this.groundMaterial('ground_dirt', GROUND_FALLBACK.dirt));
+    const dirtTop = this.withShoreSand(this.withFootpaths(this.groundMaterial('ground_dirt', GROUND_FALLBACK.dirt)), coasts);
     const dirtSide = this.own(paintMaterial({ color: '#9a7752', map: this.art?.ground('ground_dirt') ?? null }));
     const landMesh = new THREE.Mesh(landGeo, [dirtTop, dirtSide]);
     landMesh.userData.ground = true;
@@ -1256,24 +1295,34 @@ export class BoardRenderer {
   }
 
   /**
-   * 모래밭: 흙 땅 가장자리 밑(BEACH_TOP 높이)에서 바다 쪽으로 비스듬히 내려가 물 밑(BEACH_LOW)으로 잠기는 띠.
-   * 물과 만나는 줄(물가)에는 높이 차가 없어 모래가 그대로 물속으로 이어져 보인다.
+   * 모래밭: 흙 땅 끝에서 윗면 높이 그대로 이어 나와 낮은 모래 둑처럼 내려가다 완만해지며 물 밑(BEACH_LOW)으로 잠기는 띠.
+   * 땅 끝에 턱이 없어 판자 테두리처럼 먹선이 둘리지 않고, 물가에도 높이 차가 없어 모래가 그대로 물속으로 이어진다.
+   * 높이 곡선(beachHeight)을 따라 바닷가와 나란한 줄 여러 개로 나눠 꺾임 없이 휘게 한다.
    */
   private buildBeachSlope(coast: CoastLoop): void {
-    const inner = chaikin(offsetLoop(coast, BEACH_IN), 3);
-    const outer = chaikin(offsetLoop(coast, BEACH_OUT), 3);
-    const n = inner.length;
+    const offsets = [BEACH_IN, ...Array.from({ length: BEACH_RINGS + 1 }, (_, k) => LAND_MARGIN + ((BEACH_OUT - LAND_MARGIN) * k) / BEACH_RINGS)];
+    const rings = offsets.map((o) => chaikin(offsetLoop(coast, o), 3));
+    const heights = offsets.map((o) => (o < LAND_MARGIN ? PLATFORM_TOP - 0.004 : beachHeight(o)));
+    const n = rings[0].length;
     const pos: number[] = [];
     const uv: number[] = [];
     const idx: number[] = [];
-    for (let i = 0; i < n; i++) {
-      const a = inner[i];
-      const b = outer[i];
-      pos.push(a.x, BEACH_TOP, a.z, b.x, BEACH_LOW, b.z);
-      // 모래 텍스처는 바닥 좌표로 붙여 띠를 따라 늘어나지 않게 한다.
-      uv.push(a.x * 0.5, a.z * 0.5, b.x * 0.5, b.z * 0.5);
-      const j = (i + 1) % n;
-      idx.push(i * 2, j * 2, i * 2 + 1, i * 2 + 1, j * 2, j * 2 + 1);
+    rings.forEach((ring, r) => {
+      for (const p of ring) {
+        pos.push(p.x, heights[r], p.z);
+        // 모래 텍스처는 바닥 좌표로 붙여 띠를 따라 늘어나지 않게 한다 (흙 땅의 바닷가 모래와 같은 좌표).
+        uv.push(p.x * 0.5, p.z * 0.5);
+      }
+    });
+    for (let r = 0; r + 1 < rings.length; r++) {
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        const a = r * n + i;
+        const b = r * n + j;
+        const c = (r + 1) * n + i;
+        const d = (r + 1) * n + j;
+        idx.push(a, b, c, c, b, d);
+      }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -1404,7 +1453,8 @@ export class BoardRenderer {
    * 갈래끼리는 부드러운 최솟값으로 합쳐 갈림길이 조금 넓게 다져진 빈터처럼 이어진다. 보드를 만들 때 한 번만 계산한다.
    */
   private footpathField(): { texture: THREE.DataTexture; box: THREE.Vector4 } {
-    const lines = this.geo.edges.map((e) => this.footpathLine(e));
+    // 바닷가 변(타일 하나만 닿은 변)은 샛길을 내지 않는다. 그쪽은 모래밭으로 이어진다.
+    const lines = this.geo.edges.filter((e) => e.tiles.length > 1).map((e) => this.footpathLine(e));
     const reach = PATH_FIELD_REACH;
     let minX = Infinity;
     let maxX = -Infinity;
@@ -1510,6 +1560,86 @@ export class BoardRenderer {
     };
     const key = m.customProgramCacheKey();
     m.customProgramCacheKey = () => `${key}-footpath`;
+    return m;
+  }
+
+  /**
+   * 흙 땅 끝까지의 거리장: 땅 끝(바닷가 쪽 경계)에서 안쪽으로 떨어진 거리를 담은 한 채널 텍스처.
+   * 캔버스에 땅 끝 선을 굵은 것부터 가는 것 순으로 거리만큼 밝게 덧그려 만든다 (보드를 만들 때 한 번).
+   */
+  private shoreField(coasts: CoastLoop[]): { texture: THREE.Texture; box: THREE.Vector4; reach: number } {
+    const reach = SHORE_SAND + 0.1;
+    const edges = coasts.map((c) => chaikin(offsetLoop(c, LAND_MARGIN), 3));
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const loop of edges)
+      for (const p of loop) {
+        minX = Math.min(minX, p.x - reach);
+        maxX = Math.max(maxX, p.x + reach);
+        minZ = Math.min(minZ, p.z - reach);
+        maxZ = Math.max(maxZ, p.z + reach);
+      }
+    const w = maxX - minX;
+    const h = maxZ - minZ;
+    const ppu = Math.min(48, 1600 / Math.max(w, h));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(2, Math.round(w * ppu));
+    canvas.height = Math.max(2, Math.round(h * ppu));
+    const ctx = canvas.getContext('2d');
+    const box = new THREE.Vector4(minX, minZ, 1 / w, 1 / h);
+    if (ctx) {
+      const path = new Path2D();
+      for (const loop of edges) {
+        loop.forEach((p, i) => (i ? path.lineTo((p.x - minX) * ppu, (p.z - minZ) * ppu) : path.moveTo((p.x - minX) * ppu, (p.z - minZ) * ppu)));
+        path.closePath();
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.lineJoin = 'round';
+      const steps = 40;
+      for (let i = 0; i <= steps; i++) {
+        const d = reach * (1 - i / steps);
+        const v = Math.round((d / reach) * 255);
+        ctx.strokeStyle = `rgb(${v}, ${v}, ${v})`;
+        ctx.lineWidth = Math.max(1, d * 2 * ppu);
+        ctx.stroke(path);
+      }
+    }
+    const tex = this.own(new THREE.CanvasTexture(canvas));
+    tex.flipY = false;
+    tex.colorSpace = THREE.NoColorSpace;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    return { texture: tex, box, reach };
+  }
+
+  /** 흙 땅 윗면 재질에 바닷가 모래를 더 칠한다: 땅 끝 가까이는 모래밭과 같은 모래로 은은하게 바뀐다. */
+  private withShoreSand(m: THREE.MeshToonMaterial, coasts: CoastLoop[]): THREE.MeshToonMaterial {
+    const field = this.shoreField(coasts);
+    const sandMap = this.art?.ground('ground_sand') ?? null;
+    const white = sandMap ? null : this.own(new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1));
+    if (white) white.needsUpdate = true;
+    const uniforms = {
+      uShoreField: { value: field.texture },
+      uShoreBox: { value: field.box },
+      uShoreReach: { value: field.reach },
+      uShoreSand: { value: SHORE_SAND },
+      uSandMap: { value: sandMap ?? white },
+      uSandTint: { value: new THREE.Color(sandMap ? '#ffffff' : GROUND_FALLBACK.sand) },
+    };
+    const base = m.onBeforeCompile;
+    m.onBeforeCompile = (shader, renderer) => {
+      base.call(m, shader, renderer);
+      Object.assign(shader.uniforms, uniforms);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>${SHORE_UNIFORMS}`)
+        .replace('#include <map_fragment>', `#include <map_fragment>${SHORE_FRAGMENT}`);
+    };
+    const key = m.customProgramCacheKey();
+    m.customProgramCacheKey = () => `${key}-shore`;
     return m;
   }
 
@@ -2422,6 +2552,32 @@ export class BoardRenderer {
     return { a, b, mid, n, dock: mid.clone().addScaledVector(n, HARBOR_REACH) };
   }
 
+  /**
+   * 바닷가 모래 위 가벼운 소품: 교역로가 아닌 바닷가 변마다 0~2개를 모래 둑 아래 마른 모래(물가 안쪽)에 흩는다.
+   * 유목, 조개껍데기, 갯그령, 잔돌 중에서 변마다 같은 것이 나오도록 변 이름을 시드로 고른다. 교역로 변은 잔교와 부두가 있어 비운다.
+   */
+  private shorePlacements(harborEdges: Set<string>): Placement[] {
+    const out: Placement[] = [];
+    for (const e of this.geo.edges) {
+      if (e.tiles.length !== 1 || harborEdges.has(e.id)) continue;
+      const s = this.harborSpot(e.id);
+      if (!s) continue;
+      const rand = mulberry32(hashString(e.id) + 77);
+      const roll = rand();
+      const count = roll < 0.3 ? 0 : roll < 0.8 ? 1 : 2;
+      for (let i = 0; i < count; i++) {
+        const t = count === 2 ? (i === 0 ? 0.18 + rand() * 0.25 : 0.57 + rand() * 0.25) : 0.22 + rand() * 0.56;
+        const o = LAND_MARGIN + 0.1 + rand() * (WATERLINE - LAND_MARGIN - 0.17);
+        const p = s.a.clone().lerp(s.b, t).addScaledVector(s.n, o);
+        const pick = rand();
+        const [key, variant, scale]: [PropKey, number, number] =
+          pick < 0.24 ? ['shore', 0, 0.6 + rand() * 0.25] : pick < 0.52 ? ['shore', 1, 0.95 + rand() * 0.3] : pick < 0.82 ? ['shore', 2, 0.8 + rand() * 0.45] : ['pebbles', Math.floor(rand() * 2), 0.45 + rand() * 0.2];
+        out.push({ key, variant, x: p.x, y: beachHeight(o) - 0.008, z: p.z, rotY: rand() * Math.PI * 2, scale, shadow: 0 });
+      }
+    }
+    return out;
+  }
+
   /** 소품 배치 목록을 인스턴스 메시 묶음으로 만든다 (교역로 부두처럼 상태를 받은 뒤 붙이는 소품) */
   private instancedGroup(placements: Placement[]): THREE.Group {
     const art = this.art!;
@@ -2468,7 +2624,7 @@ export class BoardRenderer {
       if (!s) return;
       const yaw = Math.atan2(s.n.x, s.n.z);
       const side = new THREE.Vector3(s.n.z, 0, -s.n.x);
-      // 잔교와 부두 바닥은 모래밭(윗면 약 0.13)보다 높아야 모래에 묻히지 않는다.
+      // 부두 바닥은 물 위에 뜬다. 잔교는 흙 땅 끝의 모래 둑에서 나와(처음 한 뼘은 모래에 묻힌다) 부두로 내려간다.
       const deck = 0.16;
       placements.push({ key: 'dock', variant: 0, x: s.dock.x, y: 0.09, z: s.dock.z, rotY: yaw, scale: 0.52, shadow: 0 });
       for (const v of [s.a, s.b]) {
@@ -2481,7 +2637,7 @@ export class BoardRenderer {
           key: 'pier',
           variant: 0,
           x: mid.x,
-          y: 0.075,
+          y: 0.08,
           z: mid.z,
           rotY: Math.atan2(-(end.z - start.z), end.x - start.x),
           scale: 1.15,
@@ -2529,6 +2685,7 @@ export class BoardRenderer {
       this.fitX = Math.max(this.fitX, Math.abs(tip.x) + 0.4);
       this.fitZ = Math.max(this.fitZ, Math.abs(tip.z) + 0.3);
     });
+    placements.push(...this.shorePlacements(new Set(list.map((h) => h.edgeId))));
     if (placements.length) {
       this.harborGroup = this.instancedGroup(placements);
       this.scene.add(this.harborGroup);
