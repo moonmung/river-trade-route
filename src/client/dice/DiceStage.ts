@@ -5,6 +5,7 @@
 // - 움직이는 동안만 그리고, 쉬는 동안은 캔버스를 숨긴다.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { sfx } from '../sound/sfx';
 import {
   DIE_HALF,
   DIE_HALF_DIAG,
@@ -251,6 +252,8 @@ interface Flight {
   hopAt: number;
   /** 진동을 낸 마지막 부딪힘 순번 */
   impactIndex: number;
+  /** 소리를 낸 마지막 부딪힘 순번 */
+  soundIndex: number;
   values: [number, number] | null;
 }
 
@@ -283,6 +286,8 @@ export class DiceStage {
   private restTimer = 0;
   private fadeTimer = 0;
   private settleTimer = 0;
+  /** 흔드는 달그락 소리를 마지막으로 낸 때 */
+  private shakeSoundAt = 0;
   private settleResolve: ((interrupted: boolean) => void) | null = null;
   /** 손을 놓았지만 서버 값을 기다리느라 아직 날리지 않은 내 굴림 */
   private queued: { dir: THREE.Vector3; speed: number; lift: number; rand: () => number; timer: number } | null = null;
@@ -509,8 +514,9 @@ export class DiceStage {
     });
     const rec = simulate(starts, this.walls);
     window.clearTimeout(this.settleTimer);
-    this.flight = { rec, start: performance.now(), mine, fix: [null, null], blend: [null, null], hop: [false, false], hopAt: rec.duration, impactIndex: 0, values: null };
+    this.flight = { rec, start: performance.now(), mine, fix: [null, null], blend: [null, null], hop: [false, false], hopAt: rec.duration, impactIndex: 0, soundIndex: 0, values: null };
     this.setMode('fly');
+    sfx.diceThrow();
   }
 
   private attachValues(values: [number, number], fromStart: boolean): void {
@@ -824,6 +830,11 @@ export class DiceStage {
         d.pos.lerp(goal, k);
         if (now - d.shakeAt > 85) {
           d.shakeAt = now;
+          // 손안에서 부딪히는 달그락 소리 (두 주사위가 번갈아, 너무 촘촘하지 않게)
+          if (now - this.shakeSoundAt > 110 && Math.random() < 0.75) {
+            this.shakeSoundAt = now;
+            sfx.diceShake();
+          }
           d.shake.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(8 + Math.random() * 6);
         }
         const w = d.shake;
@@ -840,6 +851,7 @@ export class DiceStage {
       const f = this.flight;
       const t = (now - f.start) / 1000;
       this.poseFlight(f, t);
+      this.clack(f, t);
       if (f.mine) this.vibrate(f, t);
     }
 
@@ -875,6 +887,16 @@ export class DiceStage {
       }
       const s = win ? smooth((t - win[0]) / Math.max(1e-3, win[1] - win[0])) : 1;
       if (s > 0) d.quat.multiply(new THREE.Quaternion().slerp(fix, s));
+    }
+  }
+
+  /** 기록된 부딪힘마다 딱 소리를 낸다 (세게 부딪힐수록 크게). 화면이 한참 멈췄다 오면 밀린 소리는 버린다. */
+  private clack(f: Flight, t: number): void {
+    const list = f.rec.impacts;
+    while (f.soundIndex < list.length && list[f.soundIndex].t <= t) {
+      const hit = list[f.soundIndex++];
+      if (t - hit.t > 0.12 || f.soundIndex > 18) continue;
+      sfx.diceHit(hit.speed);
     }
   }
 

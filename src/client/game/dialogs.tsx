@@ -10,6 +10,7 @@ import { CrownIcon, PersonIcon, ResourceIcon } from '../ui/icons';
 import { josa } from '../ui/josa';
 import { RulesSummary } from '../ui/RulesSummary';
 import { showToast } from '../ui/toast';
+import { setSoundSettings, sfx, useSoundSettings } from '../sound/sfx';
 import type { BoardSelection } from '../board/BoardRenderer';
 import { DevIcon } from './hand';
 import { AwardIcon } from './panels';
@@ -208,6 +209,42 @@ export interface GameSettings {
   shadows?: boolean;
 }
 
+/** 효과음 켜기/끄기와 음량 (이 기기에 저장). 음량을 바꾸면 들어 보기 소리가 난다. */
+function SoundSettingsRow() {
+  const sound = useSoundSettings();
+  return (
+    <div className="sound-row">
+      <label>
+        <input
+          type="checkbox"
+          checked={sound.on}
+          onChange={(e) => {
+            setSoundSettings({ ...sound, on: e.target.checked });
+            if (e.target.checked) sfx.sample();
+          }}
+        />{' '}
+        효과음
+      </label>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={Math.round(sound.volume * 100)}
+        disabled={!sound.on}
+        aria-label="효과음 크기"
+        onChange={(e) => setSoundSettings({ ...sound, volume: Number(e.target.value) / 100 })}
+        onPointerUp={() => sfx.sample()}
+        onKeyUp={() => sfx.sample()}
+      />
+      <span className="muted small">{sound.on ? `${Math.round(sound.volume * 100)}%` : '꺼짐'}</span>
+      <button type="button" className="btn btn-small" disabled={!sound.on} onClick={() => sfx.sample()}>
+        들어 보기
+      </button>
+    </div>
+  );
+}
+
 /** 기기에서 '동작 줄이기'를 켰는지 */
 export function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -256,6 +293,7 @@ export function MenuDialog({
       )}
       {tab === 'settings' && (
         <div className="settings">
+          <SoundSettingsRow />
           <label>
             그래픽 품질{' '}
             <select value={settings.quality} onChange={(e) => onSettings({ ...settings, quality: e.target.value as GameSettings['quality'] })}>

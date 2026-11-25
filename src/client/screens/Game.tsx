@@ -34,6 +34,7 @@ import { sendChatPing, useChat } from '../net/chat';
 import { ChatBox, ChatDock, EmoteBar, PingButton, PingMark } from '../ui/chat';
 import { PersonIcon } from '../ui/icons';
 import { showToast } from '../ui/toast';
+import { FullscreenButton } from '../ui/FullscreenButton';
 import { SpectacleHost } from '../ui/spectacle';
 import { DiceTray } from '../dice/DiceTray';
 
@@ -327,11 +328,18 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
         </div>
       )}
 
+      {/* 넓은 화면 보드 오른쪽 위(오른쪽 패널 바로 왼쪽): 전체화면 단추 (좁은 화면은 차례 상태 쪽지 맨 오른쪽) */}
+      {wide && (
+        <div className="hud-fs">
+          <FullscreenButton />
+        </div>
+      )}
+
       {/* 보드 왼쪽 위: 좁은 화면은 차례 상태 쪽지와 안내 띠, 넓은 화면은 교환 증서만 */}
       <div className="hud-top">
         {!wide && (
           <div className="hud-status" ref={topRef}>
-            <TurnStatus view={view} players={players} onMenu={openMenu} wait={wait} compact />
+            <TurnStatus view={view} players={players} onMenu={openMenu} wait={wait} compact tail={<FullscreenButton />} />
             <PlayersPanel view={view} players={players} emotes={chat.emotes} compact />
             <BankPanel view={view} compact />
           </div>

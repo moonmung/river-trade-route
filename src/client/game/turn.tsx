@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import type { GameView, RoomView } from '../../shared/protocol';
 import { useDiceUi } from '../dice';
 import { PersonIcon } from '../ui/icons';
+import { sfx } from '../sound/sfx';
 import { josa } from '../ui/josa';
 import { DieFace } from './panels';
 import { isMyTurn, type PlayerInfo } from './derive';
@@ -135,6 +136,7 @@ export function TurnStatus({
   onMenu,
   wait = null,
   compact = false,
+  tail = null,
 }: {
   view: RoomView;
   players: Players;
@@ -142,6 +144,8 @@ export function TurnStatus({
   /** 연출을 기다리는 까닭 (game/pace.ts) */
   wait?: string | null;
   compact?: boolean;
+  /** 첫 줄 맨 오른쪽에 붙이는 것 (좁은 화면의 전체화면 단추) */
+  tail?: ReactNode;
 }) {
   const g = view.game!;
   const dice = useDiceUi();
@@ -150,6 +154,13 @@ export function TurnStatus({
   // 3D 주사위가 구르는 동안에는 결과를 미리 보여 주지 않는다 (주사위가 멈추면 그 값이 뜬다).
   const rolling = dice.throwing || (dice.landedSeq !== null && g.events.some((e) => e.kind === 'roll' && e.seq > dice.landedSeq!));
   const label = g.phase === 'order' ? '순서 정하기' : g.phase === 'placement' ? '시작 배치' : g.phase === 'finished' ? '끝' : `${g.turn}턴`;
+  // 내 시간의 마지막 10초는 1초마다 똑딱 소리 (마지막 3초는 더 높고 크게)
+  const sec = clock && mineNow ? Math.ceil(clock.left / 1000) : null;
+  const lastSec = useRef<number | null>(null);
+  useEffect(() => {
+    if (sec !== null && sec > 0 && sec <= 10 && lastSec.current !== null && sec < lastSec.current) sfx.tick(sec <= 3);
+    lastSec.current = sec;
+  }, [sec]);
   return (
     <div className={`turn-status ${compact ? 'turn-status-compact' : ''} ${mineNow ? 'turn-status-me' : ''}`}>
       <div className="ts-row">
@@ -174,6 +185,7 @@ export function TurnStatus({
           ★{g.winPoints}
         </span>
         {clock && <TurnTimer clock={clock} mine={mineNow} size={compact ? 28 : 32} />}
+        {tail}
       </div>
       <div className="turn-line">{statusText(view, players, wait)}</div>
       {clock && mineNow && <div className={`ts-bar ${clock.left <= 10_000 ? 'ts-bar-low' : ''}`} style={{ ['--f' as string]: clock.left / clock.total } as CSSProperties} />}
