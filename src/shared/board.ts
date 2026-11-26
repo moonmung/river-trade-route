@@ -3,7 +3,7 @@
 // 맵 모양은 게임마다 다를 수 있어서, 게임 상태에 실린 타일 묶음으로 보드를 만들어 쓴다 (boardOf).
 // 좌표 단위: 타일 외접원 반지름 = 1. x 는 오른쪽, y 는 아래쪽(A 줄이 위)이며 타일 중심은 (√3·(q + r/2), 1.5·r) 이다.
 import { NUMBER_TOKENS, TILES } from './constants';
-import type { Harbor, Resource, TileDef, TileId } from './types';
+import type { Harbor, Resource, SeaCell, TileDef, TileId } from './types';
 
 export type VertexId = string;
 export type EdgeId = string;
@@ -118,23 +118,114 @@ export function boardGeometry(tiles: readonly TileDef[]): BoardGeometry {
   };
 }
 
-/** 한 게임의 보드: 타일 묶음과 거기서 계산한 꼭짓점·변. 게임마다 맵 모양과 땅 배치가 다를 수 있어 규칙 함수는 이 값을 받아 쓴다. */
+// ───────────────────────── 바닷길 (배) ─────────────────────────
+
+/** 배가 지나는 꼭짓점. 땅에 닿은 꼭짓점은 땅 보드와 같은 ID(v…)이고, 바다 한가운데 꼭짓점은 w… 다. */
+export interface SeaVertexDef {
+  id: VertexId;
+  x: number;
+  y: number;
+  /** 이 꼭짓점에서 뻗은 바닷길 */
+  edges: EdgeId[];
+}
+
+/** 배를 놓을 수 있는 변. 땅에 닿은 바닷가 변은 땅 보드와 같은 ID(e…)이고 길도 놓을 수 있다. 바다 한가운데 변은 s… 다. */
+export interface SeaEdgeDef {
+  id: EdgeId;
+  a: VertexId;
+  b: VertexId;
+  /** 땅에 닿은 바닷가 변인지 */
+  coast: boolean;
+}
+
+/** 바다 칸에서 계산한 바닷길: 바다 칸마다 여섯 변이 모두 배 자리다. */
+export interface SeaNet {
+  cells: readonly SeaCell[];
+  edges: SeaEdgeDef[];
+  edgeMap: Record<EdgeId, SeaEdgeDef>;
+  vertexMap: Record<VertexId, SeaVertexDef>;
+}
+
+/**
+ * 바다 칸들의 바닷길. 땅 보드와 같은 자리의 꼭짓점·변은 땅 보드의 ID 를 그대로 쓰고(바닷가),
+ * 새로 생긴 꼭짓점과 변은 위쪽 줄부터, 같은 줄은 왼쪽부터 w1·s1 … 로 번호를 매긴다.
+ */
+export function seaNet(land: BoardGeometry, cells: readonly SeaCell[]): SeaNet {
+  const landV = new Map(land.vertices.map((v) => [key(v), v.id]));
+  const edgeKey = (ka: string, kb: string) => (ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`);
+  const landE = new Map(land.edges.map((e) => [edgeKey(key(land.vertexMap[e.a]), key(land.vertexMap[e.b])), e.id]));
+  const pts = new Map<string, { x: number; y: number }>();
+  const emap = new Map<string, { a: string; b: string }>();
+  for (const c of cells) {
+    const cs = cornersOf(c);
+    for (const p of cs) if (!pts.has(key(p))) pts.set(key(p), p);
+    for (let i = 0; i < 6; i++) {
+      const ka = key(cs[i]);
+      const kb = key(cs[(i + 1) % 6]);
+      const ek = edgeKey(ka, kb);
+      if (!emap.has(ek)) emap.set(ek, { a: ka, b: kb });
+    }
+  }
+  const byRow = (p: { x: number; y: number }, q: { x: number; y: number }) => Math.round(p.y * 100) - Math.round(q.y * 100) || p.x - q.x;
+  const vid = new Map(landV);
+  [...pts.keys()]
+    .filter((k) => !landV.has(k))
+    .sort((a, b) => byRow(pts.get(a)!, pts.get(b)!))
+    .forEach((k, i) => vid.set(k, `w${i + 1}`));
+  const mid = (e: { a: string; b: string }) => ({ x: (pts.get(e.a)!.x + pts.get(e.b)!.x) / 2, y: (pts.get(e.a)!.y + pts.get(e.b)!.y) / 2 });
+  const eid = new Map<string, EdgeId>();
+  [...emap.keys()]
+    .filter((k) => !landE.has(k))
+    .sort((a, b) => byRow(mid(emap.get(a)!), mid(emap.get(b)!)))
+    .forEach((k, i) => eid.set(k, `s${i + 1}`));
+  const edges: SeaEdgeDef[] = [...emap.entries()].map(([k, e]) => {
+    const landId = landE.get(k);
+    // 바닷가 변은 땅 보드와 양 끝 순서까지 같게 둔다.
+    if (landId) return { id: landId, a: land.edgeMap[landId].a, b: land.edgeMap[landId].b, coast: true };
+    return { id: eid.get(k)!, a: vid.get(e.a)!, b: vid.get(e.b)!, coast: false };
+  });
+  const vertexMap: Record<VertexId, SeaVertexDef> = {};
+  for (const [k, p] of pts) {
+    const id = vid.get(k)!;
+    const v = land.vertexMap[id];
+    vertexMap[id] = { id, x: v ? v.x : p.x, y: v ? v.y : p.y, edges: [] };
+  }
+  for (const e of edges) {
+    vertexMap[e.a].edges.push(e.id);
+    vertexMap[e.b].edges.push(e.id);
+  }
+  return { cells, edges, edgeMap: Object.fromEntries(edges.map((e) => [e.id, e])), vertexMap };
+}
+
+/**
+ * 한 게임의 보드: 타일 묶음과 거기서 계산한 꼭짓점·변. 게임마다 맵 모양과 땅 배치가 다를 수 있어 규칙 함수는 이 값을 받아 쓴다.
+ * 섬 맵처럼 배를 쓰는 맵이면 sea 에 바닷길이 있다 (없으면 null).
+ */
 export interface Board extends BoardGeometry {
   tiles: readonly TileDef[];
   tileMap: Readonly<Record<TileId, TileDef>>;
+  sea: SeaNet | null;
 }
 
+const NO_SEA: readonly SeaCell[] = [];
 const boardCache = new Map<string, Board>();
 const boardByTiles = new WeakMap<readonly TileDef[], Board>();
 
-/** 타일 묶음의 보드. 같은 자리·같은 땅이면 한 번 계산한 값을 다시 쓴다 (게임 상태를 복사해도 다시 계산하지 않는다). */
-export function boardFor(tiles: readonly TileDef[]): Board {
+function sameSea(board: Board, sea: readonly SeaCell[]): boolean {
+  const cells = board.sea?.cells ?? NO_SEA;
+  if (cells === sea) return true;
+  return cells.length === sea.length && cells.every((c, i) => c.q === sea[i].q && c.r === sea[i].r);
+}
+
+/** 타일 묶음(과 바다 칸)의 보드. 같은 자리·같은 땅이면 한 번 계산한 값을 다시 쓴다 (게임 상태를 복사해도 다시 계산하지 않는다). */
+export function boardFor(tiles: readonly TileDef[], sea: readonly SeaCell[] = NO_SEA): Board {
   const hit = boardByTiles.get(tiles);
-  if (hit) return hit;
-  const sig = tiles.map((t) => `${t.id}:${t.q},${t.r}:${t.kind}`).join('|');
+  if (hit && sameSea(hit, sea)) return hit;
+  const sig = tiles.map((t) => `${t.id}:${t.q},${t.r}:${t.kind}`).join('|') + (sea.length ? `#${sea.map((c) => `${c.q},${c.r}`).join('|')}` : '');
   let board = boardCache.get(sig);
   if (!board) {
-    board = { ...boardGeometry(tiles), tiles, tileMap: Object.fromEntries(tiles.map((t) => [t.id, t])) };
+    const geo = boardGeometry(tiles);
+    board = { ...geo, tiles, tileMap: Object.fromEntries(tiles.map((t) => [t.id, t])), sea: sea.length ? seaNet(geo, sea) : null };
     if (boardCache.size > 64) boardCache.clear();
     boardCache.set(sig, board);
   }
@@ -142,9 +233,15 @@ export function boardFor(tiles: readonly TileDef[]): Board {
   return board;
 }
 
-/** 게임 상태(또는 화면 정보)에 실린 타일 묶음의 보드 */
-export function boardOf(s: { tiles: readonly TileDef[] }): Board {
-  return boardFor(s.tiles);
+/** 게임 상태(또는 화면 정보)에 실린 타일 묶음(과 바다 칸)의 보드 */
+export function boardOf(s: { tiles: readonly TileDef[]; sea?: readonly SeaCell[] }): Board {
+  return boardFor(s.tiles, s.sea ?? NO_SEA);
+}
+
+/** 바닷길 변의 이름 (바닷가 변은 땅 보드 이름, 바다 한가운데는 "바다") */
+export function seaEdgeLabel(board: Board, id: EdgeId): string {
+  if (board.edgeMap[id]) return edgeLabel(board, id);
+  return board.sea?.edgeMap[id] ? '바다' : id;
 }
 
 /** 표준 육각 보드 (황금 배치의 땅). 테스트와 실험실 장면에서 쓴다. 게임 규칙은 그 게임의 보드(boardOf)를 쓴다. */

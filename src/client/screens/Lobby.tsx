@@ -30,7 +30,7 @@ import {
   type PieceLimits,
 } from '../../shared/constants';
 import type { DevKind, PieceKind } from '../../shared/types';
-import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL, mapTileCount, maxPlayersFor } from '../../shared/maps';
+import { MAP_ARRANGES, MAP_ARRANGE_LABEL, MAP_SHAPES, MAP_SHAPE_LABEL, mapHasShips, mapTileCount, maxPlayersFor } from '../../shared/maps';
 import type { MapArrange, MapShape } from '../../shared/types';
 import { MapPreview } from '../ui/MapPreview';
 import { DICE_MODE_LABEL, type DiceMode } from '../../shared/fairDice';
@@ -41,11 +41,16 @@ function devDeckText(mix: DevMix): string {
   return (Object.keys(mix) as DevKind[]).map((k) => `${DEV_LABEL[k]} ${mix[k]}`).join(' · ');
 }
 
-const PIECE_KINDS: PieceKind[] = ['road', 'village', 'city'];
+/** 방장이 개수를 정하는 조각: 길·마을·도시, 배를 띄우는 맵(섬)이면 배까지 */
+function pieceKinds(shape: MapShape): PieceKind[] {
+  return mapHasShips(shape) ? ['road', 'village', 'city', 'ship'] : ['road', 'village', 'city'];
+}
 
-/** 길·마을·도시 개수: "길 15 · 마을 5 · 도시 4" */
-function pieceLimitText(l: PieceLimits): string {
-  return PIECE_KINDS.map((k) => `${PIECE_LABEL[k]} ${l[k]}`).join(' · ');
+/** 길·마을·도시(·배) 개수: "길 15 · 마을 5 · 도시 4" */
+function pieceLimitText(l: PieceLimits, shape: MapShape): string {
+  return pieceKinds(shape)
+    .map((k) => `${PIECE_LABEL[k]} ${l[k]}`)
+    .join(' · ');
 }
 
 /** 작은 조절 칸 하나: 이름 [−] 값 [+] (대기실 규칙의 종류별 개수) */
@@ -460,7 +465,7 @@ export function Lobby({ view }: { view: RoomView }) {
                     if (!res.ok) showToast(res.error, 'error');
                   }}
                 >
-                  <option value="on">있음 ({pieceLimitText(view.pieceLimits)}, 발전 카드 소진)</option>
+                  <option value="on">있음 ({pieceLimitText(view.pieceLimits, view.map.shape)}, 발전 카드 소진)</option>
                   <option value="off">없음 (몇 개든 짓기, 발전 카드 무한)</option>
                 </select>
               ) : (
@@ -471,12 +476,15 @@ export function Lobby({ view }: { view: RoomView }) {
             </div>
             {!view.unlimited && (
               <div className="rule-row rule-row-minis">
-                <span className="rule-name" title="한 사람이 가질 수 있는 개수 (길 5~40, 마을 2~15, 도시 1~12)">
-                  길·마을·도시 개수
+                <span
+                  className="rule-name"
+                  title={`한 사람이 가질 수 있는 개수 (길 5~40, 마을 2~15, 도시 1~12${mapHasShips(view.map.shape) ? ', 배 5~40' : ''})`}
+                >
+                  {mapHasShips(view.map.shape) ? '길·마을·도시·배 개수' : '길·마을·도시 개수'}
                 </span>
                 {isHost ? (
                   <div className="rule-minis">
-                    {PIECE_KINDS.map((k) => (
+                    {pieceKinds(view.map.shape).map((k) => (
                       <MiniStepper
                         key={k}
                         name={PIECE_LABEL[k]}
@@ -492,7 +500,7 @@ export function Lobby({ view }: { view: RoomView }) {
                     ))}
                   </div>
                 ) : (
-                  <div className="wp-fixed">{pieceLimitText(view.pieceLimits)}</div>
+                  <div className="wp-fixed">{pieceLimitText(view.pieceLimits, view.map.shape)}</div>
                 )}
               </div>
             )}
@@ -576,6 +584,9 @@ export function Lobby({ view }: { view: RoomView }) {
                 ? '황금 배치는 땅, 숫자 패, 교역로가 정해져 있어 매판 같은 보드로 합니다. 자원마다 나올 확률이 고르게 나뉘도록 짜 두었습니다.'
                 : '섞기는 게임을 시작할 때마다 땅과 숫자 패, 교역로 자원을 새로 섞습니다. 광장 자리만 그대로입니다.'}
               {view.map.shape === 'big' ? ' 대형 맵은 가운데가 바다라 교역로 10곳이 모두 그 둘레에 있고 8명까지 함께 할 수 있습니다.' : ''}
+              {view.map.shape === 'islands'
+                ? ' 섬 맵은 바다에 큰 섬 셋과 작은 섬 넷이 흩어져 있어서 다른 섬으로는 배(목재 1·양모 1)를 이어 띄워 건너갑니다. 배는 바닷가 마을·도시에서 출발합니다. 항로 끝의 배 한 척은 한 턴에 한 번 옮길 수 있고 최장 교역로는 길과 배를 이은 길이로 겨룹니다.'
+                : ''}
             </p>
           </div>
           <p className="muted small">
@@ -585,7 +596,7 @@ export function Lobby({ view }: { view: RoomView }) {
               : '7이 나와도 자원을 버리지 않고 동상 옮기기와 빼앗기만 합니다.'}{' '}
             {view.turnSeconds > 0 ? `한 차례 ${turnSecondsLabel(view.turnSeconds)} 안에 끝내지 못하면 자동으로 진행합니다.` : '차례 시간 제한이 없습니다.'}{' '}
             은행에는 자원마다 {view.resourceCards}장이 있고 다 떨어진 자원은 생산과 교환으로 받을 수 없습니다. 발전 카드 {view.devCards}장은{' '}
-            {devDeckText(view.devMix)}입니다.{view.unlimited ? '' : ` 한 사람이 ${pieceLimitText(view.pieceLimits)}개까지 짓습니다.`}
+            {devDeckText(view.devMix)}입니다.{view.unlimited ? '' : ` 한 사람이 ${pieceLimitText(view.pieceLimits, view.map.shape)}개까지 짓습니다.`}
             {view.unlimited
               ? ' 개수 제한이 없어서 길·마을·도시를 몇 개든 지을 수 있고, 발전 카드는 이 비율대로 무작위로 뽑혀 떨어지지 않습니다.'
               : ''}

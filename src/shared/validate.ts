@@ -21,6 +21,11 @@ function isEdgeId(v: unknown): v is string {
   return typeof v === 'string' && /^e[1-9]\d{0,3}$/.test(v);
 }
 
+/** 배 자리: 바닷가 변(e…)이나 바다 한가운데 변(s…) */
+function isSeaEdgeId(v: unknown): v is string {
+  return typeof v === 'string' && /^[es][1-9]\d{0,3}$/.test(v);
+}
+
 function isTileId(v: unknown): v is string {
   return typeof v === 'string' && /^[A-Z][1-9]\d?$/.test(v);
 }
@@ -53,6 +58,10 @@ export function parseAction(raw: unknown): GameAction | null {
       return isVertexId(raw.vertexId) && isEdgeId(raw.edgeId) ? { type: 'place', vertexId: raw.vertexId, edgeId: raw.edgeId } : null;
     case 'build_road':
       return isEdgeId(raw.edgeId) ? { type: 'build_road', edgeId: raw.edgeId } : null;
+    case 'build_ship':
+      return isSeaEdgeId(raw.edgeId) ? { type: 'build_ship', edgeId: raw.edgeId } : null;
+    case 'move_ship':
+      return isSeaEdgeId(raw.from) && isSeaEdgeId(raw.to) ? { type: 'move_ship', from: raw.from, to: raw.to } : null;
     case 'build_village':
     case 'build_city':
       return isVertexId(raw.vertexId) ? { type: raw.type, vertexId: raw.vertexId } : null;

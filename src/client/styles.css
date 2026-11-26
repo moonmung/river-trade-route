@@ -1570,6 +1570,29 @@ h2 {
   pointer-events: none;
 }
 
+/* 섬 맵 2D 보드: 물 위 배 자리 빛은 길 자리보다 굵고, 배는 갈색 배 몸통에 플레이어 색 돛 */
+.flat-sea-hl {
+  stroke-width: 0.2;
+  opacity: 0.85;
+}
+
+.flat-ship {
+  pointer-events: none;
+}
+
+.flat-ship-hull {
+  fill: #8f6236;
+  stroke: #3a2a1f;
+  stroke-width: 0.025;
+  stroke-linejoin: round;
+}
+
+.flat-ship-sail {
+  stroke: #3a2a1f;
+  stroke-width: 0.025;
+  stroke-linejoin: round;
+}
+
 .flat-edge-sel {
   stroke: #ffffff;
 }

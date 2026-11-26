@@ -130,6 +130,12 @@ function reviveRoom(raw: unknown): Room | null {
     if (!('sevenDiscard' in game)) game.sevenDiscard = true;
     // 길·마을·도시 개수를 정할 수 있기 전에 저장한 게임은 기본 개수였다.
     if (!('pieceLimits' in game)) game.pieceLimits = { ...PIECE_LIMIT };
+    // 배 개수가 생기기 전에 저장한 개수에는 배가 없다.
+    else if (isObj(game.pieceLimits) && !('ship' in game.pieceLimits)) game.pieceLimits.ship = PIECE_LIMIT.ship;
+    // 배(섬 맵)가 생기기 전에 저장한 게임에는 바다도 배도 없었다.
+    if (!('sea' in game)) game.sea = [];
+    if (!('ships' in game)) game.ships = [];
+    if (!('shipMoved' in game)) game.shipMoved = false;
     const keys = requiredGameKeys();
     if (keys && keys.some((k) => !(k in game))) return null;
     const ids = new Set(players.map((p) => p.id));

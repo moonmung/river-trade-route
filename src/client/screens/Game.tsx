@@ -9,7 +9,18 @@ import { BoardPin } from '../board/BoardPin';
 import { FlatBoard } from '../board/FlatBoard';
 import type { PerfStats } from '../board/perf';
 import type { Bundle, DevKind, PieceKind } from '../../shared/types';
-import { boardHighlights, buildBlocker, formatScoreEvent, isScoreEvent, playDevBlocker, playerMap, roadStatus, spotAction, turnBlocker } from '../game/derive';
+import {
+  boardHighlights,
+  buildBlocker,
+  formatScoreEvent,
+  isScoreEvent,
+  playDevBlocker,
+  playerMap,
+  roadStatus,
+  spotAction,
+  turnBlocker,
+  type BoardPick,
+} from '../game/derive';
 import {
   DevPlayCard,
   DiscardDialog,
@@ -49,8 +60,15 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   // 넓은 화면이나 가로로 눕힌 휴대폰은 오른쪽 패널 배치를 쓴다.
   const wide = useMediaQuery('(min-width: 900px), (orientation: landscape) and (min-width: 640px)');
   const [settings, setSettings] = useLocalSetting<GameSettings>('rr.settings', DEFAULT_SETTINGS);
-  /** 건설 모드: [도로]·[마을]·[도시]를 누르면 지을 수 있는 자리가 빛나고, 그 자리를 고르면 자리 위에 ✓ / ✕ 가 뜬다 */
-  const [buildMode, setBuildMode] = useState<PieceKind | null>(null);
+  /** 건설 모드: [도로]·[마을]·[도시]·[배]를 누르면 지을 수 있는 자리가 빛나고, 그 자리를 고르면 자리 위에 ✓ / ✕ 가 뜬다 */
+  const [buildMode, setBuildModeRaw] = useState<PieceKind | null>(null);
+  /** 옮기려고 고른 내 배 (섬 맵). 고르면 옮겨 댈 수 있는 바닷길이 빛난다. */
+  const [moveFrom, setMoveFrom] = useState<string | null>(null);
+  const setBuildMode = (kind: PieceKind | null) => {
+    setBuildModeRaw(kind);
+    setMoveFrom(null);
+  };
+  const pick = useMemo<BoardPick>(() => ({ mode: buildMode, moveFrom }), [buildMode, moveFrom]);
   /** 보드에서 고른 자리. 할 일이 있는 자리면 그 위에 ✓ / ✕ 가 붙고 ✓ 를 눌러야 짓는다. */
   const [selected, setSelected] = useState<BoardSelection | null>(null);
   const [dialog, setDialog] = useState<null | 'menu' | 'log'>(null);
@@ -93,14 +111,15 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
 
   useEffect(() => () => clearFlyingCards(), []);
 
-  // 건설 모드는 더 이상 지을 수 없게 되면(턴 종료, 비용 부족 등) 자동으로 끈다.
+  // 건설 모드는 더 이상 지을 수 없게 되면(턴 종료, 비용 부족 등) 자동으로 끈다. 배 옮기기도 차례가 끝나거나 이미 옮겼으면 끈다.
   useEffect(() => {
     if (buildMode && buildBlocker(view, buildMode)) setBuildMode(null);
+    if (moveFrom && (!myTurn || g.step !== 'main' || g.shipMoved || !g.ships.some((s) => s.edgeId === moveFrom && s.owner === view.you))) setMoveFrom(null);
     if (devOpen && !g.myDevCards.some((c) => c.kind === devOpen)) setDevOpen(null);
     // 교환 창은 내 차례 main 단계에서만 연다. 자원이 바뀌어 고른 카드가 모자라면 낼 것을 비운다.
     if (tradeDraft && (!myTurn || g.step !== 'main')) setTradeDraft(null);
     else if (tradeDraft && !hasBundle(g.myResources, tradeDraft.give)) setTradeDraft({ ...tradeDraft, give: emptyBundle() });
-  }, [view, buildMode, devOpen, tradeDraft]);
+  }, [view, buildMode, moveFrom, devOpen, tradeDraft]);
 
   // 단계가 바뀌면 고른 자리를 지운다 (시작 배치 차례·마을을 지은 뒤 길 고르기, 동상 옮기기, 공짜 길 등).
   useEffect(() => {
@@ -127,25 +146,26 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
 
   const highlights = useMemo<BoardState['highlights']>(() => {
     if (wait) return null;
-    const h = boardHighlights(view, buildMode);
-    if (!h.vertices.length && !h.edges.length && !h.tiles.length) return null;
+    const h = boardHighlights(view, pick);
+    if (!h.vertices.length && !h.edges.length && !h.shipEdges.length && !h.tiles.length) return null;
     return { ...h, kind: g.phase === 'placement' ? 'placeable' : 'buildable' };
-  }, [view, buildMode, g.phase, wait]);
+  }, [view, pick, g.phase, wait]);
   // 내 차례(건설 모드 밖)에는 길을 이을 수 있는 변과 마을을 지을 수 있는 꼭짓점을 은은하게 보여 준다.
   const hints = useMemo<BoardState['hints']>(() => {
-    if (!myTurn || g.step !== 'main' || buildMode || wait) return null;
+    if (!myTurn || g.step !== 'main' || buildMode || moveFrom || wait) return null;
     const me = view.you;
     return {
-      edges: pieceCount(g.buildings, g.roads, me, 'road') < pieceLimit(g, 'road') ? buildableRoads(boardOf(g), g.buildings, g.roads, me) : [],
-      vertices: pieceCount(g.buildings, g.roads, me, 'village') < pieceLimit(g, 'village') ? buildableVillages(boardOf(g), g.buildings, g.roads, me) : [],
+      edges: pieceCount(g.buildings, g.roads, me, 'road') < pieceLimit(g, 'road') ? buildableRoads(boardOf(g), g.buildings, g.roads, me, g.ships) : [],
+      vertices: pieceCount(g.buildings, g.roads, me, 'village') < pieceLimit(g, 'village') ? buildableVillages(boardOf(g), g.buildings, g.roads, me, g.ships) : [],
     };
-  }, [myTurn, g.step, buildMode, wait, g.buildings, g.roads, view.you]);
-  // 길에 마우스를 올리거나 길을 누르면 그 주인의 가장 긴 교역로를 금빛으로 따라 그린다.
-  const traceOwner =
-    (hoverRoad && g.roads.find((r) => r.edgeId === hoverRoad.edgeId)?.owner) ||
-    (selected?.kind === 'edge' ? g.roads.find((r) => r.edgeId === selected.id)?.owner : undefined) ||
-    null;
-  const trace = useMemo(() => (traceOwner ? longestRoadPath(boardOf(g), g.roads, g.buildings, traceOwner) : null), [traceOwner, g.roads, g.buildings]);
+  }, [myTurn, g.step, buildMode, moveFrom, wait, g.buildings, g.roads, g.ships, view.you]);
+  // 길·배에 마우스를 올리거나 누르면 그 주인의 가장 긴 교역로를 금빛으로 따라 그린다.
+  const pieceOwner = (edgeId: string) => g.roads.find((r) => r.edgeId === edgeId)?.owner ?? g.ships.find((s) => s.edgeId === edgeId)?.owner;
+  const traceOwner = (hoverRoad && pieceOwner(hoverRoad.edgeId)) || (selected?.kind === 'edge' ? pieceOwner(selected.id) : undefined) || null;
+  const trace = useMemo(
+    () => (traceOwner ? longestRoadPath(boardOf(g), g.roads, g.buildings, traceOwner, g.ships) : null),
+    [traceOwner, g.roads, g.buildings, g.ships],
+  );
   const boardState = useMemo<BoardState>(
     () => ({
       buildings: g.buildings.map((b) => ({
@@ -156,6 +176,8 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
         label: `${players.get(b.owner)?.nickname ?? '?'}의 ${PIECE_LABEL[b.kind]}`,
       })),
       roads: g.roads.map((r) => ({ edgeId: r.edgeId, owner: r.owner, colorIndex: players.get(r.owner)?.colorIndex ?? 0 })),
+      ships: g.ships.map((s) => ({ edgeId: s.edgeId, owner: s.owner, colorIndex: players.get(s.owner)?.colorIndex ?? 0 })),
+      movingShip: moveFrom,
       highlights,
       selected,
       numbers: g.numbers,
@@ -164,7 +186,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       hints,
       trace,
     }),
-    [g.buildings, g.roads, players, highlights, selected, g.numbers, g.robber, g.harbors, hints, trace],
+    [g.buildings, g.roads, g.ships, moveFrom, players, highlights, selected, g.numbers, g.robber, g.harbors, hints, trace],
   );
 
   // HUD 가 가리는 영역을 재서 보드가 남은 공간 가운데에 오도록 한다.
@@ -222,7 +244,13 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       return;
     }
     if (g.phase === 'playing' && g.step === 'road_building' && g.currentPlayerId === view.you) {
-      setSelected((cur) => (cur && cur.kind === sel.kind && cur.id === sel.id ? null : spotAction(view, sel) ? sel : null));
+      setSelected((cur) => (cur && cur.kind === sel.kind && cur.id === sel.id ? null : spotAction(view, sel, pick) ? sel : null));
+      return;
+    }
+    // 배를 옮기는 중: 옮기려던 배를 다시 누르면 그만둔다.
+    if (moveFrom && sel.kind === 'edge' && sel.id === moveFrom) {
+      setMoveFrom(null);
+      setSelected(null);
       return;
     }
     setSelected((cur) => (cur && cur.kind === sel.kind && cur.id === sel.id ? null : sel));
@@ -258,8 +286,17 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
         <div className="mode-banner">
           {buildMode === 'road' && '길 놓기 · 빛나는 변을 고르고 ✓ 를 누르세요.'}
           {buildMode === 'village' && '마을 짓기 · 빛나는 꼭짓점을 고르고 ✓ 를 누르세요.'}
-          {buildMode === 'city' && '도시로 업그레이드 · 빛나는 내 마을을 고르고 ✓ 를 누르세요.'}{' '}
+          {buildMode === 'city' && '도시로 업그레이드 · 빛나는 내 마을을 고르고 ✓ 를 누르세요.'}
+          {buildMode === 'ship' && '배 띄우기 · 빛나는 바닷길을 고르고 ✓ 를 누르세요.'}{' '}
           <button className="link-btn small" onClick={() => setBuildMode(null)}>
+            그만두기
+          </button>
+        </div>
+      )}
+      {moveFrom && (
+        <div className="mode-banner">
+          배 옮기기 · 빛나는 바닷길을 고르고 ✓ 를 누르세요. 한 턴에 한 번 옮길 수 있습니다.{' '}
+          <button className="link-btn small" onClick={() => setMoveFrom(null)}>
             그만두기
           </button>
         </div>
@@ -277,8 +314,19 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   const pingButton = (compact: boolean) => <PingButton compact={compact} active={pingMode} onToggle={() => setPingMode((v) => !v)} />;
   // 고른 자리 위의 ✓ / ✕ (할 일이 있는 자리만). 교환·발전 카드 창이 열려 있거나 연출을 기다리는 동안은 숨긴다.
   const pinNode =
-    selected && !tradeDraft && !devOpen && !wait && spotAction(view, selected) ? (
-      <SpotConfirm view={view} sel={selected} onClose={() => setSelected(null)} onDone={clearPick} />
+    selected && !tradeDraft && !devOpen && !wait && spotAction(view, selected, pick) ? (
+      <SpotConfirm
+        view={view}
+        sel={selected}
+        pick={pick}
+        onClose={() => setSelected(null)}
+        onDone={clearPick}
+        onStartMove={(edgeId) => {
+          setSelected(null);
+          setBuildModeRaw(null);
+          setMoveFrom(edgeId);
+        }}
+      />
     ) : null;
 
   return (
@@ -287,11 +335,19 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
         {useFlat ? (
           <div className="flat-wrap" style={{ paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8, paddingRight: insets.right + 8 }}>
             {glFailed && <div className="notice notice-warn small">3D 보드를 표시할 수 없어 2D 보드로 보여 줍니다.</div>}
-            <FlatBoard tiles={boardOf(g).tiles} state={boardState} onTap={onTap} pin={pinNode && selected ? { sel: selected, node: pinNode } : null} marks={pingMarks} />
+            <FlatBoard
+              tiles={boardOf(g).tiles}
+              sea={boardOf(g).sea?.cells}
+              state={boardState}
+              onTap={onTap}
+              pin={pinNode && selected ? { sel: selected, node: pinNode } : null}
+              marks={pingMarks}
+            />
           </div>
         ) : (
           <BoardView
             tiles={boardOf(g).tiles}
+            sea={boardOf(g).sea?.cells}
             state={boardState}
             insets={boardInsets}
             quality={settings.quality}
@@ -299,7 +355,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             motion={settings.motion ?? !prefersReducedMotion()}
             shadows={settings.shadows ?? true}
             onTap={onTap}
-            onHover={(sel, x, y) => setHoverRoad(sel?.kind === 'edge' && g.roads.some((r) => r.edgeId === sel.id) ? { edgeId: sel.id, x, y } : null)}
+            onHover={(sel, x, y) => setHoverRoad(sel?.kind === 'edge' && pieceOwner(sel.id) ? { edgeId: sel.id, x, y } : null)}
             onPerf={settings.perf ? setPerf : undefined}
             onError={() => setGlFailed(true)}
             onRenderer={takeRenderer}
@@ -326,7 +382,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
             {traceOwner === view.you ? '내 교역로' : `${players.get(traceOwner)?.nickname ?? '?'}의 교역로`}
           </div>
           <div>
-            이어진 길 <b>{trace.length}칸</b>
+            {g.sea.length ? '이어진 길·배' : '이어진 길'} <b>{trace.length}칸</b>
           </div>
           <div className="road-tip-note">{roadStatus(view, traceOwner, trace.length, (id) => players.get(id)?.nickname ?? '?')}</div>
         </div>
@@ -462,7 +518,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
               setDevOpen((cur) => (cur === kind ? null : kind));
             }}
           />
-          <div className="me-actions">
+          <div className={`me-actions ${g.sea.length ? 'me-actions-sea' : ''}`}>
             <TradeButton
               view={view}
               tradeOpen={!!tradeDraft}

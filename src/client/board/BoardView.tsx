@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { TileDef } from '../../shared/types';
+import type { SeaCell, TileDef } from '../../shared/types';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Resource } from '../../shared/types';
 import { PLAYER_COLORS, personSvgMarkup } from '../theme';
@@ -10,6 +10,8 @@ import type { PerfStats } from './perf';
 
 export interface BoardViewProps {
   tiles: readonly TileDef[];
+  /** 배를 띄울 바다 칸 (섬 맵) */
+  sea?: readonly SeaCell[];
   state: BoardState;
   insets?: Insets;
   quality?: QualityMode;
@@ -50,7 +52,7 @@ export default function BoardView(props: BoardViewProps) {
   const [progress, setProgress] = useState<LoadProgress | null>({ done: 0, total: 1 });
   const [error, setError] = useState<string | null>(null);
 
-  // 렌더러는 타일 구성이 바뀔 때만 새로 만든다. 나머지 값은 아래 효과들이 전달한다.
+  // 렌더러는 타일(과 바다) 구성이 바뀔 때만 새로 만든다. 나머지 값은 아래 효과들이 전달한다.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -58,6 +60,7 @@ export default function BoardView(props: BoardViewProps) {
     try {
       renderer = new BoardRenderer(host, {
         tiles: props.tiles,
+        sea: props.sea,
         playerColors: PLAYER_COLORS.map((c) => c.hex),
         ownerMarkup: (i) => personSvgMarkup(i, 16),
         harborIcon,
@@ -94,7 +97,7 @@ export default function BoardView(props: BoardViewProps) {
       rendererRef.current = null;
       renderer.dispose();
     };
-  }, [props.tiles]);
+  }, [props.tiles, props.sea]);
 
   useEffect(() => {
     rendererRef.current?.setState(props.state);

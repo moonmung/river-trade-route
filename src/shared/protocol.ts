@@ -15,6 +15,8 @@ import type {
   MapShape,
   Resource,
   Road,
+  SeaCell,
+  Ship,
   TileDef,
   TileId,
   TradeResponse,
@@ -43,11 +45,13 @@ export interface GamePlayerView {
   devCardCount: number;
   /** 쓴 기사 카드 수 */
   knightsPlayed: number;
-  /** 가장 길게 이어진 길 */
+  /** 가장 길게 이어진 교역로 (길과 배) */
   roadLength: number;
   villages: number;
   cities: number;
   roads: number;
+  /** 띄운 배 (섬 맵이 아니면 0) */
+  ships: number;
 }
 
 /** 열린 교환 제안. 모두에게 제안하므로 내용과 응답은 모두에게 보인다 (종류별 보유량은 들어 있지 않다). */
@@ -93,6 +97,8 @@ export interface GameView {
   stealFrom: string[];
   /** 이 게임의 보드 칸 (맵 모양과 땅 배치) */
   tiles: TileDef[];
+  /** 배를 띄울 바다 칸 (섬 맵이 아니면 빈 목록) */
+  sea: SeaCell[];
   /** 은행에 남은 자원 카드 (자원마다, 무제한이면 null) */
   bank: Bundle | null;
   /** 게임을 시작할 때 은행에 둔 자원 카드 수 (자원마다, 무제한이면 null) */
@@ -104,6 +110,9 @@ export interface GameView {
   harbors: Harbor[];
   buildings: Building[];
   roads: Road[];
+  ships: Ship[];
+  /** 이번 턴에 배를 이미 옮겼는지 */
+  shipMoved: boolean;
   devDeckCount: number;
   /** 개수 제한 없음: 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않는다 */
   unlimited: boolean;

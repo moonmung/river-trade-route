@@ -300,6 +300,9 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
         case 'build':
           if (animate) sfx.build(e.piece);
           break;
+        case 'move_ship':
+          if (animate) sfx.sail();
+          break;
         case 'buy_dev':
           if (animate) sfx.buyDev();
           if (e.player === me && e.detail) showToast(`발전 카드: ${DEV_LABEL[e.detail]}`, 'good');

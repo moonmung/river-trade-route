@@ -1,5 +1,5 @@
 // 서버가 보낸 화면 정보에서 버튼 활성화·안내 문구를 계산한다. 실제 판정은 서버가 다시 한다.
-import { boardOf } from '../../shared/board';
+import { boardOf, type Board } from '../../shared/board';
 import {
   DEV_COST,
   DEV_LABEL,
@@ -13,7 +13,18 @@ import {
   hasBundle,
 } from '../../shared/constants';
 import type { GameView, RoomView } from '../../shared/protocol';
-import { buildableRoads, buildableVillages, pieceCount, pieceLimit, placeableVertices, setupRoadEdges, upgradableVillages } from '../../shared/rules';
+import {
+  buildableRoads,
+  buildableShips,
+  buildableVillages,
+  pieceCount,
+  pieceLimit,
+  placeableVertices,
+  setupRoadEdges,
+  shipMoveProblem,
+  shipMoveTargets,
+  upgradableVillages,
+} from '../../shared/rules';
 import type { Bundle, DevKind, GameAction, GameEvent, PieceKind, TradeCloseReason } from '../../shared/types';
 import { josa } from '../ui/josa';
 import { playerColor } from '../theme';
@@ -54,32 +65,49 @@ export function turnBlocker(view: RoomView): string | null {
   return null;
 }
 
-/** 길·마을·도시를 지을 수 없는 이유 (지을 수 있으면 null) */
+/** 이 게임이 배를 띄우는 맵(섬 맵)인지 */
+export function hasSea(view: RoomView): boolean {
+  return !!view.game?.sea?.length;
+}
+
+/** 길·마을·도시·배를 지을 수 없는 이유 (지을 수 있으면 null) */
 export function buildBlocker(view: RoomView, kind: PieceKind): string | null {
   const g = view.game;
-  const free = kind === 'road' && g?.step === 'road_building' && g.currentPlayerId === view.you;
+  if (kind === 'ship' && !hasSea(view)) return '이 맵에서는 배를 띄울 수 없습니다.';
+  // 길 건설 카드의 공짜 길은 섬 맵에서 배로 띄워도 된다.
+  const free = (kind === 'road' || kind === 'ship') && g?.step === 'road_building' && g.currentPlayerId === view.you;
   if (!free) {
     const turn = turnBlocker(view);
     if (turn) return turn;
   }
   if (!g) return '게임이 없습니다.';
-  if (pieceCount(g.buildings, g.roads, view.you, kind) >= pieceLimit(g, kind)) return `${PIECE_LABEL[kind]}은(는) 최대 ${pieceLimit(g, kind)}개까지입니다.`;
+  if (pieceCount(g.buildings, g.roads, view.you, kind, g.ships) >= pieceLimit(g, kind)) return `${PIECE_LABEL[kind]}은(는) 최대 ${pieceLimit(g, kind)}개까지입니다.`;
   if (!free && !hasBundle(g.myResources, PIECE_COST[kind])) return `${shortfallText(g.myResources, PIECE_COST[kind])} 더 필요합니다.`;
   if (buildSpots(view, kind).length === 0) {
     if (kind === 'road') return '내 마을이나 길과 이어진 빈 변이 없습니다.';
-    if (kind === 'village') return '마을을 지을 빈자리가 없습니다. 길을 더 이어 보세요.';
+    if (kind === 'ship') return '내 마을·도시나 배와 이어진 빈 바닷길이 없습니다. 바닷가에 마을을 지으면 바다로 나갈 수 있습니다.';
+    if (kind === 'village') return hasSea(view) ? '마을을 지을 빈자리가 없습니다. 길이나 배를 더 이어 보세요.' : '마을을 지을 빈자리가 없습니다. 길을 더 이어 보세요.';
     return '도시로 올릴 내 마을이 없습니다.';
   }
   return null;
 }
 
-/** 지을 수 있는 자리 (비용·차례는 따로 본다). 길은 변 ID, 마을·도시는 꼭짓점 ID */
+/** 지을 수 있는 자리 (비용·차례는 따로 본다). 길·배는 변 ID, 마을·도시는 꼭짓점 ID */
 export function buildSpots(view: RoomView, kind: PieceKind): string[] {
   const g = view.game;
   if (!g) return [];
-  if (kind === 'road') return buildableRoads(boardOf(g), g.buildings, g.roads, view.you);
-  if (kind === 'village') return buildableVillages(boardOf(g), g.buildings, g.roads, view.you);
+  const board = boardOf(g);
+  if (kind === 'road') return buildableRoads(board, g.buildings, g.roads, view.you, g.ships);
+  if (kind === 'ship') return buildableShips(board, g.buildings, g.roads, g.ships, view.you);
+  if (kind === 'village') return buildableVillages(board, g.buildings, g.roads, view.you, g.ships);
   return upgradableVillages(g.buildings, view.you);
+}
+
+/** 길 건설 카드로 놓을 수 있는 자리: 길과 배 (개수 제한 안에서) */
+function freeSpots(view: RoomView): { roads: string[]; ships: string[] } {
+  const g = view.game!;
+  const room = (k: 'road' | 'ship') => pieceCount(g.buildings, g.roads, view.you, k, g.ships) < pieceLimit(g, k);
+  return { roads: room('road') ? buildSpots(view, 'road') : [], ships: room('ship') ? buildSpots(view, 'ship') : [] };
 }
 
 /** 비용에서 모자란 만큼 (자원마다) */
@@ -128,35 +156,56 @@ export function playDevBlocker(view: RoomView, kind: DevKind): string | null {
   if (g.devPlayedThisTurn) return '발전 카드는 한 턴에 1장만 쓸 수 있습니다.';
   if (!g.myDevCards.some((c) => c.kind === kind)) return `${DEV_LABEL[kind]} 카드가 없습니다.`;
   if (!g.myDevCards.some((c) => c.kind === kind && c.boughtTurn < g.turn)) return '이번 턴에 산 카드는 다음 턴부터 쓸 수 있습니다.';
-  if (kind === 'road_building' && buildableRoads(boardOf(g), g.buildings, g.roads, view.you).length === 0) return '공짜 길을 놓을 자리가 없습니다.';
+  if (kind === 'road_building') {
+    const spots = freeSpots(view);
+    if (!spots.roads.length && !spots.ships.length) return hasSea(view) ? '공짜 길이나 배를 놓을 자리가 없습니다.' : '공짜 길을 놓을 자리가 없습니다.';
+  }
   return null;
 }
 
 export interface BoardHighlights {
   vertices: string[];
+  /** 길 자리 (땅의 변) */
   edges: string[];
+  /** 배 자리 (바다에 닿은 변). 바닷가 변은 길 자리와 겹칠 수 있다. */
+  shipEdges: string[];
   tiles: string[];
 }
 
+/** 보드에서 하는 중인 일: 건설 모드(길·마을·도시·배)와 옮기려고 고른 내 배 */
+export interface BoardPick {
+  mode: PieceKind | null;
+  moveFrom: string | null;
+}
+
+export const NO_PICK: BoardPick = { mode: null, moveFrom: null };
+
 /**
  * 보드에서 빛낼 자리.
- * 시작 배치: 마을 자리 → (마을을 지은 뒤) 그 마을에 붙일 길. 동상 옮기기: 동상이 없는 칸. 길 건설 카드: 공짜 길 자리.
- * 건설 모드: 지을 수 있는 자리.
+ * 시작 배치: 마을 자리 → (마을을 지은 뒤) 그 마을에 붙일 길. 동상 옮기기: 동상이 없는 칸. 길 건설 카드: 공짜 길·배 자리.
+ * 건설 모드: 지을 수 있는 자리. 배를 옮기는 중: 그 배를 옮겨 댈 수 있는 자리.
  */
-export function boardHighlights(view: RoomView, mode: PieceKind | null): BoardHighlights {
-  const none = { vertices: [], edges: [], tiles: [] };
+export function boardHighlights(view: RoomView, pick: BoardPick = NO_PICK): BoardHighlights {
+  const none = { vertices: [], edges: [], shipEdges: [], tiles: [] };
   const g = view.game;
   if (!g) return none;
   if (g.phase === 'placement' && g.placementPlayerId === view.you) {
-    if (g.setupVillage) return { vertices: [], edges: setupRoadEdges(boardOf(g), g.roads, g.setupVillage), tiles: [] };
-    return { vertices: placeableVertices(boardOf(g), g.buildings), edges: [], tiles: [] };
+    if (g.setupVillage) return { ...none, edges: setupRoadEdges(boardOf(g), g.roads, g.setupVillage) };
+    return { ...none, vertices: placeableVertices(boardOf(g), g.buildings) };
   }
   if (g.phase !== 'playing' || g.currentPlayerId !== view.you) return none;
-  if (g.step === 'robber') return { vertices: [], edges: [], tiles: g.tiles.map((t) => t.id).filter((id) => id !== g.robber) };
-  if (g.step === 'road_building') return { vertices: [], edges: buildSpots(view, 'road'), tiles: [] };
+  if (g.step === 'robber') return { ...none, tiles: g.tiles.map((t) => t.id).filter((id) => id !== g.robber) };
+  if (g.step === 'road_building') {
+    const spots = freeSpots(view);
+    return { ...none, edges: pick.mode === 'ship' ? [] : spots.roads, shipEdges: pick.mode === 'road' ? [] : spots.ships };
+  }
+  if (pick.moveFrom) return g.step === 'main' ? { ...none, shipEdges: shipMoveTargets(g, view.you, pick.moveFrom) } : none;
+  const mode = pick.mode;
   if (!mode || buildBlocker(view, mode)) return none;
   const spots = buildSpots(view, mode);
-  return mode === 'road' ? { vertices: [], edges: spots, tiles: [] } : { vertices: spots, edges: [], tiles: [] };
+  if (mode === 'road') return { ...none, edges: spots };
+  if (mode === 'ship') return { ...none, shipEdges: spots };
+  return { ...none, vertices: spots };
 }
 
 export function bundleText(b: Bundle): string {
@@ -188,7 +237,7 @@ export function roadStatus(view: RoomView, owner: string, len: number, name: (id
 }
 
 /** 칸 이름을 짓는 데 필요한 보드 정보 (게임 화면 정보를 그대로 넘기면 된다) */
-export type MapInfo = Pick<GameView, 'numbers' | 'tiles'>;
+export type MapInfo = Pick<GameView, 'numbers' | 'tiles'> & Partial<Pick<GameView, 'sea'>>;
 
 /** 게임 화면에서 칸을 부르는 이름. 칸 코드(A1~E3) 대신 자원과 숫자 패로 부른다: "곡물 10", "광장" */
 export function tileName(map: MapInfo | null | undefined, tileId: string): string {
@@ -198,9 +247,10 @@ export function tileName(map: MapInfo | null | undefined, tileId: string): strin
   return map.numbers[tileId] ? `${RESOURCE_LABEL[t.kind]} ${map.numbers[tileId]}` : RESOURCE_LABEL[t.kind];
 }
 
-/** 꼭짓점·변의 이름: 닿은 칸들 사이, 바닷가면 "바닷가" */
+/** 꼭짓점·변의 이름: 닿은 칸들 사이, 바닷가면 "바닷가", 바다 한가운데(배 자리)면 "바다 위" */
 export function spotName(map: MapInfo | null | undefined, kind: 'vertex' | 'edge', id: string): string {
-  const board = map ? boardOf(map) : null;
+  const board: Board | null = map ? boardOf(map) : null;
+  if (kind === 'edge' && board && !board.edgeMap[id] && board.sea?.edgeMap[id]) return '바다 위';
   const tiles = (kind === 'vertex' ? board?.vertexMap[id]?.tiles : board?.edgeMap[id]?.tiles) ?? [];
   const names = tiles.map((t) => tileName(map, t)).join('·');
   const coast = kind === 'vertex' ? tiles.length < 3 : tiles.length < 2;
@@ -219,7 +269,7 @@ export function isScoreEvent(e: GameEvent): boolean {
     case 'play_dev':
       return true;
     case 'build':
-      return e.piece !== 'road';
+      return e.piece === 'village' || e.piece === 'city';
     default:
       return false;
   }
@@ -282,8 +332,15 @@ export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: 
         : `${subj(e.player)} ${name(e.from)}에게서 자원 1장을 빼앗았습니다.`;
     case 'build':
       if (e.piece === 'road') return `${subj(e.player)} ${place('edge', e.at)}에 ${e.free ? '공짜 ' : ''}길을 놓았습니다.`;
+      if (e.piece === 'ship') return `${subj(e.player)} ${place('edge', e.at)}에 ${e.free ? '공짜 ' : ''}배를 띄웠습니다.`;
       if (e.piece === 'city') return `${subj(e.player)} ${place('vertex', e.at)}의 마을을 도시로 업그레이드했습니다.`;
       return `${subj(e.player)} ${place('vertex', e.at)}에 마을을 지었습니다.`;
+    case 'move_ship':
+    {
+      // 바다 한가운데는 이름이 모두 "바다 위"라 바닷가일 때만 자리를 적는다.
+      const to = place('edge', e.to);
+      return to === '바다 위' ? `${subj(e.player)} 배 한 척을 다른 바닷길로 옮겼습니다.` : `${subj(e.player)} 배 한 척을 ${josa(to, '으로/로')} 옮겼습니다.`;
+    }
     case 'buy_dev':
       if (e.detail === 'victory') return `${subj(e.player)} 승점 카드를 뽑았습니다 (+1점, 나만 봅니다).`;
       return `${subj(e.player)} 발전 카드를 샀습니다${e.detail ? ` (${DEV_LABEL[e.detail]})` : ''}.`;
@@ -320,14 +377,17 @@ export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: 
 export interface SpotAction {
   label: string;
   blocker: string | null;
-  action: GameAction;
+  /** ✓ 를 누르면 서버에 보낼 행동. null 이면 화면 안에서만 하는 일(start)이다. */
+  action: GameAction | null;
+  /** 배 옮기기를 시작한다: 이 배를 옮길 배로 고르고 옮겨 댈 곳을 빛낸다 */
+  start?: 'move_ship';
 }
 
 /**
- * 보드에서 고른 자리에서 할 수 있는 일 (없으면 null): 동상 옮기기, 시작 마을과 길, 길·마을 짓기, 도시로 업그레이드.
- * 건설 모드나 길 건설 카드로 빛나는 자리를 누르면 이것으로 바로 짓는다.
+ * 보드에서 고른 자리에서 할 수 있는 일 (없으면 null): 동상 옮기기, 시작 마을과 길, 길·마을·배 짓기, 도시로 업그레이드, 배 옮기기.
+ * 건설 모드나 길 건설 카드로 빛나는 자리를 누르면 이것으로 바로 짓는다. pick 은 지금 건설 모드와 옮기려고 고른 배다.
  */
-export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edge'; id: string }): SpotAction | null {
+export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edge'; id: string }, pick: BoardPick = NO_PICK): SpotAction | null {
   const g = view.game;
   if (!g) return null;
   const me = view.you;
@@ -351,16 +411,34 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
     if (myMain && !b && buildSpots(view, 'village').includes(sel.id)) return { label: '마을 짓기', blocker: buildBlocker(view, 'village'), action: { type: 'build_village', vertexId: sel.id } };
     return null;
   }
+  // 배를 옮기는 중: 빛나는 바닷길을 고르면 그리로 옮긴다.
+  if (pick.moveFrom) {
+    if (!myMain || !shipMoveTargets(g, me, pick.moveFrom).includes(sel.id)) return null;
+    return { label: '여기로 배 옮기기', blocker: null, action: { type: 'move_ship', from: pick.moveFrom, to: sel.id } };
+  }
+  // 내 배를 누르면 옮기기를 시작할 수 있다 (옮길 수 없는 배면 까닭을 알려 준다).
+  const ship = g.ships.find((s) => s.edgeId === sel.id);
+  if (ship) {
+    if (!myMain || ship.owner !== me || pick.mode) return null;
+    return { label: '이 배 옮기기', blocker: shipMoveProblem(g, me, sel.id), action: null, start: 'move_ship' };
+  }
   if (g.roads.some((r) => r.edgeId === sel.id)) return null;
   if (placing) {
     if (!g.setupVillage || !setupRoadEdges(boardOf(g), g.roads, g.setupVillage).includes(sel.id)) return null;
     return { label: '길 놓기', blocker: null, action: { type: 'place_road', edgeId: sel.id } };
   }
-  if (!buildSpots(view, 'road').includes(sel.id)) return null;
+  // 바닷가 변은 길과 배 모두 놓을 수 있다. 배 모드면 배, 그 밖에는 길을 먼저 본다.
+  const roadOk = pick.mode !== 'ship' && buildSpots(view, 'road').includes(sel.id);
+  const shipOk = pick.mode !== 'road' && hasSea(view) && buildSpots(view, 'ship').includes(sel.id);
+  if (!roadOk && !shipOk) return null;
   if (g.phase === 'playing' && g.step === 'road_building' && g.currentPlayerId === me) {
-    // 길 건설 카드: 고른 변마다 ✓ 를 눌러 하나씩 놓는다.
-    return { label: `도로 건설 · 공짜 ${g.freeRoads}개 남음`, blocker: null, action: { type: 'build_road', edgeId: sel.id } };
+    // 길 건설 카드: 고른 변마다 ✓ 를 눌러 하나씩 놓는다 (섬 맵에서는 배도).
+    const spots = freeSpots(view);
+    if (roadOk && spots.roads.includes(sel.id)) return { label: `도로 건설 · 공짜 ${g.freeRoads}개 남음`, blocker: null, action: { type: 'build_road', edgeId: sel.id } };
+    if (shipOk && spots.ships.includes(sel.id)) return { label: `배 띄우기 · 공짜 ${g.freeRoads}개 남음`, blocker: null, action: { type: 'build_ship', edgeId: sel.id } };
+    return null;
   }
-  if (myMain) return { label: '길 놓기', blocker: buildBlocker(view, 'road'), action: { type: 'build_road', edgeId: sel.id } };
-  return null;
+  if (!myMain) return null;
+  if (roadOk) return { label: '길 놓기', blocker: buildBlocker(view, 'road'), action: { type: 'build_road', edgeId: sel.id } };
+  return { label: '배 띄우기', blocker: buildBlocker(view, 'ship'), action: { type: 'build_ship', edgeId: sel.id } };
 }

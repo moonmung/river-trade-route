@@ -29,10 +29,10 @@ const near = (a: TileDef, b: TileDef) => {
 const red = (n: number | undefined) => n === 6 || n === 8;
 
 /** 모양마다 광장 수와 교역로 수 (대형 맵은 광장 2칸, 가운데 바다 둘레 교역로 10곳) */
-const PLAZAS: Record<MapShape, number> = { hex: 1, diamond: 1, big: 2, lakes: 1 };
-const HARBOR_COUNT: Record<MapShape, number> = { hex: 9, diamond: 9, big: 10, lakes: 14 };
+const PLAZAS: Record<MapShape, number> = { hex: 1, diamond: 1, big: 2, lakes: 1, islands: 2 };
+const HARBOR_COUNT: Record<MapShape, number> = { hex: 9, diamond: 9, big: 10, lakes: 14, islands: 10 };
 /** 3:1 교역로 수 (나머지는 자원마다 2:1) */
-const GENERIC_HARBORS: Record<MapShape, number> = { hex: 4, diamond: 4, big: 5, lakes: 4 };
+const GENERIC_HARBORS: Record<MapShape, number> = { hex: 4, diamond: 4, big: 5, lakes: 4, islands: 5 };
 /** 방장이 직접 짠 맵: 그림 그대로라 황금 배치의 고르기 검사(같은 땅·숫자 맞닿음, 확률 고르기)는 하지 않는다 */
 const DESIGNED: readonly MapShape[] = ['lakes'];
 

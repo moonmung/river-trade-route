@@ -4,7 +4,7 @@
 import { boardOf } from './board';
 import { DEV_COST, PIECE_COST, RESOURCES, emptyBundle, hasBundle, numberPips } from './constants';
 import type { RoomView } from './protocol';
-import { buildableRoads, buildableVillages, pieceCount, pieceLimit, placeableVertices, setupRoadEdges, upgradableVillages } from './rules';
+import { buildableRoads, buildableShips, buildableVillages, pieceCount, pieceLimit, placeableVertices, setupRoadEdges, upgradableVillages } from './rules';
 import type { GameAction } from './types';
 
 export interface BotOptions {
@@ -73,9 +73,14 @@ export function botTurnAction(v: RoomView, seat: number, random: () => number = 
     return { type: 'move_robber', tileId: best };
   }
   if (g.step === 'steal') return { type: 'steal', from: g.stealFrom[Math.floor(random() * g.stealFrom.length)] };
+  const count = (kind: 'road' | 'village' | 'city' | 'ship') => pieceCount(g.buildings, g.roads, me, kind, g.ships);
+  const roadSpots = count('road') < pieceLimit(g, 'road') ? buildableRoads(board, g.buildings, g.roads, me, g.ships) : [];
+  const shipSpots = count('ship') < pieceLimit(g, 'ship') ? buildableShips(board, g.buildings, g.roads, g.ships, me) : [];
   if (g.step === 'road_building') {
-    const edges = buildableRoads(board, g.buildings, g.roads, me);
-    return edges.length ? { type: 'build_road', edgeId: edges[Math.floor(random() * edges.length)] } : { type: 'end_turn' };
+    // 섬 맵에서는 길을 놓을 곳이 없으면 공짜 배를 띄운다.
+    if (roadSpots.length) return { type: 'build_road', edgeId: roadSpots[Math.floor(random() * roadSpots.length)] };
+    if (shipSpots.length) return { type: 'build_ship', edgeId: shipSpots[Math.floor(random() * shipSpots.length)] };
+    return { type: 'end_turn' };
   }
 
   // 내가 낸 교환 제안에 수락한 사람이 있으면 확정하고, 오래 걸리면 거둔다.
@@ -85,7 +90,6 @@ export function botTurnAction(v: RoomView, seat: number, random: () => number = 
     if (t.to.every((id) => t.responses[id] !== 'pending')) return { type: 'trade_cancel', tradeId: t.id };
   }
 
-  const count = (kind: 'road' | 'village' | 'city') => pieceCount(g.buildings, g.roads, me, kind);
   const playable = (kind: string) => !g.devPlayedThisTurn && g.myDevCards.some((c) => c.kind === kind && c.boughtTurn < g.turn);
   if (playable('knight') && g.buildings.some((b) => b.owner === me && board.vertexMap[b.vertexId].tiles.includes(g.robber))) {
     return { type: 'play_dev', kind: 'knight' };
@@ -94,17 +98,20 @@ export function botTurnAction(v: RoomView, seat: number, random: () => number = 
     const villages = upgradableVillages(g.buildings, me);
     if (villages.length) return { type: 'build_city', vertexId: villages[0] };
   }
-  const villageSpots = buildableVillages(board, g.buildings, g.roads, me);
+  const villageSpots = buildableVillages(board, g.buildings, g.roads, me, g.ships);
   if (hasBundle(r, PIECE_COST.village) && count('village') < pieceLimit(g, 'village') && villageSpots.length) {
     return { type: 'build_village', vertexId: villageSpots[0] };
   }
-  if (playable('road_building') && !villageSpots.length && buildableRoads(board, g.buildings, g.roads, me).length) return { type: 'play_dev', kind: 'road_building' };
+  if (playable('road_building') && !villageSpots.length && (roadSpots.length || shipSpots.length)) return { type: 'play_dev', kind: 'road_building' };
   if (playable('year_of_plenty')) return { type: 'play_dev', kind: 'year_of_plenty', resources: ['stone', 'grain'] };
   if (playable('monopoly') && random() < 0.5) return { type: 'play_dev', kind: 'monopoly', resource: RESOURCES[Math.floor(random() * RESOURCES.length)] };
   if (hasBundle(r, DEV_COST) && (g.devDeckCount > 0 || g.unlimited)) return { type: 'buy_dev' };
-  if (hasBundle(r, PIECE_COST.road) && count('road') < pieceLimit(g, 'road') && !villageSpots.length) {
-    const edges = buildableRoads(board, g.buildings, g.roads, me);
-    if (edges.length) return { type: 'build_road', edgeId: edges[(seat * 3 + g.turn) % edges.length] };
+  if (hasBundle(r, PIECE_COST.road) && !villageSpots.length && roadSpots.length) {
+    return { type: 'build_road', edgeId: roadSpots[(seat * 3 + g.turn) % roadSpots.length] };
+  }
+  // 섬 맵: 길을 더 낼 곳이 없으면 배를 띄워 다른 섬으로 나간다.
+  if (hasBundle(r, PIECE_COST.ship) && !villageSpots.length && !roadSpots.length && shipSpots.length) {
+    return { type: 'build_ship', edgeId: shipSpots[(seat * 3 + g.turn) % shipSpots.length] };
   }
   // 다음 목표(도시 → 마을 → 발전 카드)에 모자란 자원 하나를, 목표에 안 쓰는 남는 자원으로 바꾼다 (교역로가 있으면 교역로로).
   const target = count('village') > 0 && count('city') < pieceLimit(g, 'city') ? PIECE_COST.city : villageSpots.length ? PIECE_COST.village : DEV_COST;

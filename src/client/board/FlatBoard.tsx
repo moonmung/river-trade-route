@@ -3,9 +3,9 @@
 // 아직 길이 없는 변은 3D 보드의 샛길처럼 희끄무레하고 살짝 굽은 가는 선으로 그린다.
 import { useMemo, type ReactNode } from 'react';
 import { mulberry32, hashString } from './art/rng';
-import { boardFor, edgeLabel, tileCenterUnit, vertexLabel } from '../../shared/board';
+import { boardFor, edgeLabel, seaEdgeLabel, tileCenterUnit, vertexLabel } from '../../shared/board';
 import { RESOURCE_LABEL, TILE_KIND_LABEL, numberPips } from '../../shared/constants';
-import type { TileDef } from '../../shared/types';
+import type { SeaCell, TileDef } from '../../shared/types';
 import { playerColor } from '../theme';
 import { RESOURCE_ART } from '../ui/art';
 import { ResourceIcon } from '../ui/icons';
@@ -26,21 +26,26 @@ function hexPoints(cx: number, cy: number, r: number): string {
  */
 export function FlatBoard({
   tiles,
+  sea,
   state,
   onTap,
   pin = null,
   marks = [],
 }: {
   tiles: readonly TileDef[];
+  /** 배를 띄울 바다 칸 (섬 맵) */
+  sea?: readonly SeaCell[];
   state: BoardState;
   onTap?: (sel: BoardSelection, info: { alt: boolean }) => void;
   pin?: { sel: BoardSelection; node: ReactNode } | null;
   marks?: { key: string | number; sel: BoardSelection; node: ReactNode }[];
 }) {
-  const geo = useMemo(() => boardFor(tiles), [tiles]);
+  const geo = useMemo(() => boardFor(tiles, sea), [tiles, sea]);
+  const net = geo.sea;
   const pad = state.harbors?.length ? 0.85 : 0.4;
-  const xs = geo.vertices.map((v) => v.x);
-  const ys = geo.vertices.map((v) => v.y);
+  // 섬 맵은 바닷길까지 다 보이게 바다 칸 꼭짓점까지 담는다.
+  const xs = [...geo.vertices, ...Object.values(net?.vertexMap ?? {})].map((v) => v.x);
+  const ys = [...geo.vertices, ...Object.values(net?.vertexMap ?? {})].map((v) => v.y);
   const minX = Math.min(...xs) - pad;
   const minY = Math.min(...ys) - pad;
   const w = Math.max(...xs) + pad - minX;
@@ -83,10 +88,33 @@ export function FlatBoard({
   const sel = state.selected;
   const isSel = (kind: BoardSelection['kind'], id: string) => sel?.kind === kind && sel.id === id;
   const robber = state.robber !== undefined ? state.robber : (tiles.find((t) => t.kind === 'plaza')?.id ?? null);
+  // 배: 바다 한가운데 변은 변 위, 바닷가 변은 땅 칸 반대쪽(바다 쪽)으로 조금 비켜 띄운다.
+  const shipEdges = new Set((state.ships ?? []).map((s) => s.edgeId));
+  const hlS = new Set(state.highlights?.shipEdges ?? []);
+  const onWater = (id: string) => !!net?.edgeMap[id] && (shipEdges.has(id) || !geo.edgeMap[id] || (hlS.has(id) && !hlE.has(id)));
+  const shipSpot = (id: string) => {
+    const e = net?.edgeMap[id];
+    if (!net || !e) return null;
+    const a = net.vertexMap[e.a];
+    const b = net.vertexMap[e.b];
+    let ox = 0;
+    let oy = 0;
+    const land = geo.edgeMap[id];
+    if (land) {
+      const c = tileCenterUnit(tiles.find((t) => t.id === land.tiles[0])!);
+      const mx = (a.x + b.x) / 2 - c.x;
+      const my = (a.y + b.y) / 2 - c.y;
+      const len = Math.hypot(mx, my) || 1;
+      ox = (mx / len) * 0.3;
+      oy = (my / len) * 0.3;
+    }
+    return { x1: a.x + ox, y1: a.y + oy, x2: b.x + ox, y2: b.y + oy, x: (a.x + b.x) / 2 + ox, y: (a.y + b.y) / 2 + oy, deg: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI };
+  };
   const spotAt = (sel: BoardSelection): { x: number; y: number } | null => {
     const { kind, id } = sel;
     if (kind === 'vertex') return geo.vertexMap[id] ?? null;
     if (kind === 'edge') {
+      if (onWater(id)) return shipSpot(id);
       const e = geo.edgeMap[id];
       return e ? { x: (geo.vertexMap[e.a].x + geo.vertexMap[e.b].x) / 2, y: (geo.vertexMap[e.a].y + geo.vertexMap[e.b].y) / 2 } : null;
     }
@@ -185,10 +213,39 @@ export function FlatBoard({
                 />
               )}
               {!road && hintE.has(e.id) && !hlE.has(e.id) && <line x1={x1} y1={y1} x2={x2} y2={y2} className="flat-hint-line" />}
-              {(hlE.has(e.id) || isSel('edge', e.id)) && (
-                <line x1={x1} y1={y1} x2={x2} y2={y2} className={`flat-edge-hl ${isSel('edge', e.id) ? 'flat-edge-sel' : ''}`} />
+              {(hlE.has(e.id) || (isSel('edge', e.id) && !onWater(e.id))) && (
+                <line x1={x1} y1={y1} x2={x2} y2={y2} className={`flat-edge-hl ${isSel('edge', e.id) && !onWater(e.id) ? 'flat-edge-sel' : ''}`} />
               )}
-              <line x1={x1} y1={y1} x2={x2} y2={y2} className="flat-hit-line" />
+              {!shipEdges.has(e.id) && <line x1={x1} y1={y1} x2={x2} y2={y2} className="flat-hit-line" />}
+            </g>
+          );
+        })}
+        {net?.edges.map((e) => {
+          // 바닷길: 배가 떠 있거나, 배 자리로 빛나거나, 고른 배 자리만 그린다 (빈 바다는 비워 둔다).
+          const ship = state.ships?.find((s) => s.edgeId === e.id);
+          const lit = hlS.has(e.id);
+          const picked = (isSel('edge', e.id) && onWater(e.id)) || state.movingShip === e.id;
+          if (!ship && !lit && !picked) return null;
+          const sp = shipSpot(e.id)!;
+          const cut = (t: number) => ({ x: sp.x1 + (sp.x2 - sp.x1) * t, y: sp.y1 + (sp.y2 - sp.y1) * t });
+          const p1 = cut(0.24);
+          const p2 = cut(0.76);
+          return (
+            <g
+              key={`sea-${e.id}`}
+              onClick={(ev) => onTap?.({ kind: 'edge', id: e.id }, { alt: ev.altKey })}
+              role="button"
+              aria-label={`${seaEdgeLabel(geo, e.id)}${ship ? ' 배' : ' 배 자리'}`}
+            >
+              {ship && traceE.has(e.id) && <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} className="flat-trace" />}
+              {(lit || picked) && <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} className={`flat-edge-hl flat-sea-hl ${picked ? 'flat-edge-sel' : ''}`} />}
+              {ship && (
+                <g transform={`translate(${sp.x.toFixed(3)} ${sp.y.toFixed(3)}) rotate(${sp.deg.toFixed(1)})`} className="flat-ship">
+                  <path d="M-0.24 0.02 H0.24 L0.16 0.11 H-0.17 Z" className="flat-ship-hull" />
+                  <path d="M0.02 0.01 V-0.27 L0.17 -0.02 Z" style={{ fill: playerColor(ship.colorIndex).hex }} className="flat-ship-sail" />
+                </g>
+              )}
+              <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} className="flat-hit-line" />
             </g>
           );
         })}

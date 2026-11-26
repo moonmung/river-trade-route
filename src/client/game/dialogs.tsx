@@ -15,7 +15,7 @@ import { setSoundSettings, sfx, useSoundSettings } from '../sound/sfx';
 import type { BoardSelection } from '../board/BoardRenderer';
 import { DevIcon } from './hand';
 import { AwardIcon } from './panels';
-import { bundleText, formatEvent, playDevBlocker, spotAction, type PlayerInfo } from './derive';
+import { NO_PICK, bundleText, formatEvent, playDevBlocker, spotAction, type BoardPick, type PlayerInfo } from './derive';
 import { ActionButton, Sheet, Stepper, isSandboxed, sendAction } from './ui';
 
 type Players = Map<string, PlayerInfo>;
@@ -161,9 +161,25 @@ export function StealDialog({ view, players }: { view: RoomView; players: Player
  * 도시로 업그레이드, 기사단 동상 옮기기)을 하고 빨간 ✕ 는 고른 것을 무른다. 글로 된 설명은 두지 않는다.
  * 못 하는 일이면 ✓ 가 흐려지고 누르면 까닭을 알림으로 띄운다. 할 수 있는 일이 없는 자리는 아무것도 띄우지 않는다.
  */
-export function SpotConfirm({ view, sel, onClose, onDone }: { view: RoomView; sel: BoardSelection; onClose: () => void; onDone: () => void }) {
+export function SpotConfirm({
+  view,
+  sel,
+  pick = NO_PICK,
+  onClose,
+  onDone,
+  onStartMove,
+}: {
+  view: RoomView;
+  sel: BoardSelection;
+  /** 지금 건설 모드와 옮기려고 고른 배 */
+  pick?: BoardPick;
+  onClose: () => void;
+  onDone: () => void;
+  /** 내 배를 옮길 배로 골랐다 (옮겨 댈 곳을 고르는 단계로) */
+  onStartMove?: (edgeId: string) => void;
+}) {
   const [busy, setBusy] = useState(false);
-  const act = spotAction(view, sel);
+  const act = spotAction(view, sel, pick);
   if (!act) return null;
   return (
     <div className="spot-pin" role="group" aria-label={act.label}>
@@ -177,6 +193,10 @@ export function SpotConfirm({ view, sel, onClose, onDone }: { view: RoomView; se
           if (busy) return;
           if (act.blocker) {
             showToast(act.blocker, 'warn');
+            return;
+          }
+          if (!act.action) {
+            if (act.start === 'move_ship') onStartMove?.(sel.id);
             return;
           }
           setBusy(true);

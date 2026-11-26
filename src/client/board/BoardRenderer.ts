@@ -5,11 +5,11 @@
 // - 카메라 조작, 크기 변경, 상태 변경, 짧은 연출 중에만 다시 그린다 (정지 화면은 마지막 프레임 유지)
 // - 만화 음영 재질과 수채화 후처리(먹선·종이 결·물감 얼룩)로 손으로 그린 삽화처럼 보이게 한다 (paint.ts)
 import * as THREE from 'three';
-import { boardGeometry, innerCoastEdges, type BoardGeometry, type EdgeDef } from '../../shared/board';
+import { boardGeometry, innerCoastEdges, seaNet, type BoardGeometry, type EdgeDef, type SeaNet } from '../../shared/board';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { RESOURCES, RESOURCE_LABEL, numberPips } from '../../shared/constants';
 import { longestRoadPath } from '../../shared/rules';
-import type { Bundle, Harbor, Resource, TileDef, TileKind } from '../../shared/types';
+import type { Bundle, Harbor, Resource, SeaCell, TileDef, TileKind } from '../../shared/types';
 import { GOODS_VARIANT, ROAD_DECK_TOP, SOLDIER_REACH, SOLDIER_SHOULDER, type PropKey } from './art/builders';
 import { PARADE_LOWER_MS, paradeTiming, type ParadeTiming } from './parade';
 import { harborLegs } from './harborTrade';
@@ -62,11 +62,21 @@ export interface BoardRoadView {
   colorIndex: number;
 }
 
+/** 바다 위의 배 (섬 맵): 길과 같은 꼴이다 */
+export type BoardShipView = BoardRoadView;
+
 export interface BoardState {
   buildings: BoardBuildingView[];
   roads: BoardRoadView[];
-  /** 빛낼 꼭짓점·변·칸 (시작 배치·건설 모드에서 지을 수 있는 자리, 기사단 동상을 옮길 수 있는 칸) */
-  highlights: { vertices: string[]; edges: string[]; tiles?: string[]; kind: HighlightKind } | null;
+  /** 바다 위의 배 (섬 맵) */
+  ships?: BoardShipView[];
+  /** 옮기려고 고른 내 배가 떠 있는 변 (그 배를 들어 올린 듯이 빛낸다) */
+  movingShip?: string | null;
+  /**
+   * 빛낼 꼭짓점·변·칸 (시작 배치·건설 모드에서 지을 수 있는 자리, 기사단 동상을 옮길 수 있는 칸).
+   * shipEdges 는 배를 띄우거나 옮겨 댈 수 있는 바닷길로, 물 위 배 자리에 빛을 그린다.
+   */
+  highlights: { vertices: string[]; edges: string[]; shipEdges?: string[]; tiles?: string[]; kind: HighlightKind } | null;
   selected: BoardSelection | null;
   /** 칸마다 놓인 숫자 패 (2~12). 없으면 숫자 패를 그리지 않는다. */
   numbers?: Record<string, number>;
@@ -89,6 +99,8 @@ export interface Insets {
 
 export interface BoardOptions {
   tiles: readonly TileDef[];
+  /** 배를 띄울 바다 칸 (섬 맵). 없으면 바닷길도 배도 없다. */
+  sea?: readonly SeaCell[];
   playerColors: readonly string[];
   ownerMarkup: (colorIndex: number) => string;
   /** 자리를 눌렀다. alt: Alt 키를 누른 채 눌렀다 (핑 찍기) */
@@ -150,7 +162,13 @@ const TRADER_CITY_STOP = 0.42;
 const TRADER_FOOT = PLATFORM_TOP + 0.004 + ROAD_DECK_TOP;
 /** 길 위에서 오른쪽으로 비켜 걷는 거리 (마주 오는 사람과 엇갈린다) */
 const TRADER_KEEP_RIGHT = 0.042;
-type BoardPieceKind = 'village' | 'city' | 'road' | 'joint';
+type BoardPieceKind = 'village' | 'city' | 'road' | 'joint' | 'ship';
+/**
+ * 플레이어의 배 (섬 맵): 해상 교역 배와 같은 돛배를 조금 크게, 물 위에 띄운다. 길이 약 0.9 로 변(1.32)의 3분의 2쯤이다.
+ * 바닷가 변의 배는 땅에 얹히지 않게 물가 너머 바다 쪽으로 비켜 띄운다.
+ */
+const FLEET_SCALE = 0.9;
+const FLEET_Y = 0.02;
 /** 해상 교역 배: 한꺼번에 뜰 수 있는 수, 크기(길이 약 0.55), 연출 길이(들어옴 → 짐 주고받기 → 떠남) */
 const SHIP_MAX = 4;
 const SHIP_SCALE = 0.55;
@@ -361,6 +379,29 @@ function offsetLoop(c: CoastLoop, d: number): Pt[] {
     const k = d / Math.max(0.3, mx * n1.x + mz * n1.z);
     return { x: p.x + mx * k, z: p.z + mz * k };
   });
+}
+
+/** 점이 닫힌 꺾은선 안에 있는지 (가로 반직선이 선을 몇 번 건너는지 센다) */
+function insideLoop(p: Pt, pts: readonly Pt[]): boolean {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i];
+    const b = pts[j];
+    if (a.z > p.z !== b.z > p.z && p.x < ((b.x - a.x) * (p.z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * 바닷가 고리가 물을 둘러싼 고리(가운데 바다·호수 둘레)인지: 첫 변 가운데에서 바다 쪽으로 조금 나간 점이 고리 안에 있으면 그렇다.
+ * 섬 둘레 고리는 바다가 바깥에 있다.
+ */
+function isWaterInside(c: CoastLoop): boolean {
+  if (c.pts.length < 3) return false;
+  const a = c.pts[0];
+  const b = c.pts[1];
+  const n = c.normals[0];
+  return insideLoop({ x: (a.x + b.x) / 2 + n.x * 0.3, z: (a.z + b.z) / 2 + n.z * 0.3 }, c.pts);
 }
 
 /** 꺾인 선을 부드럽게 다듬는다 (모서리 깎기를 여러 번) */
@@ -775,6 +816,11 @@ export class BoardRenderer {
   private highlightRing: THREE.InstancedMesh | null = null;
   private highlightFill: THREE.InstancedMesh | null = null;
   private readonly geo: BoardGeometry;
+  /** 배가 다니는 바닷길 (섬 맵이 아니면 null) */
+  private readonly net: SeaNet | null;
+  /** 배 자리 빛: 물 위 알약 고리와 그 안을 옅게 채운 빛 (바닷가 변까지 포함해 바닷길 변마다 하나) */
+  private seaMark: THREE.InstancedMesh | null = null;
+  private seaFill: THREE.InstancedMesh | null = null;
   private pieceParts: { mesh: THREE.InstancedMesh; tint: boolean; kind: BoardPieceKind }[] = [];
   private pieceShadow: THREE.InstancedMesh | null = null;
   private knownPieces = new Set<string>();
@@ -882,6 +928,7 @@ export class BoardRenderer {
   ) {
     this.metrics = boardMetrics(options.tiles);
     this.geo = boardGeometry(options.tiles);
+    this.net = options.sea?.length ? seaNet(this.geo, options.sea) : null;
     this.tileById = new Map(options.tiles.map((t) => [t.id, t]));
     // 잠긴 칸 무채색은 모든 재질이 함께 보는 값이라, 새 보드를 열 때 지난 보드의 잠금을 지운다.
     paintLock.apothem.value = LOCK_APOTHEM;
@@ -1394,8 +1441,9 @@ export class BoardRenderer {
       this.requestRender();
       return;
     }
-    const key = sel.kind === 'vertex' ? `b:${sel.id}` : `r:${sel.id}`;
-    const exists = sel.kind === 'vertex' ? this.state.buildings.some((b) => b.vertexId === sel.id) : this.state.roads.some((r) => r.edgeId === sel.id);
+    const ship = sel.kind === 'edge' && this.shipOn(sel.id);
+    const key = sel.kind === 'vertex' ? `b:${sel.id}` : ship ? `s:${sel.id}` : `r:${sel.id}`;
+    const exists = sel.kind === 'vertex' ? this.state.buildings.some((b) => b.vertexId === sel.id) : ship || this.state.roads.some((r) => r.edgeId === sel.id);
     if (!exists || this.growing.has(key)) return;
     this.addAnim({
       duration: 420,
@@ -1427,7 +1475,7 @@ export class BoardRenderer {
     // 보드 바깥은 무늬 없는 물이다. 장면 배경색(WATER_COLOR)이 그 역할을 하므로 따로 그리지 않는다.
 
     // 땅: 바깥 타일 둘레(바닷가 변)를 따라 조금 넓힌 흙 땅. 타일 사이 틈은 흙 땅 위로 샛길이 나고, 둘레는 모래밭과 얕은 물로 이어진다.
-    // 바닷가 고리: 첫 고리가 바깥 둘레이고, 대형 맵처럼 가운데가 바다인 판은 그 바다 둘레 고리가 더 있다.
+    // 바닷가 고리: 섬마다 바깥 둘레 고리가 하나씩 있고, 대형 맵처럼 가운데가 바다이거나 호수가 있는 판은 그 물 둘레 고리가 더 있다.
     const coasts = this.coastLoops();
     const toV2 = (pts: Pt[]) => pts.map((q) => new THREE.Vector2(q.x, -q.z));
     // 바다: 흙 땅 → 물 밑으로 비스듬히 잠기는 모래밭 → 옥빛 얕은 물 → 차츰 짙어지는 깊은 물.
@@ -1435,10 +1483,18 @@ export class BoardRenderer {
     for (const c of coasts) this.buildBeachSlope(c);
     this.buildSea(coasts);
     // 땅 끝은 모래밭 첫 줄과 같은 둥근 선이라 모래밭이 땅 끝에서 틈이나 각 없이 이어진다.
-    const landShape = new THREE.Shape(toV2(chaikin(offsetLoop(coasts[0], LAND_MARGIN), 3)));
-    // 가운데 바다는 흙 땅에 뚫린 구멍이다 (안쪽 고리도 바다 쪽으로 같은 폭만큼 넓힌다).
-    for (const hole of coasts.slice(1)) landShape.holes.push(new THREE.Path(toV2(chaikin(offsetLoop(hole, LAND_MARGIN), 3))));
-    const landGeo = this.own(new THREE.ExtrudeGeometry(landShape, { depth: PLATFORM_TOP, bevelEnabled: false }).rotateX(-Math.PI / 2));
+    // 섬마다 흙 땅 한 덩이이고, 섬 안의 가운데 바다·호수는 그 섬 흙 땅에 뚫린 구멍이다 (구멍 고리도 물 쪽으로 같은 폭만큼 넓힌다).
+    const outlines = coasts.map((c) => toV2(chaikin(offsetLoop(c, LAND_MARGIN), 3)));
+    const holes = coasts.map((c) => isWaterInside(c));
+    const landShapes = coasts.flatMap((c, i) => {
+      if (holes[i]) return [];
+      const shape = new THREE.Shape(outlines[i]);
+      coasts.forEach((h, j) => {
+        if (holes[j] && h.pts.length && insideLoop(h.pts[0], c.pts)) shape.holes.push(new THREE.Path(outlines[j]));
+      });
+      return [shape];
+    });
+    const landGeo = this.own(new THREE.ExtrudeGeometry(landShapes, { depth: PLATFORM_TOP, bevelEnabled: false }).rotateX(-Math.PI / 2));
     scaleUV(landGeo, 0.5);
     // 윗면에는 빈 변마다 희끄무레한 샛길을 함께 칠한다 (따로 그리는 띠가 없어 그리기 호출이 늘지 않는다).
     const dirtTop = this.withShoreSand(this.withFootpaths(this.groundMaterial('ground_dirt', GROUND_FALLBACK.dirt)), coasts);
@@ -1528,13 +1584,13 @@ export class BoardRenderer {
    */
   private buildSea(coasts: CoastLoop[]): void {
     const shores = coasts.map((c) => chaikin(offsetLoop(c, WATERLINE), 3));
-    const shore = shores[0];
     const pad = SEA_REACH + 0.6;
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;
     let maxZ = -Infinity;
-    for (const p of shore) {
+    // 섬이 여럿이면 모든 섬 둘레를 담는다.
+    for (const p of shores.flat()) {
       minX = Math.min(minX, p.x - pad);
       maxX = Math.max(maxX, p.x + pad);
       minZ = Math.min(minZ, p.z - pad);
@@ -1992,6 +2048,8 @@ export class BoardRenderer {
       ['road', 'road', ne],
       ['joint', 'roadjoint', nv],
     ];
+    // 섬 맵: 플레이어 배 (해상 교역 배와 같은 돛배, 돛에 플레이어 색). 바닷길 변마다 하나까지 띄울 수 있다.
+    if (this.net) pools.push(['ship', 'ship', this.net.edges.length]);
     for (const [kind, key, capacity] of pools) {
       // 플레이어 조각은 기사단 동상이 선 칸 가장자리에 있어도 제 색을 지킨다.
       const template = art.prop(key, 0, true);
@@ -2061,7 +2119,14 @@ export class BoardRenderer {
     this.spotRing = new THREE.InstancedMesh(spotRingGeo, markMat(0.95), nv);
     this.spotFill = new THREE.InstancedMesh(spotFillGeo, markMat(0.35), nv);
     this.edgeMark = new THREE.InstancedMesh(edgeGeo, markMat(0.85), ne);
-    for (const m of [this.spotRing, this.spotFill, this.edgeMark]) {
+    const marks = [this.spotRing, this.spotFill, this.edgeMark];
+    // 배 자리: 물 위 배가 뜰 자리에 넓적한 알약 고리와 옅게 채운 빛 (바닷길 변마다 하나). 물빛 위에서도 또렷하게 굵게 그린다.
+    if (this.net) {
+      this.seaMark = new THREE.InstancedMesh(this.own(capsuleRing(1.02, 0.42, 0.085)), markMat(0.95), this.net.edges.length);
+      this.seaFill = new THREE.InstancedMesh(this.own(capsuleRing(1.02, 0.42, 0.21)), markMat(0.32), this.net.edges.length);
+      marks.push(this.seaMark, this.seaFill);
+    }
+    for (const m of marks) {
       for (let i = 0; i < m.count; i++) m.setColorAt(i, new THREE.Color('#ffffff'));
       m.renderOrder = 4;
       m.frustumCulled = false;
@@ -2077,7 +2142,7 @@ export class BoardRenderer {
     this.traceMark = new THREE.InstancedMesh(
       this.own(new THREE.PlaneGeometry(1, 0.2).rotateX(-Math.PI / 2)),
       this.own(new THREE.MeshBasicMaterial({ color: '#ffd34d', transparent: true, opacity: 0.75, depthWrite: false, toneMapped: false })),
-      ne,
+      ne + (this.net?.edges.length ?? 0),
     );
     for (const m of [this.hintDots, this.hintRings, this.traceMark]) {
       m.count = 0;
@@ -2174,6 +2239,19 @@ export class BoardRenderer {
       m.vertex.visible = true;
       return;
     }
+    // 배가 뜬 변이나 바다 한가운데 변은 물 위 배 자리를 감싼다.
+    if (this.onWater(hov.id)) {
+      const sp = this.shipSpot(hov.id);
+      if (!sp) return;
+      const [line, halo] = this.hoverEdgeGeometry(0.66, true);
+      const [over, under] = m.edge.children as THREE.Mesh[];
+      over.geometry = line;
+      under.geometry = halo;
+      m.edge.position.set(sp.mid.x, FLEET_Y + 0.03, sp.mid.z);
+      m.edge.rotation.y = sp.angle;
+      m.edge.visible = true;
+      return;
+    }
     const ew = this.edgeWorld(hov.id);
     if (!ew) return;
     const road = this.state.roads.find((r) => r.edgeId === hov.id);
@@ -2189,6 +2267,39 @@ export class BoardRenderer {
     m.edge.visible = true;
   }
 
+  /** 이 변에 배가 떠 있는지 */
+  private shipOn(edgeId: string): boolean {
+    return !!this.state.ships?.some((s) => s.edgeId === edgeId);
+  }
+
+  /**
+   * 이 변의 자리를 물 위(배 자리)로 볼지: 배가 떠 있거나, 바다 한가운데 변이거나,
+   * 바닷가 변인데 길 자리로는 빛나지 않고 배 자리로만 빛나는 변.
+   */
+  private onWater(edgeId: string): boolean {
+    if (!this.net?.edgeMap[edgeId]) return false;
+    if (this.shipOn(edgeId) || !this.geo.edgeMap[edgeId]) return true;
+    const hl = this.state.highlights;
+    return !!hl?.shipEdges?.includes(edgeId) && !hl.edges.includes(edgeId);
+  }
+
+  /**
+   * 배가 뜨는 자리: 바다 한가운데 변은 변 가운데 물 위, 바닷가 변은 땅 칸 반대쪽으로 물가 너머까지 비켜 난 물 위.
+   * 뱃머리는 변을 따라 둔다.
+   */
+  private shipSpot(edgeId: string): { mid: THREE.Vector3; angle: number; length: number; a: THREE.Vector3; b: THREE.Vector3 } | null {
+    const ew = this.edgeWorld(edgeId);
+    if (!ew) return null;
+    const land = this.geo.edgeMap[edgeId];
+    const off = new THREE.Vector3();
+    if (land) {
+      const c = tileCenter(this.tileById.get(land.tiles[0])!, this.metrics);
+      off.set(ew.mid.x - c.x, 0, ew.mid.z - c.z).normalize().multiplyScalar(WATERLINE + 0.28);
+    }
+    const lift = (p: THREE.Vector3) => p.clone().add(off).setY(FLEET_Y);
+    return { mid: lift(ew.mid), angle: ew.angle, length: ew.length, a: lift(ew.a), b: lift(ew.b) };
+  }
+
   /** 달성 연출: 조각 아래 바닥에 번지는 금빛(더하기 섞기)과 화면을 향한 반짝이 별. 둘 다 그리기 호출 한 번씩이다. */
   private buildAwardFx(): void {
     const glowMat = this.own(
@@ -2201,7 +2312,7 @@ export class BoardRenderer {
       }),
     );
     // 빛나는 자리: 길(변)·이음목과 마을·도시(꼭짓점)·동상이 한꺼번에 빛나도 모자라지 않게
-    const glowCapacity = this.geo.edges.length + 2 * this.geo.vertices.length + 4;
+    const glowCapacity = this.geo.edges.length + (this.net?.edges.length ?? 0) + 2 * this.geo.vertices.length + 4;
     this.glowMesh = new THREE.InstancedMesh(this.own(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)), glowMat, glowCapacity);
     const sparkleMat = this.own(
       new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }),
@@ -2312,10 +2423,13 @@ export class BoardRenderer {
     const current = new Set([
       ...s.buildings.map((b) => `b:${b.vertexId}:${b.kind}:${b.owner}`),
       ...s.roads.map((r) => `r:${r.edgeId}:${r.owner}`),
+      ...(s.ships ?? []).map((sh) => `s:${sh.edgeId}:${sh.owner}`),
     ]);
     if (!this.firstState) {
       for (const b of s.buildings) if (!this.knownPieces.has(`b:${b.vertexId}:${b.kind}:${b.owner}`)) this.animateGrow(`b:${b.vertexId}`);
       for (const r of s.roads) if (!this.knownPieces.has(`r:${r.edgeId}:${r.owner}`)) this.animateGrow(`r:${r.edgeId}`);
+      // 새로 띄우거나 옮겨 온 배도 물 위로 솟아오른다.
+      for (const sh of s.ships ?? []) if (!this.knownPieces.has(`s:${sh.edgeId}:${sh.owner}`)) this.animateGrow(`s:${sh.edgeId}`);
     }
     this.firstState = false;
     this.knownPieces = current;
@@ -2363,16 +2477,16 @@ export class BoardRenderer {
     this.requestRender();
   }
 
-  /** 꼭짓점의 세계 좌표 (타일 윗면 높이) */
+  /** 꼭짓점의 세계 좌표 (타일 윗면 높이). 섬 맵의 바다 한가운데 꼭짓점(w…)도 같은 높이로 준다. */
   vertexWorld(id: string): THREE.Vector3 | null {
-    const v = this.geo.vertexMap[id];
+    const v = this.geo.vertexMap[id] ?? this.net?.vertexMap[id];
     if (!v) return null;
     return new THREE.Vector3(v.x * HEX_SPACING - this.metrics.cx, TILE_TOP, v.y * HEX_SPACING - this.metrics.cz);
   }
 
-  /** 변의 가운데, 방향(y 축 회전), 길이 */
+  /** 변의 가운데, 방향(y 축 회전), 길이. 섬 맵의 바다 한가운데 변(s…)도 준다. */
   private edgeWorld(id: string): { mid: THREE.Vector3; angle: number; length: number; a: THREE.Vector3; b: THREE.Vector3 } | null {
-    const e = this.geo.edgeMap[id];
+    const e = this.geo.edgeMap[id] ?? this.net?.edgeMap[id];
     if (!e) return null;
     const a = this.vertexWorld(e.a)!;
     const b = this.vertexWorld(e.b)!;
@@ -2429,6 +2543,18 @@ export class BoardRenderer {
           const mid = ew.a.clone().lerp(ew.b, (t0 + t1) / 2);
           part.mesh.setMatrixAt(i, compose(mid.x, PLATFORM_TOP + 0.004, mid.z, ew.angle, ew.length * (t1 - t0) * g, Math.max(0.01, g), 1));
           if (part.tint) part.mesh.setColorAt(i, tint(r.colorIndex, `r:${r.edgeId}`));
+          i++;
+        }
+      } else if (part.kind === 'ship') {
+        // 배: 물 위 배 자리에 뱃머리를 변 방향으로 띄운다. 옮기려고 고른 배는 조금 떠올라 있다.
+        for (const sh of this.state.ships ?? []) {
+          const sp = this.shipSpot(sh.edgeId);
+          if (!sp || i >= part.mesh.instanceMatrix.count) continue;
+          const g = this.growing.get(`s:${sh.edgeId}`) ?? 1;
+          const lifted = this.state.movingShip === sh.edgeId ? 0.08 : 0;
+          const sc = FLEET_SCALE * Math.max(0.01, g);
+          part.mesh.setMatrixAt(i, compose(sp.mid.x, sp.mid.y + lifted, sp.mid.z, sp.angle, sc, sc, sc));
+          if (part.tint) part.mesh.setColorAt(i, tint(sh.colorIndex, `r:${sh.edgeId}`));
           i++;
         }
       } else if (part.kind === 'joint') {
@@ -2490,7 +2616,12 @@ export class BoardRenderer {
       const g = this.glowLevel(key);
       if (g < 0.01 || i >= mesh.instanceMatrix.count) continue;
       const id = key.slice(2);
-      if (key.startsWith('r:')) {
+      if (key.startsWith('r:') && this.shipOn(id)) {
+        // 배: 물 위 배 자리에 배를 감싸게 번진다.
+        const sp = this.shipSpot(id);
+        if (!sp) continue;
+        mesh.setMatrixAt(i, compose(sp.mid.x, FLEET_Y + 0.02, sp.mid.z, sp.angle, 1.05, 1, 0.6));
+      } else if (key.startsWith('r:')) {
         const ew = this.edgeWorld(id);
         if (!ew) continue;
         mesh.setMatrixAt(i, compose(ew.mid.x, PLATFORM_TOP + ROAD_DECK_TOP + 0.02, ew.mid.z, ew.angle, ew.length * 1.1, 1, 0.66));
@@ -2578,11 +2709,13 @@ export class BoardRenderer {
       if (spotFill.instanceColor) spotFill.instanceColor.needsUpdate = true;
     }
     const edgeMark = this.edgeMark;
+    // 물 위 배 자리로 고른 변 (배가 떠 있거나 배 자리로만 빛나는 변): 길 자리 띠 대신 물 위 빛으로 고른 것을 보인다.
+    const selWater = sel?.kind === 'edge' && this.onWater(sel.id) ? sel.id : null;
     if (edgeMark) {
       const roadEdges = new Set(this.state.roads.map((r) => r.edgeId));
       this.geo.edges.forEach((e, i) => {
         const ew = this.edgeWorld(e.id)!;
-        const selected = same(sel, 'edge', e.id);
+        const selected = same(sel, 'edge', e.id) && selWater !== e.id;
         const kind: keyof typeof HIGHLIGHT_COLOR | null = selected ? 'selected' : he.has(e.id) && hl ? hl.kind : null;
         const len = kind ? ew.length * 0.66 : 0;
         // 빈 변은 길 판자 높이에 띠를 그린다. 길이 놓인 변은 판자 아래에 더 넓게 깔아 판자 둘레로 빛 테두리가 비친다.
@@ -2594,6 +2727,29 @@ export class BoardRenderer {
       });
       edgeMark.instanceMatrix.needsUpdate = true;
       if (edgeMark.instanceColor) edgeMark.instanceColor.needsUpdate = true;
+    }
+    // 배 자리: 배를 띄우거나 옮겨 댈 수 있는 바닷길은 물 위에 빛나는 알약 고리, 고른 배 자리와 옮기려고 고른 배는 흰 고리.
+    const seaMark = this.seaMark;
+    const seaFill = this.seaFill;
+    if (seaMark && seaFill && this.net) {
+      const hs = new Set(hl?.shipEdges ?? []);
+      this.net.edges.forEach((e, i) => {
+        const moving = this.state.movingShip === e.id;
+        const selected = selWater === e.id || moving;
+        const kind: keyof typeof HIGHLIGHT_COLOR | null = selected ? 'selected' : hs.has(e.id) && hl ? hl.kind : null;
+        const sp = kind ? this.shipSpot(e.id) : null;
+        const s = sp ? (selected ? 1.12 : 1) : 0;
+        seaMark.setMatrixAt(i, compose(sp?.mid.x ?? 0, FLEET_Y + 0.014, sp?.mid.z ?? 0, sp?.angle ?? 0, s, 1, s));
+        seaFill.setMatrixAt(i, compose(sp?.mid.x ?? 0, FLEET_Y + 0.01, sp?.mid.z ?? 0, sp?.angle ?? 0, s, 1, s));
+        if (kind) {
+          seaMark.setColorAt(i, color.set(HIGHLIGHT_COLOR[kind]));
+          seaFill.setColorAt(i, color);
+        }
+      });
+      for (const m of [seaMark, seaFill]) {
+        m.instanceMatrix.needsUpdate = true;
+        if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      }
     }
     // 안내 표식: 빛나는 자리(건설 모드)나 고른 자리와 겹치는 곳은 빼고 그린다.
     const hints = this.state.hints;
@@ -2625,6 +2781,12 @@ export class BoardRenderer {
     if (this.traceMark) {
       let nt = 0;
       for (const id of this.state.trace ?? []) {
+        // 교역로의 배는 물 위 배 자리 밑에 금빛 띠를 깐다.
+        if (this.shipOn(id)) {
+          const sp = this.shipSpot(id);
+          if (sp) this.traceMark.setMatrixAt(nt++, compose(sp.mid.x, FLEET_Y + 0.008, sp.mid.z, sp.angle, 0.9, 1, 2.2));
+          continue;
+        }
         const ew = this.edgeWorld(id);
         if (!ew) continue;
         this.traceMark.setMatrixAt(nt++, compose(ew.mid.x, PLATFORM_TOP + ROAD_DECK_TOP + 0.01, ew.mid.z, ew.angle, ew.length * 0.82, 1, 1.45));
@@ -3419,19 +3581,21 @@ export class BoardRenderer {
    * 게임 규칙의 longestRoadPath 를 이 판의 꼭짓점·변으로 돌린다 (맵 모양이 달라도, 실험실의 작은 판이어도 같다).
    */
   private longestPath(playerId: string): { edges: string[]; vertices: string[] } {
+    const edgeOf = (id: string) => this.geo.edgeMap[id] ?? this.net?.edgeMap[id];
     const edges = longestRoadPath(
-      this.geo,
+      { ...this.geo, sea: this.net },
       this.state.roads.map((r) => ({ edgeId: r.edgeId, owner: r.owner, builtTurn: 0 })),
       this.state.buildings.map((b) => ({ vertexId: b.vertexId, owner: b.owner, kind: b.kind, builtTurn: 0 })),
       playerId,
-    ).filter((id) => this.geo.edgeMap[id]);
+      (this.state.ships ?? []).map((s) => ({ edgeId: s.edgeId, owner: s.owner, builtTurn: 0 })),
+    ).filter((id) => edgeOf(id));
     if (!edges.length) return { edges, vertices: [] };
-    const first = this.geo.edgeMap[edges[0]];
-    const second = edges.length > 1 ? this.geo.edgeMap[edges[1]] : null;
+    const first = edgeOf(edges[0])!;
+    const second = edges.length > 1 ? edgeOf(edges[1])! : null;
     let cur = second && (first.a === second.a || first.a === second.b) ? first.b : first.a;
     const vertices = [cur];
     for (const id of edges) {
-      const e = this.geo.edgeMap[id];
+      const e = edgeOf(id)!;
       cur = e.a === cur ? e.b : e.a;
       vertices.push(cur);
     }
@@ -4436,6 +4600,8 @@ export class BoardRenderer {
       return t ? tileCenter(t, this.metrics).setY(TILE_TOP) : null;
     }
     if (kind === 'vertex') return this.vertexWorld(id)?.add(new THREE.Vector3(0, 0.16, 0)) ?? null;
+    // 배 자리는 물 위 배 몸통 높이
+    if (this.onWater(id)) return this.shipSpot(id)?.mid.add(new THREE.Vector3(0, 0.22, 0)) ?? null;
     return this.edgeWorld(id)?.mid.setY(PLATFORM_TOP + ROAD_DECK_TOP) ?? null;
   }
 
@@ -4606,28 +4772,45 @@ export class BoardRenderer {
       }
       return best;
     };
-    const nearestEdge = (ids: readonly string[]) => {
+    // 물 위 배 자리는 바닥보다 낮아서(물높이) 그 높이 평면에서 잰다.
+    const water = new THREE.Vector3();
+    if (!ray.intersectPlane(new THREE.Plane(yAxis, -(FLEET_Y + 0.1)), water)) water.copy(low);
+    /** ids 중 가장 가까운 변. ships 에 든 변은 물 위 배 자리(바닷가 변은 바다 쪽으로 비켜 난 자리)로 잰다. */
+    const nearestEdge = (ids: readonly string[], ships: ReadonlySet<string> = new Set()) => {
       let best: { id: string; d: number } | null = null;
       const seg = new THREE.Line3();
       const closest = new THREE.Vector3();
       const at = new THREE.Vector3(low.x, 0, low.z);
+      const atWater = new THREE.Vector3(water.x, 0, water.z);
       for (const id of ids) {
-        const ew = this.edgeWorld(id);
+        const onWater = ships.has(id);
+        const ew = onWater ? this.shipSpot(id) : this.edgeWorld(id);
         if (!ew) continue;
-        // 양 끝(마을 자리)을 뺀 가운데 부분만 길로 본다. 꼭짓점 가까이 누르면 꼭짓점이 잡힌다.
+        // 양 끝(마을 자리)을 뺀 가운데 부분만 길로 본다. 꼭짓점 가까이 누르면 꼭짓점이 잡힌다. 배는 배 몸통 길이만큼.
         const a = new THREE.Vector3(ew.a.x, 0, ew.a.z);
         const b = new THREE.Vector3(ew.b.x, 0, ew.b.z);
-        seg.set(a.clone().lerp(b, 0.18), a.clone().lerp(b, 0.82));
-        seg.closestPointToPoint(at, true, closest);
-        const d = closest.distanceTo(at);
+        const cut = onWater ? 0.26 : 0.18;
+        seg.set(a.clone().lerp(b, cut), a.clone().lerp(b, 1 - cut));
+        const p = onWater ? atWater : at;
+        seg.closestPointToPoint(p, true, closest);
+        const d = closest.distanceTo(p);
         if (!best || d < best.d) best = { id, d };
       }
       return best;
     };
     // 꼭짓점과 변 가운데 더 가까운 쪽을 고른다 (꼭짓점을 먼저 보면 변 가운데를 눌러도 끝 꼭짓점이 잡힌다).
-    const closer = (vIds: readonly string[], eIds: readonly string[], vScale: number, eScale: number): BoardSelection | null => {
+    // 배 자리(shipIds)는 물 위 배 자리로 따로 재어 길 자리와 견준다 (바닷가 변은 둘 다일 수 있다).
+    const closer = (
+      vIds: readonly string[],
+      eIds: readonly string[],
+      vScale: number,
+      eScale: number,
+      shipIds: readonly string[] = [],
+    ): BoardSelection | null => {
       const v = vIds.length ? nearestVertex(vIds) : null;
-      const e = eIds.length ? nearestEdge(eIds) : null;
+      const onLand = eIds.length ? nearestEdge(eIds) : null;
+      const onSea = shipIds.length ? nearestEdge(shipIds, new Set(shipIds)) : null;
+      const e = onLand && onSea ? (onSea.d < onLand.d ? onSea : onLand) : (onLand ?? onSea);
       const vOk = !!v && v.d < reach * vScale;
       const eOk = !!e && e.d < reach * eScale;
       if (vOk && (!eOk || v!.d <= e!.d)) return { kind: 'vertex', id: v!.id };
@@ -4645,19 +4828,25 @@ export class BoardRenderer {
       }
       if (best && best.d < HEX_RADIUS) return { kind: 'tile', id: best.id };
     }
-    if (hl && (hl.vertices.length || hl.edges.length)) {
-      const hit = closer(hl.vertices, hl.edges, 1.7, 1.5);
+    // 배를 옮기는 중이면 옮길 배 자리도 고를 수 있다 (다시 누르면 무르기).
+    const hlShips = [...(hl?.shipEdges ?? []), ...(this.state.movingShip ? [this.state.movingShip] : [])];
+    if (hl && (hl.vertices.length || hl.edges.length || hlShips.length)) {
+      const hit = closer(hl.vertices, hl.edges, 1.7, 1.5, hlShips);
       if (hit) return hit;
     }
     // 기사단 동상 몸통을 누르면 (바닥으로는 뒤쪽 칸이 맞더라도) 동상이 선 칸을 고른다. 누르면 동상이 살짝 뛴다.
     if (this.statue?.visible && this.statueTile && ray.intersectsBox(new THREE.Box3().setFromObject(this.statue).expandByScalar(0.03))) {
       return { kind: 'tile', id: this.statueTile };
     }
+    // 배가 뜬 변은 물 위 배 몸통을 누르면 잡힌다 (배가 없는 바다 한가운데 변은 빛날 때만 고른다).
+    const shipEdges = (this.state.ships ?? []).map((s) => s.edgeId);
+    const sailed = new Set(shipEdges);
     const hit = closer(
       this.geo.vertices.map((x) => x.id),
-      this.geo.edges.map((x) => x.id),
+      this.geo.edges.filter((x) => !sailed.has(x.id)).map((x) => x.id),
       1,
       0.8,
+      shipEdges,
     );
     if (hit) return hit;
     let tile: { id: string; d: number } | null = null;
