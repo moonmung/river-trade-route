@@ -20,11 +20,29 @@ export const DEV_ART: Record<DevKind, string> = {
   monopoly: `${BASE}dev_monopoly.webp`,
 };
 
-/** 길은 판자 길 한 조각, 마을은 작은 집, 도시는 성벽 두른 마을 (길 건설 카드는 판자 길 두 조각에 ×2 딱지) */
+/**
+ * 배: 물결 위의 작은 돛배 (섬 맵). 그림 파일 대신 SVG 를 바로 넣는다.
+ * 다른 카드 그림처럼 투명 바탕에 옅은 물감 번짐과 갈색 먹선으로 그린다.
+ */
+const SHIP_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+<ellipse cx="128" cy="206" rx="104" ry="20" fill="#8cc7cf" opacity=".55"/>
+<path d="M30 204c16-8 30-8 46 0s30 8 46 0 30-8 46 0 30 8 46 0 24-6 34-2" fill="none" stroke="#5f9fb2" stroke-width="7" stroke-linecap="round"/>
+<path d="M44 152h170l-22 40c-3 6-9 9-16 9H86c-7 0-13-3-17-9z" fill="#9a6a3c" stroke="#4a3020" stroke-width="6" stroke-linejoin="round"/>
+<path d="M56 166h148" stroke="#c9975f" stroke-width="7" stroke-linecap="round"/>
+<path d="M124 40v114" stroke="#5a3b22" stroke-width="8" stroke-linecap="round"/>
+<path d="M132 52c36 14 58 46 62 92h-62z" fill="#f4e7c8" stroke="#4a3020" stroke-width="6" stroke-linejoin="round"/>
+<path d="M116 64c-26 16-42 44-46 80h46z" fill="#e8d6ad" stroke="#4a3020" stroke-width="6" stroke-linejoin="round"/>
+<path d="M136 96c20 8 34 22 42 40" fill="none" stroke="#c9a46a" stroke-width="5" stroke-linecap="round"/>
+<path d="M124 40l34 10-34 10z" fill="#c4543a" stroke="#4a3020" stroke-width="5" stroke-linejoin="round"/>
+</svg>`;
+export const SHIP_ART = `data:image/svg+xml,${encodeURIComponent(SHIP_SVG)}`;
+
+/** 길은 판자 길 한 조각, 마을은 작은 집, 도시는 성벽 두른 마을, 배는 작은 돛배 (길 건설 카드는 판자 길 두 조각에 ×2 딱지) */
 export const PIECE_ART: Record<PieceKind, string> = {
   road: `${BASE}road.webp`,
   village: `${BASE}village.webp`,
   city: `${BASE}city.webp`,
+  ship: SHIP_ART,
 };
 
 /** 발전 카드 뒷면 (탑과 월계수) */

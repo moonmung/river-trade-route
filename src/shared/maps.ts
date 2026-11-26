@@ -4,11 +4,11 @@
 // 섞기는 같은 모양에서 광장 자리만 두고 땅·숫자·교역로 자원을 게임마다 새로 섞는다.
 import { assignNumbers, boardFor, harborsFor, HARBOR_KINDS, INNER_HARBOR_KINDS, innerHarborsFor, tileCenterUnit, type Board } from './board';
 import { BOARD_LAYOUT, DEV_CARDS, RESOURCE_CARDS, ROW_LABELS } from './constants';
-import type { Harbor, MapArrange, MapConfig, MapShape, Resource, TileDef, TileId, TileKind } from './types';
+import type { Harbor, MapArrange, MapConfig, MapShape, Resource, SeaCell, TileDef, TileId, TileKind } from './types';
 
-export const MAP_SHAPES: readonly MapShape[] = ['hex', 'diamond', 'big', 'lakes'];
+export const MAP_SHAPES: readonly MapShape[] = ['hex', 'diamond', 'big', 'lakes', 'islands'];
 export const MAP_ARRANGES: readonly MapArrange[] = ['golden', 'shuffle'];
-export const MAP_SHAPE_LABEL: Record<MapShape, string> = { hex: '육각형', diamond: '마름모', big: '대형', lakes: '호수' };
+export const MAP_SHAPE_LABEL: Record<MapShape, string> = { hex: '육각형', diamond: '마름모', big: '대형', lakes: '호수', islands: '섬' };
 export const MAP_ARRANGE_LABEL: Record<MapArrange, string> = { golden: '황금 배치', shuffle: '섞기' };
 export const DEFAULT_MAP: MapConfig = { shape: 'hex', arrange: 'golden' };
 
@@ -42,6 +42,8 @@ interface MapPreset {
   /** 방장이 따로 바꾸지 않았을 때 은행 자원 카드(자원마다)와 발전 카드 장수 */
   resourceCards: number;
   devCards: number;
+  /** 배를 띄우는 맵: 줄 안의 빈 칸(null)과 땅에 닿은 바깥 칸이 모두 바다 칸이 된다 */
+  ships?: boolean;
 }
 
 const PRESETS: Record<MapShape, MapPreset> = {
@@ -167,7 +169,88 @@ const PRESETS: Record<MapShape, MapPreset> = {
     resourceCards: 30,
     devCards: 40,
   },
+  // 섬 맵 (8인까지, 배를 띄운다). 8-9-10-11-12-11-10-9-8 줄의 옆으로 긴 육각형 88칸에 땅 44칸과 바다 44칸이 반씩이다.
+  // 큰 섬 셋(왼쪽 위 11칸·오른쪽 12칸·왼쪽 아래 9칸)과 작은 섬 넷(3칸씩)이 서로 바다 한 칸 이상 떨어져 있어 다른 섬으로는 배로만 건너간다.
+  // 광장은 왼쪽 위 섬과 오른쪽 섬 한가운데에 하나씩. 목재·곡물 9칸, 양모·벽돌·석재 8칸. 숫자 패는 대형 맵처럼 기본판 두 벌에 4·5·6·8·9·10 을 하나씩 더한 42개다.
+  // 큰 섬마다 다섯 자원이 다 있고 2·12 는 하나씩만 두었다. 작은 섬은 세 칸이 모두 다른 자원이다.
+  islands: {
+    kinds: [
+      ['stone', 'grain', null, null, 'wood', 'brick', null, null],
+      ['wool', 'wood', 'wool', null, null, 'wool', null, null, null],
+      ['stone', 'plaza', 'grain', null, null, null, null, null, 'grain', 'brick'],
+      ['grain', 'brick', 'wood', null, null, null, null, 'stone', 'brick', 'stone', 'wood'],
+      [null, null, null, null, null, 'stone', 'grain', null, 'wool', 'plaza', 'wool', null],
+      ['brick', 'stone', 'grain', null, null, 'wool', null, 'grain', 'wood', 'brick', null],
+      ['wood', 'brick', 'wood', null, null, null, null, null, null, null],
+      ['grain', 'stone', null, null, 'wood', 'grain', null, 'wood', 'wool'],
+      ['wool', null, null, null, 'brick', null, null, 'stone'],
+    ],
+    numbers: [
+      [6, 3, null, null, 5, 6, null, null],
+      [4, 10, 5, null, null, 2, null, null, null],
+      [12, null, 11, null, null, null, null, null, 6, 3],
+      [10, 8, 9, null, null, null, null, 5, 12, 4, 8],
+      [null, null, null, null, null, 10, 4, null, 10, null, 11, null],
+      [10, 9, 3, null, null, 6, null, 8, 3, 9, null],
+      [2, 4, 6, null, null, null, null, null, null, null],
+      [5, 11, null, null, 4, 9, null, 11, 9],
+      [8, null, null, null, 5, null, null, 8],
+    ],
+    rowR: (i) => i - 4,
+    qStart: (i) => Math.max(-6, -i - 2),
+    maxPlayers: 8,
+    harbors: [
+      // 왼쪽 위 섬: 서쪽 바깥, 안쪽 바다 쪽, 아래 해협 쪽
+      { q: -3, r: -3, dir: 'W', resource: 'wood' },
+      { q: -2, r: -2, dir: 'E', resource: null },
+      { q: -4, r: -1, dir: 'SE', resource: 'brick' },
+      // 오른쪽 섬: 북쪽, 서쪽 안쪽 바다, 남쪽
+      { q: 4, r: -2, dir: 'NW', resource: 'wool' },
+      { q: 2, r: -1, dir: 'W', resource: null },
+      { q: 2, r: 1, dir: 'SE', resource: 'stone' },
+      // 왼쪽 아래 섬: 해협 쪽, 동쪽
+      { q: -4, r: 1, dir: 'NE', resource: 'grain' },
+      { q: -4, r: 2, dir: 'E', resource: null },
+      // 작은 섬 둘 (위쪽 가운데, 아래쪽 가운데)
+      { q: 2, r: -4, dir: 'W', resource: null },
+      { q: -2, r: 4, dir: 'W', resource: null },
+    ],
+    resourceCards: 30,
+    devCards: 40,
+    ships: true,
+  },
 };
+
+/** 배를 띄우는 맵인지 (섬 맵) */
+export function mapHasShips(shape: MapShape): boolean {
+  return !!PRESETS[shape].ships;
+}
+
+/**
+ * 배를 띄우는 맵의 바다 칸: 줄 안의 빈 칸(null) 모두와, 줄 밖이라도 땅에 닿은 칸.
+ * 그래서 어느 바닷가에나 배를 댈 수 있고 맵 바깥 둘레로도 한 칸 너비만큼 돌아갈 수 있다. 배를 안 쓰는 맵이면 빈 목록.
+ */
+export function mapSeaCells(shape: MapShape): SeaCell[] {
+  const p = PRESETS[shape];
+  if (!p.ships) return [];
+  const land = new Set(mapTiles(shape).map((t) => `${t.q},${t.r}`));
+  const out = new Map<string, SeaCell>();
+  p.kinds.forEach((row, i) =>
+    row.forEach((kind, c) => {
+      const cell = { q: p.qStart(i) + c, r: p.rowR(i) };
+      if (kind === null) out.set(`${cell.q},${cell.r}`, cell);
+    }),
+  );
+  for (const k of land) {
+    const [q, r] = k.split(',').map(Number);
+    for (const [dq, dr] of Object.values(DIRS)) {
+      const id = `${q + dq},${r + dr}`;
+      if (!land.has(id) && !out.has(id)) out.set(id, { q: q + dq, r: r + dr });
+    }
+  }
+  // 위쪽 줄부터, 같은 줄은 왼쪽부터 (저장·비교할 때 순서가 늘 같게)
+  return [...out.values()].sort((a, b) => a.r - b.r || a.q - b.q);
+}
 
 /** 정해 둔 자리의 교역로: 칸에서 dir 쪽 이웃 칸과 맞닿는 바닷가 변을 찾는다. */
 function fixedHarbors(board: Board, list: readonly FixedHarbor[], kinds: readonly (Resource | null)[]): Harbor[] {
@@ -232,6 +315,8 @@ export interface BuiltMap {
   harbors: Harbor[];
   /** 기사단 동상이 처음 서는 칸 (광장) */
   robber: TileId;
+  /** 배를 띄울 바다 칸 (배를 안 쓰는 맵이면 빈 목록) */
+  sea: SeaCell[];
 }
 
 const near = (a: TileDef, b: TileDef) => {
@@ -283,7 +368,7 @@ export function goldenMap(shape: MapShape): BuiltMap {
     const n = p.numbers[t.row][t.col];
     if (n !== null) numbers[t.id] = n;
   }
-  return { tiles, numbers, harbors: placeHarbors(shape, tiles), robber: tiles.find((t) => t.kind === 'plaza')!.id };
+  return { tiles, numbers, harbors: placeHarbors(shape, tiles), robber: tiles.find((t) => t.kind === 'plaza')!.id, sea: mapSeaCells(shape) };
 }
 
 /**
@@ -322,7 +407,7 @@ export function shuffledMap(shape: MapShape, random: () => number): BuiltMap {
   const best = shuffleKinds(mapTiles(shape), random);
   const numbers = assignNumbers(random, best, mapNumberTokens(shape));
   const harbors = placeHarbors(shape, best, random);
-  return { tiles: best, numbers, harbors, robber: best.find((t) => t.kind === 'plaza')!.id };
+  return { tiles: best, numbers, harbors, robber: best.find((t) => t.kind === 'plaza')!.id, sea: mapSeaCells(shape) };
 }
 
 export function buildMap(config: MapConfig, random: () => number): BuiltMap {

@@ -10,9 +10,9 @@ export type TileId = string;
 
 /**
  * 맵 모양: 육각형 19칸, 왼쪽으로 기운 마름모 16칸, 가운데가 바다인 대형 정육각형 42칸 (8인까지),
- * 가운데 사막 둘레에 호수 네 곳이 있는 호수 맵 43칸 (8인까지)
+ * 가운데 사막 둘레에 호수 네 곳이 있는 호수 맵 43칸 (8인까지), 바다에 섬 일곱 개가 흩어진 섬 맵 44칸 (8인까지, 배를 띄운다)
  */
-export type MapShape = 'hex' | 'diamond' | 'big' | 'lakes';
+export type MapShape = 'hex' | 'diamond' | 'big' | 'lakes' | 'islands';
 /** 맵 배치: 황금 배치는 땅·숫자·교역로가 정해진 기준 배치, 섞기는 게임마다 새로 섞는다 */
 export type MapArrange = 'golden' | 'shuffle';
 export interface MapConfig {
@@ -32,8 +32,14 @@ export interface TileDef {
   kind: TileKind;
 }
 
-/** 길·마을·도시. 마을과 도시는 꼭짓점에, 길은 변에 놓는다. */
-export type PieceKind = 'road' | 'village' | 'city';
+/** 바다 칸: 배를 띄울 수 있는 칸 (축 좌표만 있다). 섬 맵처럼 배를 쓰는 맵에만 있다. */
+export interface SeaCell {
+  q: number;
+  r: number;
+}
+
+/** 길·마을·도시·배. 마을과 도시는 꼭짓점에, 길은 땅의 변에, 배는 바다에 닿은 변에 놓는다. */
+export type PieceKind = 'road' | 'village' | 'city' | 'ship';
 
 /** 꼭짓점 위의 마을 또는 도시 */
 export interface Building {
@@ -48,6 +54,14 @@ export interface Building {
 export interface Road {
   edgeId: string;
   owner: string;
+  builtTurn: number;
+}
+
+/** 바다 위의 배 (바다에 닿은 변 하나에 놓인다). 길처럼 이어 가지만 길과는 내 마을·도시에서만 이어진다. */
+export interface Ship {
+  edgeId: string;
+  owner: string;
+  /** 띄운 턴 번호. 그 턴에는 옮길 수 없다. */
   builtTurn: number;
 }
 
@@ -112,6 +126,10 @@ export type GameAction =
   | { type: 'move_robber'; tileId: TileId }
   | { type: 'steal'; from: string }
   | { type: 'build_road'; edgeId: string }
+  /** 배 띄우기 (섬 맵) */
+  | { type: 'build_ship'; edgeId: string }
+  /** 항로 끝의 내 배 하나를 다른 변으로 옮긴다 (한 턴에 한 번) */
+  | { type: 'move_ship'; from: string; to: string }
   | { type: 'build_village'; vertexId: string }
   | { type: 'build_city'; vertexId: string }
   | { type: 'buy_dev' }
@@ -174,6 +192,8 @@ export type GameEvent = EventBase &
     | { kind: 'robber'; player: string; tileId: TileId }
     | { kind: 'steal'; player: string; from: string; detail?: Resource }
     | { kind: 'build'; player: string; piece: PieceKind; at: string; free?: boolean }
+    /** 배를 from 변에서 to 변으로 옮겼다 */
+    | { kind: 'move_ship'; player: string; from: string; to: string }
     | { kind: 'buy_dev'; player: string; detail?: DevKind }
     | { kind: 'play_dev'; player: string; card: Exclude<DevKind, 'victory'>; resources?: Resource[]; amount?: number }
     /** harbor: 해상 교역로 비율(3:1·2:1)로 낸 자원이 있었는지 */

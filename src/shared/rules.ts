@@ -3,7 +3,7 @@
 // 모든 행동은 "검사를 전부 끝낸 뒤 상태를 바꾼다" 원칙을 지켜, 거절된 요청이 상태를 건드리지 않게 한다.
 // 주사위·빼앗기·발전 카드 섞기에 쓰는 난수는 바깥에서 넘겨받는다 (서버는 Math.random, 테스트는 고정 값).
 
-import { boardOf, harborVertices, type BoardGeometry, type EdgeDef, type EdgeId, type VertexId } from './board';
+import { boardOf, harborVertices, type BoardGeometry, type EdgeId, type SeaNet, type VertexId } from './board';
 import { buildMap, DEFAULT_MAP, mapCardDefaults, maxPlayersFor } from './maps';
 import { drawFairDice, newFairDice, recordProduction, type DiceMode, type FairDiceState } from './fairDice';
 import {
@@ -66,6 +66,8 @@ import type {
   RankEntry,
   Resource,
   Road,
+  SeaCell,
+  Ship,
   TileDef,
   TileId,
   TradeCloseReason,
@@ -73,6 +75,9 @@ import type {
   TradeResponse,
   TurnStep,
 } from './types';
+
+/** 바닷길이 있을 수도 있는 보드 (배 규칙은 sea 가 있을 때만 쓴다) */
+type ShipBoard = BoardGeometry & { sea?: SeaNet | null };
 
 export interface PlayerGameState {
   id: string;
@@ -116,6 +121,8 @@ export interface GameState {
   resumeStep: TurnStep;
   /** 이 게임의 보드 칸 (맵 모양과 땅 배치). 꼭짓점·변은 boardOf 로 이 값에서 계산한다. */
   tiles: TileDef[];
+  /** 배를 띄울 바다 칸 (섬 맵). 배를 안 쓰는 맵이면 빈 목록이다. */
+  sea: SeaCell[];
   /** 기사단 동상이 서 있는 칸. 이 칸은 숫자가 나와도 생산하지 않는다. */
   robber: TileId;
   /** 칸마다 놓인 숫자 토큰 (광장은 없음) */
@@ -124,6 +131,10 @@ export interface GameState {
   players: Record<string, PlayerGameState>;
   buildings: Building[];
   roads: Road[];
+  /** 바다 위의 배 (섬 맵) */
+  ships: Ship[];
+  /** 이번 턴에 배를 이미 옮겼는지 (한 턴에 한 척, 한 번) */
+  shipMoved: boolean;
   /** 남은 발전 카드 (맨 뒤부터 뽑는다). 제한 없음이면 줄지 않고 이 구성에서 무작위로 뽑는다. */
   devDeck: DevKind[];
   /** 개수 제한 없음: 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않는다 (방장이 고른 규칙) */
@@ -138,7 +149,7 @@ export interface GameState {
   fairDice: FairDiceState | null;
   /** 이번 턴에 발전 카드를 이미 썼는지 (승점 카드 제외, 한 턴에 1장) */
   devPlayedThisTurn: boolean;
-  /** 길 건설 카드로 남은 공짜 길 */
+  /** 길 건설 카드로 남은 공짜 길 (섬 맵에서는 배로 띄워도 된다) */
   freeRoads: number;
   longestRoad: { holder: string | null; length: number };
   largestArmy: { holder: string | null; size: number };
@@ -237,7 +248,7 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
   const devMix = o.devMix ? normalizeDevMix(o.devMix) : null;
   if (o.devMix && !devMix) throw new Error(`발전 카드는 종류마다 0~${DEV_KIND_MAX}장, 모두 합쳐 1~${DEV_CARDS_MAX}장이어야 합니다.`);
   const pieceLimits = o.pieceLimits ? normalizePieceLimits(o.pieceLimits) : { ...PIECE_LIMIT };
-  if (!pieceLimits) throw new Error('길·마을·도시 개수가 고를 수 있는 범위를 벗어났습니다.');
+  if (!pieceLimits) throw new Error('길·마을·도시·배 개수가 고를 수 있는 범위를 벗어났습니다.');
   const maxPlayers = maxPlayersFor(mapConfig.shape);
   if (playerIds.length < MIN_PLAYERS || playerIds.length > maxPlayers) {
     throw new Error(`플레이어는 ${MIN_PLAYERS}~${maxPlayers}명이어야 합니다.`);
@@ -267,12 +278,15 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     stealFrom: [],
     resumeStep: 'main',
     tiles: map.tiles,
+    sea: map.sea,
     robber: map.robber,
     numbers: map.numbers,
     harbors: map.harbors,
     players,
     buildings: [],
     roads: [],
+    ships: [],
+    shipMoved: false,
     devDeck: shuffle(deck, random),
     unlimited: !!o.unlimited,
     pieceLimits,
@@ -333,9 +347,14 @@ export function roadsOf(roads: readonly Road[], playerId: string): Road[] {
   return roads.filter((r) => r.owner === playerId);
 }
 
-/** 한 사람이 가진 조각 수 (길, 마을, 도시) */
-export function pieceCount(buildings: readonly Building[], roads: readonly Road[], playerId: string, kind: PieceKind): number {
+export function shipAt(ships: readonly Ship[], edgeId: EdgeId): Ship | null {
+  return ships.find((s) => s.edgeId === edgeId) ?? null;
+}
+
+/** 한 사람이 가진 조각 수 (길, 마을, 도시, 배) */
+export function pieceCount(buildings: readonly Building[], roads: readonly Road[], playerId: string, kind: PieceKind, ships: readonly Ship[] = []): number {
   if (kind === 'road') return roadsOf(roads, playerId).length;
+  if (kind === 'ship') return ships.filter((s) => s.owner === playerId).length;
   return buildings.filter((b) => b.owner === playerId && b.kind === kind).length;
 }
 
@@ -365,10 +384,17 @@ function touchesOwnRoad(board: BoardGeometry, roads: readonly Road[], vertexId: 
   return (board.vertexMap[vertexId]?.edges ?? []).some((e) => roadAt(roads, e)?.owner === playerId);
 }
 
-/** 길을 놓을 수 있는 변: 비어 있고, 한쪽 끝이 내 마을·도시이거나 내 길과 이어진다. 남의 마을이 선 꼭짓점을 지나서는 잇지 못한다. */
-export function buildableRoads(board: BoardGeometry, buildings: readonly Building[], roads: readonly Road[], playerId: string): EdgeId[] {
+function touchesOwnShip(board: ShipBoard, ships: readonly Ship[], vertexId: VertexId, playerId: string): boolean {
+  return (board.sea?.vertexMap[vertexId]?.edges ?? []).some((e) => shipAt(ships, e)?.owner === playerId);
+}
+
+/**
+ * 길을 놓을 수 있는 변: 비어 있고(길도 배도 없고), 한쪽 끝이 내 마을·도시이거나 내 길과 이어진다.
+ * 남의 마을이 선 꼭짓점을 지나서는 잇지 못하고, 배에서 길로는 내 마을·도시를 거쳐야만 이어진다.
+ */
+export function buildableRoads(board: BoardGeometry, buildings: readonly Building[], roads: readonly Road[], playerId: string, ships: readonly Ship[] = []): EdgeId[] {
   return board.edges.filter((e) => {
-    if (roadAt(roads, e.id)) return false;
+    if (roadAt(roads, e.id) || shipAt(ships, e.id)) return false;
     return [e.a, e.b].some((v) => {
       const b = buildingAt(buildings, v);
       if (b) return b.owner === playerId;
@@ -377,9 +403,67 @@ export function buildableRoads(board: BoardGeometry, buildings: readonly Buildin
   }).map((e) => e.id);
 }
 
-/** 마을을 지을 수 있는 꼭짓점: 거리 규칙을 지키고 내 길이 닿아 있어야 한다. */
-export function buildableVillages(board: BoardGeometry, buildings: readonly Building[], roads: readonly Road[], playerId: string): VertexId[] {
-  return board.vertices.filter((v) => vertexOpen(board, buildings, v.id) && touchesOwnRoad(board, roads, v.id, playerId)).map((v) => v.id);
+/** 마을을 지을 수 있는 꼭짓점: 거리 규칙을 지키고 내 길이나 내 배가 닿아 있어야 한다. */
+export function buildableVillages(board: ShipBoard, buildings: readonly Building[], roads: readonly Road[], playerId: string, ships: readonly Ship[] = []): VertexId[] {
+  return board.vertices
+    .filter((v) => vertexOpen(board, buildings, v.id) && (touchesOwnRoad(board, roads, v.id, playerId) || touchesOwnShip(board, ships, v.id, playerId)))
+    .map((v) => v.id);
+}
+
+// ───────────────────────── 배 ─────────────────────────
+
+/** 꼭짓점 v 에서 배가 이어지는지: 내 마을·도시가 섰거나, 빈 꼭짓점에 (except 말고) 내 배가 닿아 있다. */
+function shipJoins(net: SeaNet, buildings: readonly Building[], ships: readonly Ship[], v: VertexId, playerId: string, except: EdgeId): boolean {
+  const b = buildingAt(buildings, v);
+  if (b) return b.owner === playerId;
+  return (net.vertexMap[v]?.edges ?? []).some((o) => o !== except && shipAt(ships, o)?.owner === playerId);
+}
+
+/**
+ * 배를 띄울 수 있는 변: 바다에 닿은 빈 변(길도 배도 없는)이고, 한쪽 끝이 내 마을·도시이거나 내 배와 이어진다.
+ * 길에서 배로는 내 마을·도시를 거쳐야 이어지고, 남의 마을·도시가 선 꼭짓점을 지나서는 잇지 못한다.
+ */
+export function buildableShips(board: ShipBoard, buildings: readonly Building[], roads: readonly Road[], ships: readonly Ship[], playerId: string): EdgeId[] {
+  const net = board.sea;
+  if (!net) return [];
+  return net.edges
+    .filter((e) => !shipAt(ships, e.id) && !roadAt(roads, e.id) && [e.a, e.b].some((v) => shipJoins(net, buildings, ships, v, playerId, e.id)))
+    .map((e) => e.id);
+}
+
+/**
+ * 배가 항로의 열린 끝에 있는지: 한쪽 끝에 내 마을·도시도, 이어지는 내 다른 배도 없다.
+ * 양 끝이 모두 내 마을·도시나 내 배로 이어진 배(닫힌 항로나 항로 가운데)는 옮기지 못한다. 남의 마을·도시가 선 끝은 열린 끝으로 본다.
+ */
+function shipLoose(net: SeaNet, buildings: readonly Building[], ships: readonly Ship[], ship: Ship): boolean {
+  const e = net.edgeMap[ship.edgeId];
+  if (!e) return false;
+  return [e.a, e.b].some((v) => !shipJoins(net, buildings, ships, v, ship.owner, e.id));
+}
+
+type ShipState = Pick<GameState, 'tiles' | 'sea' | 'buildings' | 'roads' | 'ships' | 'turn' | 'shipMoved'>;
+
+/** 배를 옮길 수 없는 까닭 (옮길 수 있으면 null). 차례·단계는 따로 본다. */
+export function shipMoveProblem(s: ShipState, playerId: string, from: EdgeId): string | null {
+  const net = boardOf(s).sea;
+  const ship = shipAt(s.ships, from);
+  if (!net || !ship || ship.owner !== playerId) return '옮길 내 배를 고르세요.';
+  if (s.shipMoved) return '배는 한 턴에 한 번만 옮길 수 있습니다.';
+  if (ship.builtTurn >= s.turn) return '이번 턴에 띄운 배는 다음 턴부터 옮길 수 있습니다.';
+  if (!shipLoose(net, s.buildings, s.ships, ship)) return '항로 끝에 있는 배만 옮길 수 있습니다. 양 끝이 내 마을·도시나 다른 배와 이어진 배는 그대로 둡니다.';
+  if (!shipMoveTargets(s, playerId, from).length) return '이 배를 옮겨 댈 곳이 없습니다.';
+  return null;
+}
+
+/** 지금 옮길 수 있는 내 배 (항로 끝에 있고, 이번 턴에 띄우지 않았고, 이번 턴에 아직 배를 옮기지 않았다) */
+export function movableShips(s: ShipState, playerId: string): EdgeId[] {
+  return s.ships.filter((sh) => sh.owner === playerId && !shipMoveProblem(s, playerId, sh.edgeId)).map((sh) => sh.edgeId);
+}
+
+/** 배 from 을 옮겨 댈 수 있는 변: 그 배를 빼고 보았을 때 배를 띄울 수 있는 다른 변 */
+export function shipMoveTargets(s: ShipState, playerId: string, from: EdgeId): EdgeId[] {
+  const rest = s.ships.filter((sh) => sh.edgeId !== from);
+  return buildableShips(boardOf(s), s.buildings, s.roads, rest, playerId).filter((id) => id !== from);
 }
 
 /** 도시로 올릴 수 있는 꼭짓점: 내 마을 (도시는 마을을 올려서만 짓는다) */
@@ -425,39 +509,48 @@ export function productionFor(
 }
 
 /**
- * 한 사람의 가장 긴 길 (이어진 변 수). 같은 변을 두 번 지나지 않고, 남의 마을·도시가 선 꼭짓점에서는 끊긴다.
- * 한 사람의 길은 최대 15개라 모든 출발점에서 깊이 우선으로 찾아도 충분히 빠르다.
+ * 한 사람의 가장 긴 교역로 (이어진 길과 배의 변 수). 같은 변을 두 번 지나지 않고, 남의 마을·도시가 선 꼭짓점에서는 끊긴다.
+ * 길과 배는 내 마을·도시가 선 꼭짓점에서만 서로 이어진다 (길 끝에서 바로 배로 넘어가지 않는다).
+ * 한 사람의 길·배는 각각 최대 15개라 모든 출발점에서 깊이 우선으로 찾아도 충분히 빠르다.
  */
-export function longestRoadLength(board: BoardGeometry, roads: readonly Road[], buildings: readonly Building[], playerId: string): number {
-  return longestRoadPath(board, roads, buildings, playerId).length;
+export function longestRoadLength(board: ShipBoard, roads: readonly Road[], buildings: readonly Building[], playerId: string, ships: readonly Ship[] = []): number {
+  return longestRoadPath(board, roads, buildings, playerId, ships).length;
 }
 
-/** 한 사람의 가장 긴 길을 이루는 변들 (순서대로). 길이가 같은 길이 여럿이면 먼저 찾은 것. */
-export function longestRoadPath(board: BoardGeometry, roads: readonly Road[], buildings: readonly Building[], playerId: string): EdgeId[] {
-  const mine = roads.filter((r) => r.owner === playerId).map((r) => board.edgeMap[r.edgeId]).filter((e): e is EdgeDef => !!e);
+/** 한 사람의 가장 긴 교역로를 이루는 변들 (순서대로). 길이가 같은 것이 여럿이면 먼저 찾은 것. */
+export function longestRoadPath(board: ShipBoard, roads: readonly Road[], buildings: readonly Building[], playerId: string, ships: readonly Ship[] = []): EdgeId[] {
+  type Seg = { id: EdgeId; a: VertexId; b: VertexId; ship: boolean };
+  const mine: Seg[] = [];
+  for (const r of roads) {
+    const e = r.owner === playerId ? board.edgeMap[r.edgeId] : undefined;
+    if (e) mine.push({ id: e.id, a: e.a, b: e.b, ship: false });
+  }
+  for (const sh of ships) {
+    const e = sh.owner === playerId ? board.sea?.edgeMap[sh.edgeId] : undefined;
+    if (e) mine.push({ id: e.id, a: e.a, b: e.b, ship: true });
+  }
   if (!mine.length) return [];
-  const adj = new Map<VertexId, EdgeDef[]>();
+  const adj = new Map<VertexId, Seg[]>();
   for (const e of mine) for (const v of [e.a, e.b]) adj.set(v, [...(adj.get(v) ?? []), e]);
-  const blocked = (v: VertexId) => {
-    const b = buildingAt(buildings, v);
-    return !!b && b.owner !== playerId;
-  };
+  const owner = (v: VertexId) => buildingAt(buildings, v)?.owner ?? null;
   let best: EdgeId[] = [];
   const used = new Set<EdgeId>();
   const stack: EdgeId[] = [];
-  const walk = (v: VertexId) => {
+  const walk = (v: VertexId, last: Seg | null) => {
     if (stack.length > best.length) best = [...stack];
-    if (stack.length > 0 && blocked(v)) return;
+    const at = owner(v);
+    if (last && at !== null && at !== playerId) return;
     for (const e of adj.get(v) ?? []) {
       if (used.has(e.id)) continue;
+      if (last && last.ship !== e.ship && at !== playerId) continue;
       used.add(e.id);
       stack.push(e.id);
-      walk(e.a === v ? e.b : e.a);
+      walk(e.a === v ? e.b : e.a, e);
       stack.pop();
       used.delete(e.id);
     }
   };
-  for (const v of adj.keys()) walk(v);
+  for (const v of adj.keys()) walk(v, null);
   return best;
 }
 
@@ -521,6 +614,12 @@ export function applyAction(s: GameState, playerId: string, action: GameAction, 
       break;
     case 'build_road':
       result = doBuildRoad(s, playerId, action.edgeId);
+      break;
+    case 'build_ship':
+      result = doBuildShip(s, playerId, action.edgeId);
+      break;
+    case 'move_ship':
+      result = doMoveShip(s, playerId, action.from, action.to);
       break;
     case 'build_village':
       result = doBuildVillage(s, playerId, action.vertexId);
@@ -815,7 +914,7 @@ function doSteal(s: GameState, playerId: string, from: string, random: () => num
 
 /** 비용과 보유 한도를 확인한다 */
 function checkPiece(s: GameState, playerId: string, kind: PieceKind, free = false): ActionResult | null {
-  if (pieceCount(s.buildings, s.roads, playerId, kind) >= pieceLimit(s, kind)) {
+  if (pieceCount(s.buildings, s.roads, playerId, kind, s.ships) >= pieceLimit(s, kind)) {
     return fail('LIMIT', `${PIECE_LABEL[kind]}은(는) 최대 ${pieceLimit(s, kind)}개까지 가질 수 있습니다.`);
   }
   if (!free && !hasBundle(s.players[playerId].resources, PIECE_COST[kind])) {
@@ -824,12 +923,33 @@ function checkPiece(s: GameState, playerId: string, kind: PieceKind, free = fals
   return null;
 }
 
+/** 길 건설 카드로 공짜 길(또는 배)을 더 놓을 수 있는 자리가 있는지 (개수 제한 안에서) */
+function freePieceSpots(s: GameState, playerId: string): { roads: EdgeId[]; ships: EdgeId[] } {
+  const board = boardOf(s);
+  const roomFor = (kind: 'road' | 'ship') => pieceCount(s.buildings, s.roads, playerId, kind, s.ships) < pieceLimit(s, kind);
+  return {
+    roads: roomFor('road') ? buildableRoads(board, s.buildings, s.roads, playerId, s.ships) : [],
+    ships: roomFor('ship') ? buildableShips(board, s.buildings, s.roads, s.ships, playerId) : [],
+  };
+}
+
+/** 길 건설 카드로 하나를 놓은 뒤: 남은 공짜 수를 줄이고, 더 놓을 곳이 없으면 원래 단계로 돌아간다. */
+function afterFreePiece(s: GameState, playerId: string): void {
+  s.freeRoads -= 1;
+  const spots = freePieceSpots(s, playerId);
+  if (s.freeRoads <= 0 || (!spots.roads.length && !spots.ships.length)) {
+    s.freeRoads = 0;
+    s.step = s.resumeStep;
+  }
+}
+
 function doBuildRoad(s: GameState, playerId: string, edgeId: EdgeId): ActionResult {
   const bad = requireTurn(s, playerId, ['main', 'road_building']);
   if (bad) return bad;
   if (!boardOf(s).edgeMap[edgeId]) return fail('SPOT_INVALID', '보드에 없는 변입니다.');
   if (roadAt(s.roads, edgeId)) return fail('SPOT_TAKEN', '이미 길이 있는 변입니다.');
-  if (!buildableRoads(boardOf(s), s.buildings, s.roads, playerId).includes(edgeId)) {
+  if (shipAt(s.ships, edgeId)) return fail('SPOT_TAKEN', '배가 떠 있는 변입니다.');
+  if (!buildableRoads(boardOf(s), s.buildings, s.roads, playerId, s.ships).includes(edgeId)) {
     return fail('NOT_CONNECTED', '길은 내 마을·도시나 내 길에 이어서만 놓을 수 있습니다.');
   }
   const free = s.step === 'road_building';
@@ -838,17 +958,47 @@ function doBuildRoad(s: GameState, playerId: string, edgeId: EdgeId): ActionResu
   if (!free) payToBank(s, s.players[playerId].resources, PIECE_COST.road);
   s.roads.push({ edgeId, owner: playerId, builtTurn: s.turn });
   pushEvent(s, { kind: 'build', player: playerId, piece: 'road', at: edgeId, ...(free ? { free: true } : {}) });
-  if (free) {
-    s.freeRoads -= 1;
-    const more =
-      s.freeRoads > 0 &&
-      pieceCount(s.buildings, s.roads, playerId, 'road') < pieceLimit(s, 'road') &&
-      buildableRoads(boardOf(s), s.buildings, s.roads, playerId).length > 0;
-    if (!more) {
-      s.freeRoads = 0;
-      s.step = s.resumeStep;
-    }
+  if (free) afterFreePiece(s, playerId);
+  afterBuild(s, playerId);
+  return OK;
+}
+
+/** 배 띄우기: 바다에 닿은 빈 변에, 내 마을·도시나 내 배에 이어서. 길 건설 카드의 공짜 길 대신 띄워도 된다. */
+function doBuildShip(s: GameState, playerId: string, edgeId: EdgeId): ActionResult {
+  const bad = requireTurn(s, playerId, ['main', 'road_building']);
+  if (bad) return bad;
+  const net = boardOf(s).sea;
+  if (!net) return fail('NOT_ALLOWED', '이 맵에서는 배를 띄울 수 없습니다.');
+  if (!net.edgeMap[edgeId]) return fail('SPOT_INVALID', '바다에 닿은 변에만 배를 띄울 수 있습니다.');
+  if (shipAt(s.ships, edgeId)) return fail('SPOT_TAKEN', '이미 배가 떠 있는 변입니다.');
+  if (roadAt(s.roads, edgeId)) return fail('SPOT_TAKEN', '이미 길이 있는 변입니다.');
+  if (!buildableShips(boardOf(s), s.buildings, s.roads, s.ships, playerId).includes(edgeId)) {
+    return fail('NOT_CONNECTED', '배는 내 마을·도시나 내 배에 이어서만 띄울 수 있습니다. 길 끝에서는 마을을 지어야 바다로 나갑니다.');
   }
+  const free = s.step === 'road_building';
+  const err = checkPiece(s, playerId, 'ship', free);
+  if (err) return err;
+  if (!free) payToBank(s, s.players[playerId].resources, PIECE_COST.ship);
+  s.ships.push({ edgeId, owner: playerId, builtTurn: s.turn });
+  pushEvent(s, { kind: 'build', player: playerId, piece: 'ship', at: edgeId, ...(free ? { free: true } : {}) });
+  if (free) afterFreePiece(s, playerId);
+  afterBuild(s, playerId);
+  return OK;
+}
+
+/** 배 옮기기: 항로 끝의 내 배 한 척을 배를 띄울 수 있는 다른 변으로. 한 턴에 한 번, 이번 턴에 띄운 배는 안 된다. */
+function doMoveShip(s: GameState, playerId: string, from: EdgeId, to: EdgeId): ActionResult {
+  const bad = requireTurn(s, playerId, ['main']);
+  if (bad) return bad;
+  if (!boardOf(s).sea) return fail('NOT_ALLOWED', '이 맵에서는 배를 띄울 수 없습니다.');
+  const problem = shipMoveProblem(s, playerId, from);
+  if (problem) return fail('NOT_ALLOWED', problem);
+  if (!shipMoveTargets(s, playerId, from).includes(to)) {
+    return fail('NOT_CONNECTED', '배는 내 마을·도시나 내 다른 배에 이어지는 빈 바닷길로만 옮길 수 있습니다.');
+  }
+  shipAt(s.ships, from)!.edgeId = to;
+  s.shipMoved = true;
+  pushEvent(s, { kind: 'move_ship', player: playerId, from, to });
   afterBuild(s, playerId);
   return OK;
 }
@@ -859,8 +1009,8 @@ function doBuildVillage(s: GameState, playerId: string, vertexId: VertexId): Act
   if (!boardOf(s).vertexMap[vertexId]) return fail('SPOT_INVALID', '보드에 없는 꼭짓점입니다.');
   if (buildingAt(s.buildings, vertexId)) return fail('SPOT_TAKEN', '이미 마을이나 도시가 있는 꼭짓점입니다.');
   if (!vertexOpen(boardOf(s), s.buildings, vertexId)) return fail('TOO_CLOSE', '바로 옆 꼭짓점에 마을이 있어 지을 수 없습니다.');
-  if (!buildableVillages(boardOf(s), s.buildings, s.roads, playerId).includes(vertexId)) {
-    return fail('NOT_CONNECTED', '마을은 내 길이 닿은 꼭짓점에만 지을 수 있습니다.');
+  if (!buildableVillages(boardOf(s), s.buildings, s.roads, playerId, s.ships).includes(vertexId)) {
+    return fail('NOT_CONNECTED', boardOf(s).sea ? '마을은 내 길이나 배가 닿은 꼭짓점에만 지을 수 있습니다.' : '마을은 내 길이 닿은 꼭짓점에만 지을 수 있습니다.');
   }
   const err = checkPiece(s, playerId, 'village');
   if (err) return err;
@@ -925,8 +1075,11 @@ function doPlayDev(s: GameState, playerId: string, action: Extract<GameAction, {
     return fail('WRONG_STEP', stepHint(s.step));
   }
   if (kind === 'road_building') {
-    const room = Math.min(2, pieceLimit(s, 'road') - pieceCount(s.buildings, s.roads, playerId, 'road'));
-    if (room <= 0 || buildableRoads(boardOf(s), s.buildings, s.roads, playerId).length === 0) return fail('NOT_ALLOWED', '공짜 길을 놓을 자리가 없습니다.');
+    // 섬 맵에서는 공짜 길 대신 배를 띄워도 되므로 길과 배 중 놓을 수 있는 쪽의 남은 개수를 더한다.
+    const spots = freePieceSpots(s, playerId);
+    const left = (k: 'road' | 'ship') => pieceLimit(s, k) - pieceCount(s.buildings, s.roads, playerId, k, s.ships);
+    const room = Math.min(2, (spots.roads.length ? left('road') : 0) + (spots.ships.length ? left('ship') : 0));
+    if (room <= 0) return fail('NOT_ALLOWED', boardOf(s).sea ? '공짜 길이나 배를 놓을 자리가 없습니다.' : '공짜 길을 놓을 자리가 없습니다.');
     me.devCards.splice(idx, 1);
     s.devPlayedThisTurn = true;
     s.resumeStep = s.step;
@@ -1171,6 +1324,7 @@ function doEndTurn(s: GameState, playerId: string): ActionResult {
   s.turn += 1;
   s.step = 'roll';
   s.devPlayedThisTurn = false;
+  s.shipMoved = false;
   s.freeRoads = 0;
   s.stealFrom = [];
   s.resumeStep = 'main';
@@ -1193,9 +1347,11 @@ function afterAction(s: GameState): void {
   }
 }
 
-/** 최장 교역로: 5칸 이상 가장 긴 한 사람. 가진 사람과 같은 길이면 가진 사람이 지키고, 다른 사람끼리 비기면 아무도 갖지 않는다. */
+/**
+ * 최장 교역로: 길과 배를 이어 5칸 이상 가장 긴 한 사람. 가진 사람과 같은 길이면 가진 사람이 지키고, 다른 사람끼리 비기면 아무도 갖지 않는다.
+ */
 function updateLongestRoad(s: GameState): void {
-  const lens = Object.fromEntries(s.order.map((id) => [id, longestRoadLength(boardOf(s), s.roads, s.buildings, id)]));
+  const lens = Object.fromEntries(s.order.map((id) => [id, longestRoadLength(boardOf(s), s.roads, s.buildings, id, s.ships)]));
   const max = Math.max(...Object.values(lens));
   const prev = s.longestRoad.holder;
   let holder: string | null;
@@ -1356,8 +1512,9 @@ export function autoPlay(s: GameState, random: () => number = Math.random): bool
         else if (s.step === 'robber') doMoveRobber(s, p, autoRobberTile(s, p, random), random);
         else if (s.step === 'steal') doSteal(s, p, pickRandom(s.stealFrom, random), random);
         else if (s.step === 'road_building') {
-          const edges = buildableRoads(boardOf(s), s.buildings, s.roads, p);
-          if (edges.length && s.freeRoads > 0) doBuildRoad(s, p, pickRandom(edges, random));
+          const spots = freePieceSpots(s, p);
+          if (spots.roads.length && s.freeRoads > 0) doBuildRoad(s, p, pickRandom(spots.roads, random));
+          else if (spots.ships.length && s.freeRoads > 0) doBuildShip(s, p, pickRandom(spots.ships, random));
           else {
             s.freeRoads = 0;
             s.step = s.resumeStep;

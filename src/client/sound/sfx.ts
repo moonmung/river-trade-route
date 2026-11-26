@@ -301,6 +301,10 @@ export const sfx = {
       knock(0.12, 235, 0.2);
       return;
     }
+    if (piece === 'ship') {
+      sfx.sail();
+      return;
+    }
     if (piece === 'village') {
       for (const at of [0, 0.13, 0.26]) {
         tone({ at, freq: jitter(1600, 0.05), dur: 0.03, gain: 0.05, type: 'square', lowpass: 3500 });
@@ -314,6 +318,13 @@ export const sfx = {
     hiss({ dur: 0.22, gain: 0.14, filter: 'lowpass', freq: 500 });
     bell(0.28, NOTE.G4, 0.11, 1.4);
     bell(0.28, NOTE.C5 * 1.0, 0.05, 1.2);
+  },
+  /** 배 띄우기·옮기기: 물에 미끄러져 들어가는 쏴 소리와 나무 배가 삐걱 */
+  sail(): void {
+    hiss({ dur: 0.45, gain: 0.1, filter: 'bandpass', freq: 700, to: 1400, q: 0.7 });
+    hiss({ at: 0.12, dur: 0.35, gain: 0.06, filter: 'lowpass', freq: 900 });
+    knock(0.08, 170, 0.16);
+    tone({ at: 0.22, freq: 330, to: 260, dur: 0.12, gain: 0.05, type: 'triangle' });
   },
   /** 발전 카드 사기: 카드 섞는 소리 */
   buyDev(): void {

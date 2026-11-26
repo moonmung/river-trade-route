@@ -17,12 +17,16 @@ function seeded(seed: number): () => number {
 
 describe('값 확인', () => {
   it('길·마을·도시 개수는 정해진 범위 안의 정수만 받는다', () => {
-    expect(normalizePieceLimits({ road: 20, village: 6, city: 5 })).toEqual({ road: 20, village: 6, city: 5 });
+    expect(normalizePieceLimits({ road: 20, village: 6, city: 5 })).toEqual({ road: 20, village: 6, city: 5, ship: 15 });
     expect(normalizePieceLimits({ road: 4, village: 5, city: 4 })).toBeNull();
     expect(normalizePieceLimits({ road: 15, village: 16, city: 4 })).toBeNull();
     expect(normalizePieceLimits({ road: 15, village: 5, city: 0 })).toBeNull();
     expect(normalizePieceLimits({ road: 15, village: 5 })).toBeNull();
     expect(normalizePieceLimits({ road: 15.5, village: 5, city: 4 })).toBeNull();
+    // 배 개수: 5~40척. 배가 빠진 값(배가 생기기 전에 저장한 값)은 배만 기본값으로 채운다.
+    expect(normalizePieceLimits({ road: 15, village: 5, city: 4, ship: 20 })).toEqual({ road: 15, village: 5, city: 4, ship: 20 });
+    expect(normalizePieceLimits({ road: 15, village: 5, city: 4, ship: 4 })).toBeNull();
+    expect(normalizePieceLimits({ road: 15, village: 5, city: 4, ship: 41 })).toBeNull();
   });
 
   it('발전 카드는 종류마다 0~30장, 모두 합쳐 1~50장이다', () => {
@@ -36,7 +40,7 @@ describe('값 확인', () => {
 
 describe('게임 규칙', () => {
   it('정한 길·도시 개수를 넘으면 지을 수 없다', () => {
-    const s = createGame(['a', 'b'], seeded(7), { rollForOrder: false, pieceLimits: { road: 5, village: 2, city: 1 } });
+    const s = createGame(['a', 'b'], seeded(7), { rollForOrder: false, pieceLimits: { road: 5, village: 2, city: 1, ship: 15 } });
     for (let i = 0; i < 20 && s.phase === 'placement'; i++) autoPlay(s, seeded(i + 1));
     expect(s.phase).toBe('playing');
     s.step = 'main';
@@ -71,14 +75,14 @@ describe('게임 규칙', () => {
     expect(s.devDeck.filter((k) => k === 'year_of_plenty')).toHaveLength(1);
     expect(s.devDeck.includes('knight')).toBe(false);
     expect(() => createGame(['a', 'b'], seeded(3), { devMix: { ...mix, victory: 0, year_of_plenty: 0 } })).toThrow();
-    expect(() => createGame(['a', 'b'], seeded(3), { pieceLimits: { road: 3, village: 5, city: 4 } })).toThrow();
+    expect(() => createGame(['a', 'b'], seeded(3), { pieceLimits: { road: 3, village: 5, city: 4, ship: 15 } })).toThrow();
   });
 
   it('정하지 않으면 기본 개수다', () => {
     const s = createGame(['a', 'b'], seeded(5));
     expect(s.pieceLimits).toEqual(PIECE_LIMIT);
     expect(pieceLimit(s, 'village')).toBe(5);
-    expect(pieceLimit({ unlimited: true, pieceLimits: { road: 5, village: 2, city: 1 } }, 'road')).toBe(Infinity);
+    expect(pieceLimit({ unlimited: true, pieceLimits: { road: 5, village: 2, city: 1, ship: 15 } }, 'road')).toBe(Infinity);
   });
 });
 
@@ -106,7 +110,7 @@ describe('방 설정', () => {
     expect(m.setSettings(r, host.id, { devMix: { ...mix, knight: 40 } })).not.toBeNull();
     expect(m.setSettings(r, host.id, { devMix: mix })).toBeNull();
     v = buildRoomView(r, host.id);
-    expect(v.pieceLimits).toEqual({ road: 20, village: 7, city: 6 });
+    expect(v.pieceLimits).toEqual({ road: 20, village: 7, city: 6, ship: 15 });
     expect(v.devMix).toEqual(mix);
     expect(v.devMixCustom).toBe(true);
     expect(v.devCards).toBe(20);
@@ -117,7 +121,7 @@ describe('방 설정', () => {
     }
     expect(m.start(r, host.id)).toBeNull();
     const g = r.game!;
-    expect(g.pieceLimits).toEqual({ road: 20, village: 7, city: 6 });
+    expect(g.pieceLimits).toEqual({ road: 20, village: 7, city: 6, ship: 15 });
     expect(g.devDeck).toHaveLength(20);
     expect(g.devDeck.includes('monopoly')).toBe(false);
     m.stopAllClocks();
@@ -142,9 +146,9 @@ describe('방 설정', () => {
     m.stopAllClocks();
     const data = JSON.parse(snapshotRooms(m.rooms.values()));
     const back = restoreRooms(JSON.stringify(data)).rooms[0];
-    expect(back.pieceLimits).toEqual({ road: 10, village: 3, city: 2 });
+    expect(back.pieceLimits).toEqual({ road: 10, village: 3, city: 2, ship: 15 });
     expect(back.devMix).toEqual({ ...DEV_DECK, knight: 5 });
-    expect(back.game!.pieceLimits).toEqual({ road: 10, village: 3, city: 2 });
+    expect(back.game!.pieceLimits).toEqual({ road: 10, village: 3, city: 2, ship: 15 });
     delete data.rooms[0].pieceLimits;
     delete data.rooms[0].devMix;
     delete data.rooms[0].game.pieceLimits;

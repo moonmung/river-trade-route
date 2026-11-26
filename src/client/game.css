@@ -533,6 +533,23 @@
   grid-template-columns: repeat(4, 78px);
 }
 
+/* 섬 맵은 [배] 버튼이 하나 더 있어 건설 버튼이 다섯 개다 */
+.build-bar-sea {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.game-narrow .me-actions-sea {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.game-narrow .build-bar-sea {
+  grid-column: span 5;
+}
+
+.game-wide .build-bar-sea {
+  grid-template-columns: repeat(5, 78px);
+}
+
 .bb-slot {
   position: relative;
   display: flex;
@@ -5254,6 +5271,9 @@
     grid-template-columns: repeat(4, 66px);
     gap: 5px;
   }
+  .game-wide .build-bar-sea {
+    grid-template-columns: repeat(5, 66px);
+  }
   .game-wide .act-slot {
     width: 66px;
   }
@@ -5415,6 +5435,9 @@
   .game-wide .build-bar {
     grid-template-columns: repeat(4, 54px);
     gap: 4px;
+  }
+  .game-wide .build-bar-sea {
+    grid-template-columns: repeat(5, 54px);
   }
   .game-wide .act-slot {
     width: 54px;

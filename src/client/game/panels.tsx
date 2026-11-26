@@ -203,7 +203,7 @@ export function PlayersPanel({
               <span title={`쓴 기사 ${info.knightsPlayed}장`} className="stat-pieces">
                 ⚔{info.knightsPlayed}
               </span>
-              <span title={`가장 긴 길 ${info.roadLength}칸`} className="stat-pieces">
+              <span title={g.sea.length ? `가장 긴 교역로(길·배) ${info.roadLength}칸, 띄운 배 ${info.ships}척` : `가장 긴 길 ${info.roadLength}칸`} className="stat-pieces">
                 <PieceIcon kind="road" size={13} />
                 {info.roadLength}
               </span>
@@ -257,6 +257,14 @@ export function PieceIcon({ kind, size = 22 }: { kind: PieceKind; size?: number 
           <rect x="7.5" y="15" width="3" height="5" fill="#6b4a2a" />
         </g>
       )}
+      {kind === 'ship' && (
+        <g stroke="#3a2a1f" strokeWidth="1.2" strokeLinejoin="round">
+          <path d="M3 15 H21 L18.5 19.5 H6 Z" fill="#9a6a3c" />
+          <path d="M12 3 V15" />
+          <path d="M12.8 4.5 C16 6 18 9.5 18.5 13.5 H12.8 Z" fill="#f2e6cc" />
+          <path d="M2 21.5 C5 20.3 7 20.3 10 21.5 S15 22.7 18 21.5 S21 20.8 22 21.2" fill="none" stroke="#5f9fb2" strokeWidth="1.4" />
+        </g>
+      )}
     </svg>
   );
 }
@@ -267,6 +275,7 @@ const BUILD_ITEMS: { key: BuildKey; label: string; cost: Bundle }[] = [
   { key: 'road', label: '도로', cost: PIECE_COST.road },
   { key: 'village', label: '마을', cost: PIECE_COST.village },
   { key: 'city', label: '도시', cost: PIECE_COST.city },
+  { key: 'ship', label: '배', cost: PIECE_COST.ship },
   { key: 'dev', label: '발전 카드', cost: DEV_COST },
 ];
 
@@ -292,7 +301,7 @@ function costText(cost: Bundle): string {
 }
 
 /**
- * 교환과 턴 종료 사이의 버튼 네 개: [도로] [마을] [도시] [발전 카드].
+ * 교환과 턴 종료 사이의 버튼 네 개: [도로] [마을] [도시] [발전 카드]. 섬 맵은 [도시] 다음에 [배]가 붙어 다섯 개다.
  * 버튼에는 큰 그림과 작은 이름만 두고, 오른쪽 위 모서리에 앞으로 더 지을 수 있는 개수(발전 카드는 더미에 남은 장수)를 적는다.
  * 재료는 마우스를 올리거나 누르면 버튼 위 말풍선에 아이콘과 개수로만 보인다. 못 하는 버튼을 누르면 까닭은 교환 버튼처럼 알림으로 띄운다.
  * 도로·마을·도시는 누르면 지을 수 있는 자리가 빛나고 그 자리를 누르면 바로 짓는다. 발전 카드는 누르면 바로 산다.
@@ -318,13 +327,14 @@ export function BuildBar({
     return () => window.clearTimeout(t);
   }, [tip]);
   if (g.phase !== 'playing') return null;
+  const sea = g.sea.length > 0;
   return (
-    <div className="build-bar" role="group" aria-label="건설과 발전 카드">
-      {BUILD_ITEMS.map((item) => {
+    <div className={`build-bar ${sea ? 'build-bar-sea' : ''}`} role="group" aria-label="건설과 발전 카드">
+      {BUILD_ITEMS.filter((item) => sea || item.key !== 'ship').map((item) => {
         const active = item.key !== 'dev' && buildMode === item.key;
         const blocker = active ? null : (wait ?? (item.key === 'dev' ? buyDevBlocker(view) : buildBlocker(view, item.key)));
         // 개수 제한 없음이면 남은 수가 끝이 없다 (∞ 로 적는다).
-        const left = g.unlimited ? Infinity : item.key === 'dev' ? g.devDeckCount : pieceLimit(g, item.key) - pieceCount(g.buildings, g.roads, view.you, item.key);
+        const left = g.unlimited ? Infinity : item.key === 'dev' ? g.devDeckCount : pieceLimit(g, item.key) - pieceCount(g.buildings, g.roads, view.you, item.key, g.ships);
         const leftText = left === Infinity ? '∞' : String(left);
         const unit = item.key === 'dev' ? '장' : '개';
         return (

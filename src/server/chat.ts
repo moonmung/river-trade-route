@@ -99,7 +99,8 @@ export class ChatHub {
     if (!room.game) return { ok: false, error: '게임 중에만 핑을 찍을 수 있습니다.', code: 'PING_NO_GAME' };
     const board = boardOf(room.game);
     const map = kind === 'tile' ? board.tileMap : kind === 'vertex' ? board.vertexMap : kind === 'edge' ? board.edgeMap : null;
-    const exists = !!map && Object.hasOwn(map, target);
+    // 섬 맵은 바다 한가운데 변(배 자리)도 가리킬 수 있다.
+    const exists = (!!map && Object.hasOwn(map, target)) || (kind === 'edge' && !!board.sea && Object.hasOwn(board.sea.edgeMap, target));
     if (!kind || !exists) return { ok: false, error: '보드에 없는 자리입니다.', code: 'PING_BAD_TARGET' };
     const c = this.of(room);
     const taken = takePingToken(c.pingBuckets.get(player.id), now, PING_SLACK_MS);

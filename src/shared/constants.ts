@@ -101,26 +101,32 @@ export function normalizeTurnSeconds(v: unknown): number | null {
   return typeof v === 'number' && TURN_SECONDS_OPTIONS.includes(v) ? v : null;
 }
 
-export const PIECE_LABEL: Record<PieceKind, string> = { road: '길', village: '마을', city: '도시' };
-/** 건설 비용 (카탄 설명서와 같은 값): 길 = 목재·벽돌, 마을 = 목재·벽돌·양모·곡물, 도시 = 곡물 2·석재 3 (마을을 올린다) */
+export const PIECE_LABEL: Record<PieceKind, string> = { road: '길', village: '마을', city: '도시', ship: '배' };
+/**
+ * 건설 비용 (카탄 설명서와 같은 값): 길 = 목재·벽돌, 마을 = 목재·벽돌·양모·곡물, 도시 = 곡물 2·석재 3 (마을을 올린다),
+ * 배 = 목재·양모 (섬 맵에서만)
+ */
 export const PIECE_COST: Record<PieceKind, Bundle> = {
   road: { wood: 1, grain: 0, wool: 0, brick: 1, stone: 0 },
   village: { wood: 1, grain: 1, wool: 1, brick: 1, stone: 0 },
   city: { wood: 0, grain: 2, wool: 0, brick: 0, stone: 3 },
+  ship: { wood: 1, grain: 0, wool: 1, brick: 0, stone: 0 },
 };
 /** 한 사람이 가질 수 있는 개수 (기본값. 방장이 대기실에서 PIECE_LIMIT_RANGE 안으로 바꿀 수 있다) */
-export const PIECE_LIMIT: Record<PieceKind, number> = { road: 15, village: 5, city: 4 };
-/** 한 사람이 가질 수 있는 길·마을·도시 개수 */
+export const PIECE_LIMIT: Record<PieceKind, number> = { road: 15, village: 5, city: 4, ship: 15 };
+/** 한 사람이 가질 수 있는 길·마을·도시·배 개수 */
 export type PieceLimits = Record<PieceKind, number>;
 /** 방장이 정하는 한 사람의 조각 수 범위 */
-export const PIECE_LIMIT_RANGE: Record<PieceKind, readonly [number, number]> = { road: [5, 40], village: [2, 15], city: [1, 12] };
+export const PIECE_LIMIT_RANGE: Record<PieceKind, readonly [number, number]> = { road: [5, 40], village: [2, 15], city: [1, 12], ship: [5, 40] };
 
+/** 배 개수가 생기기 전에 저장한 값처럼 배가 빠져 있으면 배는 기본값으로 채운다. 나머지가 범위를 벗어나면 null. */
 export function normalizePieceLimits(v: unknown): PieceLimits | null {
   if (typeof v !== 'object' || v === null) return null;
   const o = v as Record<string, unknown>;
   const out = { ...PIECE_LIMIT };
   for (const k of Object.keys(PIECE_LIMIT) as PieceKind[]) {
     const n = o[k];
+    if (n === undefined && k === 'ship') continue;
     const [lo, hi] = PIECE_LIMIT_RANGE[k];
     if (typeof n !== 'number' || !Number.isInteger(n) || n < lo || n > hi) return null;
     out[k] = n;
@@ -128,7 +134,7 @@ export function normalizePieceLimits(v: unknown): PieceLimits | null {
   return out;
 }
 /** 마을 1점, 도시 2점 (도시로 업그레이드하면 마을 1점이 도시 2점으로 바뀐다) */
-export const PIECE_POINTS: Record<PieceKind, number> = { road: 0, village: 1, city: 2 };
+export const PIECE_POINTS: Record<PieceKind, number> = { road: 0, village: 1, city: 2, ship: 0 };
 
 /** 발전 카드 1장 값: 양모·곡물·석재 1개씩 */
 export const DEV_COST: Bundle = { wood: 0, grain: 1, wool: 1, brick: 0, stone: 1 };
@@ -205,7 +211,7 @@ export const DEV_LABEL: Record<DevKind, string> = {
 export const DEV_HELP: Record<DevKind, string> = {
   knight: '기사단 동상을 다른 칸으로 옮기고, 그 칸에 닿은 사람 한 명에게서 자원 1장을 빼앗는다. 쓴 기사는 최강 기사단 계산에 들어간다.',
   victory: '승점 1점. 다른 사람에게는 보이지 않고, 10점에 닿을 때 함께 센다.',
-  road_building: '길 2개를 비용 없이 놓는다.',
+  road_building: '길 2개를 비용 없이 놓는다. 섬 맵에서는 길 대신 배를 띄워도 된다.',
   year_of_plenty: '원하는 자원 2개를 은행에서 받는다 (같은 종류 2개도 된다).',
   monopoly: '자원 한 종류를 고르면 다른 사람 모두가 그 자원을 전부 나에게 준다.',
 };
