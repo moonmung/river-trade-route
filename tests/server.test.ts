@@ -104,7 +104,7 @@ function assertPrivacy(clients: TestClient[]): void {
       const g = view.game;
       if (!g) continue;
       for (const p of g.players)
-        expect(Object.keys(p).sort()).toEqual(['cities', 'devCardCount', 'id', 'knightsPlayed', 'resourceTotal', 'roadLength', 'roads', 'score', 'seat', 'ships', 'villages']);
+        expect(Object.keys(p).sort()).toEqual(['cities', 'devCardCount', 'id', 'islands', 'knightsPlayed', 'resourceTotal', 'roadLength', 'roads', 'score', 'seat', 'ships', 'villages']);
       // 열린 교환 제안은 내용과 응답만 공개하고 누구의 종류별 보유량도 담지 않는다.
       for (const t of g.trades) expect(Object.keys(t).sort()).toEqual(['from', 'get', 'give', 'id', 'responses', 'to']);
       for (const e of g.events as GameEvent[]) {

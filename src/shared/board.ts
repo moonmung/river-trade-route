@@ -138,12 +138,19 @@ export interface SeaEdgeDef {
   coast: boolean;
 }
 
+/** 바다 칸 하나를 가리키는 ID (바다 칸 목록 순서대로 c1, c2 …). 해적선이 이 칸에 선다. */
+export type SeaCellId = string;
+
 /** 바다 칸에서 계산한 바닷길: 바다 칸마다 여섯 변이 모두 배 자리다. */
 export interface SeaNet {
   cells: readonly SeaCell[];
   edges: SeaEdgeDef[];
   edgeMap: Record<EdgeId, SeaEdgeDef>;
   vertexMap: Record<VertexId, SeaVertexDef>;
+  /** 바다 칸 ID → 그 칸 (축 좌표) */
+  cellMap: Record<SeaCellId, SeaCell>;
+  /** 바다 칸 ID → 그 칸의 여섯 변 (해적선이 막는 바닷길) */
+  cellEdges: Record<SeaCellId, EdgeId[]>;
 }
 
 /**
@@ -194,7 +201,55 @@ export function seaNet(land: BoardGeometry, cells: readonly SeaCell[]): SeaNet {
     vertexMap[e.a].edges.push(e.id);
     vertexMap[e.b].edges.push(e.id);
   }
-  return { cells, edges, edgeMap: Object.fromEntries(edges.map((e) => [e.id, e])), vertexMap };
+  const idOfKey = (k: string) => landE.get(k) ?? eid.get(k)!;
+  const cellMap: Record<SeaCellId, SeaCell> = {};
+  const cellEdges: Record<SeaCellId, EdgeId[]> = {};
+  cells.forEach((c, i) => {
+    const cs = cornersOf(c).map(key);
+    cellMap[`c${i + 1}`] = c;
+    cellEdges[`c${i + 1}`] = cs.map((ka, k) => idOfKey(edgeKey(ka, cs[(k + 1) % 6])));
+  });
+  return { cells, edges, edgeMap: Object.fromEntries(edges.map((e) => [e.id, e])), vertexMap, cellMap, cellEdges };
+}
+
+/** 바다 칸 ID (바다 칸 목록에서의 순서). 목록에 없으면 null. */
+export function seaCellId(cells: readonly SeaCell[], c: SeaCell): SeaCellId | null {
+  const i = cells.findIndex((x) => x.q === c.q && x.r === c.r);
+  return i < 0 ? null : `c${i + 1}`;
+}
+
+// ───────────────────────── 섬 ─────────────────────────
+
+/** 작은 섬: 땅이 이 칸 수 이하인 섬. 섬 맵에서 시작 마을을 짓지 못하고, 사람마다 처음 마을을 지으면 새 섬 보너스를 받는다. */
+export const SMALL_ISLAND_MAX = 4;
+
+/** 맞닿은 땅끼리 묶은 섬 번호 (칸 ID → 섬 번호)와 섬마다 칸 수. 섬 번호는 타일 목록 순서로 처음 만난 섬부터 0, 1 … */
+function islandsOf(tiles: readonly TileDef[]): { of: Record<TileId, number>; sizes: number[] } {
+  const of: Record<TileId, number> = {};
+  const sizes: number[] = [];
+  const near = (a: TileDef, b: TileDef) => {
+    const dq = a.q - b.q;
+    const dr = a.r - b.r;
+    return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2 === 1;
+  };
+  for (const t of tiles) {
+    if (of[t.id] !== undefined) continue;
+    const n = sizes.length;
+    sizes.push(0);
+    const stack = [t];
+    of[t.id] = n;
+    while (stack.length) {
+      const cur = stack.pop()!;
+      sizes[n] += 1;
+      for (const o of tiles) {
+        if (of[o.id] === undefined && near(cur, o)) {
+          of[o.id] = n;
+          stack.push(o);
+        }
+      }
+    }
+  }
+  return { of, sizes };
 }
 
 /**
@@ -205,6 +260,19 @@ export interface Board extends BoardGeometry {
   tiles: readonly TileDef[];
   tileMap: Readonly<Record<TileId, TileDef>>;
   sea: SeaNet | null;
+  /** 칸 ID → 섬 번호 (맞닿은 땅끼리 한 섬) */
+  islandOf: Readonly<Record<TileId, number>>;
+  /** 섬마다 땅 칸 수 */
+  islandSizes: readonly number[];
+}
+
+/** 섬 맵에서 이 꼭짓점이 작은 섬에 있으면 그 섬 번호 (아니면 null). 섬끼리는 떨어져 있어 한 꼭짓점은 한 섬에만 닿는다. */
+export function smallIslandAt(board: Board, vertexId: VertexId): number | null {
+  if (!board.sea) return null;
+  const t = board.vertexMap[vertexId]?.tiles[0];
+  if (t === undefined) return null;
+  const n = board.islandOf[t];
+  return board.islandSizes[n] <= SMALL_ISLAND_MAX ? n : null;
 }
 
 const NO_SEA: readonly SeaCell[] = [];
@@ -225,7 +293,15 @@ export function boardFor(tiles: readonly TileDef[], sea: readonly SeaCell[] = NO
   let board = boardCache.get(sig);
   if (!board) {
     const geo = boardGeometry(tiles);
-    board = { ...geo, tiles, tileMap: Object.fromEntries(tiles.map((t) => [t.id, t])), sea: sea.length ? seaNet(geo, sea) : null };
+    const islands = islandsOf(tiles);
+    board = {
+      ...geo,
+      tiles,
+      tileMap: Object.fromEntries(tiles.map((t) => [t.id, t])),
+      sea: sea.length ? seaNet(geo, sea) : null,
+      islandOf: islands.of,
+      islandSizes: islands.sizes,
+    };
     if (boardCache.size > 64) boardCache.clear();
     boardCache.set(sig, board);
   }

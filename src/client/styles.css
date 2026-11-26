@@ -1462,6 +1462,36 @@ h2 {
   fill: #e3cda4;
 }
 
+/* 금광 (섬 맵) */
+.flat-gold polygon {
+  fill: #e8c15a;
+}
+
+/* 해적선을 옮길 수 있는 바다 칸과 해적선 */
+.flat-sea-cell polygon {
+  fill: rgba(255, 255, 255, 0.06);
+  stroke: rgba(255, 255, 255, 0.25);
+  stroke-width: 0.04;
+  cursor: pointer;
+}
+
+.flat-sea-cell.flat-target polygon {
+  stroke: #ffe066;
+  stroke-width: 0.09;
+}
+
+.flat-sea-cell.flat-selected polygon {
+  stroke: #ffffff;
+  stroke-width: 0.11;
+}
+
+.flat-pirate-sail {
+  fill: #2a2a30;
+  stroke: #111;
+  stroke-width: 0.025;
+  stroke-linejoin: round;
+}
+
 .flat-hex.flat-target polygon {
   stroke: #ffe066;
   stroke-width: 0.09;

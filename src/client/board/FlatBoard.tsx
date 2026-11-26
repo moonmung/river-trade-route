@@ -7,7 +7,7 @@ import { boardFor, edgeLabel, seaEdgeLabel, tileCenterUnit, vertexLabel } from '
 import { RESOURCE_LABEL, TILE_KIND_LABEL, numberPips } from '../../shared/constants';
 import type { SeaCell, TileDef } from '../../shared/types';
 import { playerColor } from '../theme';
-import { RESOURCE_ART } from '../ui/art';
+import { GOLD_ART, RESOURCE_ART } from '../ui/art';
 import { ResourceIcon } from '../ui/icons';
 import type { BoardSelection, BoardState } from './BoardRenderer';
 
@@ -91,6 +91,7 @@ export function FlatBoard({
   // 배: 바다 한가운데 변은 변 위, 바닷가 변은 땅 칸 반대쪽(바다 쪽)으로 조금 비켜 띄운다.
   const shipEdges = new Set((state.ships ?? []).map((s) => s.edgeId));
   const hlS = new Set(state.highlights?.shipEdges ?? []);
+  const hlSea = new Set(state.highlights?.seaCells ?? []);
   const onWater = (id: string) => !!net?.edgeMap[id] && (shipEdges.has(id) || !geo.edgeMap[id] || (hlS.has(id) && !hlE.has(id)));
   const shipSpot = (id: string) => {
     const e = net?.edgeMap[id];
@@ -118,7 +119,7 @@ export function FlatBoard({
       const e = geo.edgeMap[id];
       return e ? { x: (geo.vertexMap[e.a].x + geo.vertexMap[e.b].x) / 2, y: (geo.vertexMap[e.a].y + geo.vertexMap[e.b].y) / 2 } : null;
     }
-    const t = tiles.find((x) => x.id === id);
+    const t = tiles.find((x) => x.id === id) ?? net?.cellMap[id];
     return t ? tileCenterUnit(t) : null;
   };
   const pinAt = pin ? spotAt(pin.sel) : null;
@@ -145,7 +146,7 @@ export function FlatBoard({
                   <ResourceIcon kind={t.kind} size={0.44} />
                 </g>
               ) : (
-                <image href={RESOURCE_ART[t.kind]} x={c.x - 0.26} y={c.y - 0.58} width={0.52} height={0.52} />
+                <image href={t.kind === 'gold' ? GOLD_ART : RESOURCE_ART[t.kind]} x={c.x - 0.26} y={c.y - 0.58} width={0.52} height={0.52} />
               )}
               {num ? (
                 <>
@@ -172,6 +173,31 @@ export function FlatBoard({
             </g>
           );
         })}
+        {net &&
+          Object.entries(net.cellMap).map(([id, cell]) => {
+            // 바다 칸: 해적선을 옮길 수 있으면 빛나는 육각형으로, 해적선이 선 칸에는 검은 돛배를 그린다.
+            const lit = hlSea.has(id) || isSel('tile', id);
+            const pirate = state.pirate === id;
+            if (!lit && !pirate) return null;
+            const c = tileCenterUnit(cell);
+            return (
+              <g
+                key={id}
+                className={`flat-sea-cell ${isSel('tile', id) ? 'flat-selected' : ''} ${hlSea.has(id) ? 'flat-target' : ''}`}
+                onClick={(e) => onTap?.({ kind: 'tile', id }, { alt: e.altKey })}
+                role="button"
+                aria-label={pirate ? '해적선이 선 바다' : '바다 칸'}
+              >
+                <polygon points={hexPoints(c.x, c.y, HEX_R)} />
+                {pirate && (
+                  <g transform={`translate(${c.x.toFixed(3)} ${c.y.toFixed(3)}) scale(1.6)`} className="flat-pirate">
+                    <path d="M-0.24 0.02 H0.24 L0.16 0.11 H-0.17 Z" className="flat-ship-hull" />
+                    <path d="M0.02 0.01 V-0.27 L0.17 -0.02 Z" className="flat-pirate-sail" />
+                  </g>
+                )}
+              </g>
+            );
+          })}
         {(state.harbors ?? []).map((hb) => {
           const e = geo.edgeMap[hb.edgeId];
           if (!e || e.tiles.length !== 1) return null;

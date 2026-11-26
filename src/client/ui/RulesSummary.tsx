@@ -10,6 +10,8 @@ import {
   GENERIC_HARBOR_RATIO,
   HAND_LIMIT_MAX,
   HAND_LIMIT_MIN,
+  ISLAND_BONUS_POINTS,
+  ISLANDS_WIN_POINTS,
   TURN_SECONDS,
   LARGEST_ARMY_MIN,
   LONGEST_ROAD_MIN,
@@ -86,6 +88,12 @@ export function RulesSummary({ open = false }: { open?: boolean }) {
           띄우고 길에서 배로는 내 마을·도시를 거쳐야 넘어갑니다. 배가 닿은 꼭짓점에도 마을을 지을 수 있어 다른 섬으로 건너갑니다. 내 차례에 항로
           끝의 배 한 척을 다른 바닷길로 한 번 옮길 수 있습니다(내 배를 누르고 ✓). 이번 턴에 띄운 배와 양 끝이 모두 이어진 배는 옮기지 못합니다. 길
           건설 카드로는 길 대신 배를 띄워도 됩니다.
+        </li>
+        <li>
+          <b>섬 맵</b>: 시작 마을은 큰 섬에만 짓고 바닷가 시작 마을에는 길 대신 배를 붙여도 됩니다. 작은 섬에 처음 마을을 지으면 그 섬마다{' '}
+          {ISLAND_BONUS_POINTS}점을 더 받습니다(다른 사람이 먼저 지었어도 받습니다). <b>금광</b>에 닿은 마을은 1장, 도시는 2장을 원하는 자원으로
+          골라 받습니다. 7이 나오거나 기사 카드를 쓰면 기사단 동상 대신 <b>해적선</b>을 다른 바다 칸으로 옮겨 그 칸 둘레에 배를 둔 사람 한 명에게서
+          자원 1장을 빼앗을 수 있고, 해적선 둘레에는 배를 띄우거나 옮기지 못합니다. 섬 맵의 기본 승리 점수는 {ISLANDS_WIN_POINTS}점입니다.
         </li>
         <li>
           <b>교환</b>: 은행에는 같은 자원 {BANK_RATIO}장을 내고 원하는 자원 1장을 받습니다. 바닷가 해상 교역로에 마을·도시가 닿아 있으면 아무

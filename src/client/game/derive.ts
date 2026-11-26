@@ -7,6 +7,7 @@ import {
   PIECE_LABEL,
   RESOURCES,
   RESOURCE_LABEL,
+  TILE_KIND_LABEL,
   AWARD_POINTS,
   LONGEST_ROAD_MIN,
   bundleTotal,
@@ -19,8 +20,10 @@ import {
   buildableVillages,
   pieceCount,
   pieceLimit,
+  pirateTargets,
   placeableVertices,
   setupRoadEdges,
+  setupShipEdges,
   shipMoveProblem,
   shipMoveTargets,
   upgradableVillages,
@@ -59,9 +62,10 @@ export function turnBlocker(view: RoomView): string | null {
   if (g.currentPlayerId !== view.you) return '내 차례에만 할 수 있습니다.';
   if (g.step === 'roll') return '먼저 주사위를 굴리세요.';
   if (g.step === 'discard') return '7이 나와 자원을 버리는 중입니다.';
-  if (g.step === 'robber') return '먼저 기사단 동상을 옮길 칸을 고르세요.';
+  if (g.step === 'robber') return g.sea.length ? '먼저 기사단 동상이나 해적선을 옮길 칸을 고르세요.' : '먼저 기사단 동상을 옮길 칸을 고르세요.';
   if (g.step === 'steal') return '먼저 자원을 빼앗을 사람을 고르세요.';
   if (g.step === 'road_building') return '길 건설 카드의 공짜 길을 먼저 놓으세요.';
+  if (g.step === 'gold') return '금광 자원을 고르는 중입니다.';
   return null;
 }
 
@@ -98,7 +102,7 @@ export function buildSpots(view: RoomView, kind: PieceKind): string[] {
   if (!g) return [];
   const board = boardOf(g);
   if (kind === 'road') return buildableRoads(board, g.buildings, g.roads, view.you, g.ships);
-  if (kind === 'ship') return buildableShips(board, g.buildings, g.roads, g.ships, view.you);
+  if (kind === 'ship') return buildableShips(board, g.buildings, g.roads, g.ships, view.you, g.pirate);
   if (kind === 'village') return buildableVillages(board, g.buildings, g.roads, view.you, g.ships);
   return upgradableVillages(g.buildings, view.you);
 }
@@ -170,6 +174,8 @@ export interface BoardHighlights {
   /** 배 자리 (바다에 닿은 변). 바닷가 변은 길 자리와 겹칠 수 있다. */
   shipEdges: string[];
   tiles: string[];
+  /** 해적선을 옮길 수 있는 바다 칸 (c…) */
+  seaCells: string[];
 }
 
 /** 보드에서 하는 중인 일: 건설 모드(길·마을·도시·배)와 옮기려고 고른 내 배 */
@@ -182,19 +188,21 @@ export const NO_PICK: BoardPick = { mode: null, moveFrom: null };
 
 /**
  * 보드에서 빛낼 자리.
- * 시작 배치: 마을 자리 → (마을을 지은 뒤) 그 마을에 붙일 길. 동상 옮기기: 동상이 없는 칸. 길 건설 카드: 공짜 길·배 자리.
- * 건설 모드: 지을 수 있는 자리. 배를 옮기는 중: 그 배를 옮겨 댈 수 있는 자리.
+ * 시작 배치: 마을 자리 → (마을을 지은 뒤) 그 마을에 붙일 길(바닷가면 배도). 동상 옮기기: 동상이 없는 칸(섬 맵은 해적선을 옮길 바다 칸도).
+ * 길 건설 카드: 공짜 길·배 자리. 건설 모드: 지을 수 있는 자리. 배를 옮기는 중: 그 배를 옮겨 댈 수 있는 자리.
  */
 export function boardHighlights(view: RoomView, pick: BoardPick = NO_PICK): BoardHighlights {
-  const none = { vertices: [], edges: [], shipEdges: [], tiles: [] };
+  const none = { vertices: [], edges: [], shipEdges: [], tiles: [], seaCells: [] };
   const g = view.game;
   if (!g) return none;
   if (g.phase === 'placement' && g.placementPlayerId === view.you) {
-    if (g.setupVillage) return { ...none, edges: setupRoadEdges(boardOf(g), g.roads, g.setupVillage) };
+    if (g.setupVillage) {
+      return { ...none, edges: setupRoadEdges(boardOf(g), g.roads, g.setupVillage), shipEdges: setupShipEdges(boardOf(g), g.roads, g.ships, g.setupVillage, g.pirate) };
+    }
     return { ...none, vertices: placeableVertices(boardOf(g), g.buildings) };
   }
   if (g.phase !== 'playing' || g.currentPlayerId !== view.you) return none;
-  if (g.step === 'robber') return { ...none, tiles: g.tiles.map((t) => t.id).filter((id) => id !== g.robber) };
+  if (g.step === 'robber') return { ...none, tiles: g.tiles.map((t) => t.id).filter((id) => id !== g.robber), seaCells: pirateTargets(g) };
   if (g.step === 'road_building') {
     const spots = freeSpots(view);
     return { ...none, edges: pick.mode === 'ship' ? [] : spots.roads, shipEdges: pick.mode === 'road' ? [] : spots.ships };
@@ -244,7 +252,7 @@ export function tileName(map: MapInfo | null | undefined, tileId: string): strin
   const t = map ? boardOf(map).tileMap[tileId] : undefined;
   if (!map || !t) return '?';
   if (t.kind === 'plaza') return '광장';
-  return map.numbers[tileId] ? `${RESOURCE_LABEL[t.kind]} ${map.numbers[tileId]}` : RESOURCE_LABEL[t.kind];
+  return map.numbers[tileId] ? `${TILE_KIND_LABEL[t.kind]} ${map.numbers[tileId]}` : TILE_KIND_LABEL[t.kind];
 }
 
 /** 꼭짓점·변의 이름: 닿은 칸들 사이, 바닷가면 "바닷가", 바다 한가운데(배 자리)면 "바다 위" */
@@ -267,6 +275,7 @@ export function isScoreEvent(e: GameEvent): boolean {
     case 'game_end':
     case 'buy_dev':
     case 'play_dev':
+    case 'island_bonus':
       return true;
     case 'build':
       return e.piece === 'village' || e.piece === 'city';
@@ -311,17 +320,25 @@ export function formatEvent(e: GameEvent, players: Map<string, PlayerInfo>, me: 
     case 'placement': {
       const got = e.gained ? ` 받은 자원: ${bundleText(e.gained)}.` : '';
       if (e.step === 'village') return `${subj(e.player)} ${place('vertex', e.vertexId)}에 시작 마을을 지었습니다.${got}`;
-      if (e.step === 'road') return `${subj(e.player)} ${place('vertex', e.vertexId)}의 시작 마을에 길을 놓았습니다.`;
+      if (e.step === 'road') return `${subj(e.player)} ${place('vertex', e.vertexId)}의 시작 마을에 ${e.ship ? '배를 띄웠습니다' : '길을 놓았습니다'}.`;
       return `${subj(e.player)} ${place('vertex', e.vertexId)}에 시작 마을과 길을 놓았습니다.${got}`;
     }
     case 'roll': {
       const total = e.dice[0] + e.dice[1];
-      if (total === 7) return `${subj(e.player)} 주사위 ${e.dice[0]}+${e.dice[1]} = 7. 기사단 동상이 움직입니다.`;
+      if (total === 7) return `${subj(e.player)} 주사위 ${e.dice[0]}+${e.dice[1]} = 7. ${map?.sea?.length ? '기사단 동상이나 해적선이' : '기사단 동상이'} 움직입니다.`;
       const mine = e.detail?.[me];
       const blocked = e.blocked.length ? ` (${e.blocked.map((t) => tileName(map, t)).join(', ')} 칸은 동상에 막힘)` : '';
       const short = e.short?.length ? ` 은행에 ${e.short.map((r) => RESOURCE_LABEL[r]).join('·')}이(가) 모자라 몫을 다 나눠 주지 못했습니다.` : '';
-      return `${subj(e.player)} 주사위 ${e.dice[0]}+${e.dice[1]} = ${total}.${mine && bundleTotal(mine) ? ` 내 생산: ${bundleText(mine)}.` : ''}${blocked}${short}`;
+      const gold = Object.entries(e.gold ?? {}).map(([id, n]) => `${name(id)} ${n}장`);
+      const goldText = gold.length ? ` 금광에서 원하는 자원을 골라 받습니다: ${gold.join(', ')}.` : '';
+      return `${subj(e.player)} 주사위 ${e.dice[0]}+${e.dice[1]} = ${total}.${mine && bundleTotal(mine) ? ` 내 생산: ${bundleText(mine)}.` : ''}${blocked}${short}${goldText}`;
     }
+    case 'pirate':
+      return `${subj(e.player)} 해적선을 옮겼습니다. 그 바다 둘레에는 배를 띄우거나 옮길 수 없습니다.`;
+    case 'island_bonus':
+      return `${subj(e.player)} 작은 섬에 처음 마을을 지어 새 섬 보너스를 받았습니다 (+${e.points}점).`;
+    case 'gold_pick':
+      return `${subj(e.player)} 금광에서 자원 ${e.count}장을 골라 받았습니다${e.detail ? ` (${bundleText(e.detail)})` : ''}.`;
     case 'discard':
       return `${subj(e.player)} 자원 ${e.count}장을 버렸습니다${e.detail ? ` (${bundleText(e.detail)})` : ''}.`;
     case 'robber':
@@ -381,6 +398,8 @@ export interface SpotAction {
   action: GameAction | null;
   /** 배 옮기기를 시작한다: 이 배를 옮길 배로 고르고 옮겨 댈 곳을 빛낸다 */
   start?: 'move_ship';
+  /** 같은 자리에서 고를 수 있는 다른 일 (바닷가 변: 길 대신 배 띄우기). ✓ 옆의 배 단추로 한다. */
+  alt?: { label: string; blocker: string | null; action: GameAction };
 }
 
 /**
@@ -394,6 +413,14 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
   const myMain = g.phase === 'playing' && g.currentPlayerId === me && g.step === 'main';
   if (sel.kind === 'tile') {
     if (g.phase !== 'playing' || g.step !== 'robber' || g.currentPlayerId !== me) return null;
+    // 바다 칸(c…)을 고르면 해적선을 옮긴다 (섬 맵).
+    if (isSeaCellId(sel.id)) {
+      return {
+        label: '해적선 옮기기',
+        blocker: g.pirate === sel.id ? '해적선은 다른 바다 칸으로 옮겨야 합니다.' : null,
+        action: { type: 'move_pirate', cell: sel.id },
+      };
+    }
     return {
       label: '기사단 동상 옮기기',
       blocker: g.robber === sel.id ? '동상은 다른 칸으로 옮겨야 합니다.' : null,
@@ -424,21 +451,34 @@ export function spotAction(view: RoomView, sel: { kind: 'tile' | 'vertex' | 'edg
   }
   if (g.roads.some((r) => r.edgeId === sel.id)) return null;
   if (placing) {
-    if (!g.setupVillage || !setupRoadEdges(boardOf(g), g.roads, g.setupVillage).includes(sel.id)) return null;
-    return { label: '길 놓기', blocker: null, action: { type: 'place_road', edgeId: sel.id } };
+    if (!g.setupVillage) return null;
+    // 섬 맵의 바닷가 시작 마을은 길 대신 배를 띄워도 된다 (바닷가 변은 둘 다, 바다 한가운데 변은 배만).
+    const road = setupRoadEdges(boardOf(g), g.roads, g.setupVillage).includes(sel.id);
+    const ship = setupShipEdges(boardOf(g), g.roads, g.ships, g.setupVillage, g.pirate).includes(sel.id);
+    const shipAction = { label: '배 띄우기', blocker: null, action: { type: 'place_ship', edgeId: sel.id } as GameAction };
+    if (road) return { label: '길 놓기', blocker: null, action: { type: 'place_road', edgeId: sel.id }, ...(ship ? { alt: shipAction } : {}) };
+    return ship ? shipAction : null;
   }
   // 바닷가 변은 길과 배 모두 놓을 수 있다. 배 모드면 배, 그 밖에는 길을 먼저 본다.
   const roadOk = pick.mode !== 'ship' && buildSpots(view, 'road').includes(sel.id);
   const shipOk = pick.mode !== 'road' && hasSea(view) && buildSpots(view, 'ship').includes(sel.id);
   if (!roadOk && !shipOk) return null;
   if (g.phase === 'playing' && g.step === 'road_building' && g.currentPlayerId === me) {
-    // 길 건설 카드: 고른 변마다 ✓ 를 눌러 하나씩 놓는다 (섬 맵에서는 배도).
+    // 길 건설 카드: 고른 변마다 ✓ 를 눌러 하나씩 놓는다 (섬 맵에서는 배도, 바닷가 변은 배 단추로 배를 고른다).
     const spots = freeSpots(view);
-    if (roadOk && spots.roads.includes(sel.id)) return { label: `도로 건설 · 공짜 ${g.freeRoads}개 남음`, blocker: null, action: { type: 'build_road', edgeId: sel.id } };
-    if (shipOk && spots.ships.includes(sel.id)) return { label: `배 띄우기 · 공짜 ${g.freeRoads}개 남음`, blocker: null, action: { type: 'build_ship', edgeId: sel.id } };
-    return null;
+    const road = roadOk && spots.roads.includes(sel.id);
+    const ship = shipOk && spots.ships.includes(sel.id);
+    const shipAction = { label: `배 띄우기 · 공짜 ${g.freeRoads}개 남음`, blocker: null, action: { type: 'build_ship', edgeId: sel.id } as GameAction };
+    if (road) return { label: `도로 건설 · 공짜 ${g.freeRoads}개 남음`, blocker: null, action: { type: 'build_road', edgeId: sel.id }, ...(ship ? { alt: shipAction } : {}) };
+    return ship ? shipAction : null;
   }
   if (!myMain) return null;
-  if (roadOk) return { label: '길 놓기', blocker: buildBlocker(view, 'road'), action: { type: 'build_road', edgeId: sel.id } };
-  return { label: '배 띄우기', blocker: buildBlocker(view, 'ship'), action: { type: 'build_ship', edgeId: sel.id } };
+  const shipAction = { label: '배 띄우기', blocker: buildBlocker(view, 'ship'), action: { type: 'build_ship', edgeId: sel.id } as GameAction };
+  if (roadOk) return { label: '길 놓기', blocker: buildBlocker(view, 'road'), action: { type: 'build_road', edgeId: sel.id }, ...(shipOk ? { alt: shipAction } : {}) };
+  return shipAction;
+}
+
+/** 바다 칸 ID(c…)인지: 동상 옮기기 단계에서 고른 칸이 땅이 아니라 바다면 해적선을 옮긴다 */
+export function isSeaCellId(id: string): boolean {
+  return /^c\d+$/.test(id);
 }

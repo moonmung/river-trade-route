@@ -3,11 +3,12 @@
 // 모든 행동은 "검사를 전부 끝낸 뒤 상태를 바꾼다" 원칙을 지켜, 거절된 요청이 상태를 건드리지 않게 한다.
 // 주사위·빼앗기·발전 카드 섞기에 쓰는 난수는 바깥에서 넘겨받는다 (서버는 Math.random, 테스트는 고정 값).
 
-import { boardOf, harborVertices, type BoardGeometry, type EdgeId, type SeaNet, type VertexId } from './board';
+import { boardOf, harborVertices, smallIslandAt, type Board, type BoardGeometry, type EdgeId, type SeaCellId, type SeaNet, type VertexId } from './board';
 import { buildMap, DEFAULT_MAP, mapCardDefaults, maxPlayersFor } from './maps';
 import { drawFairDice, newFairDice, recordProduction, type DiceMode, type FairDiceState } from './fairDice';
 import {
   AWARD_POINTS,
+  ISLAND_BONUS_POINTS,
   BANK_RATIO,
   DEV_COST,
   DEV_CARDS_MAX,
@@ -135,6 +136,12 @@ export interface GameState {
   ships: Ship[];
   /** 이번 턴에 배를 이미 옮겼는지 (한 턴에 한 척, 한 번) */
   shipMoved: boolean;
+  /** 해적선이 선 바다 칸 (섬 맵, 없으면 null). 그 칸의 여섯 변에는 배를 띄우거나 옮기지 못한다. */
+  pirate: SeaCellId | null;
+  /** 새 섬 보너스를 받은 작은 섬 번호 (사람마다). 섬마다 ISLAND_BONUS_POINTS 점이다. */
+  islandBonus: Record<string, number[]>;
+  /** 금광에서 원하는 자원을 골라 받을 장수 (사람마다). 주사위로 생겼으면 다 고를 때까지 gold 단계다. */
+  goldPicks: Record<string, number>;
   /** 남은 발전 카드 (맨 뒤부터 뽑는다). 제한 없음이면 줄지 않고 이 구성에서 무작위로 뽑는다. */
   devDeck: DevKind[];
   /** 개수 제한 없음: 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않는다 (방장이 고른 규칙) */
@@ -287,6 +294,9 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     roads: [],
     ships: [],
     shipMoved: false,
+    pirate: map.pirate,
+    islandBonus: {},
+    goldPicks: {},
     devDeck: shuffle(deck, random),
     unlimited: !!o.unlimited,
     pieceLimits,
@@ -370,14 +380,28 @@ export function vertexOpen(board: BoardGeometry, buildings: readonly Building[],
   return v.neighbors.every((n) => !buildingAt(buildings, n));
 }
 
-/** 시작 배치로 마을을 놓을 수 있는 꼭짓점 (거리 규칙만 본다) */
+/**
+ * 시작 배치로 마을을 놓을 수 있는 꼭짓점: 거리 규칙을 지킨 빈 꼭짓점.
+ * 섬 맵은 큰 섬에서만 시작한다 (작은 섬은 배로 건너가 개척하는 곳이다).
+ */
 export function placeableVertices(board: BoardGeometry, buildings: readonly Building[]): VertexId[] {
-  return board.vertices.filter((v) => vertexOpen(board, buildings, v.id)).map((v) => v.id);
+  const islands = 'islandOf' in board && (board as Board).sea ? (board as Board) : null;
+  return board.vertices
+    .filter((v) => vertexOpen(board, buildings, v.id) && (!islands || smallIslandAt(islands, v.id) === null))
+    .map((v) => v.id);
 }
 
 /** 시작 배치에서 방금 고른 꼭짓점에 붙여 놓을 수 있는 길 */
 export function setupRoadEdges(board: BoardGeometry, roads: readonly Road[], vertexId: VertexId): EdgeId[] {
   return (board.vertexMap[vertexId]?.edges ?? []).filter((e) => !roadAt(roads, e));
+}
+
+/** 시작 배치에서 방금 고른 바닷가 꼭짓점에 길 대신 붙여 띄울 수 있는 배 (섬 맵, 해적선이 막은 바닷길은 빼고) */
+export function setupShipEdges(board: ShipBoard, roads: readonly Road[], ships: readonly Ship[], vertexId: VertexId, pirate: SeaCellId | null = null): EdgeId[] {
+  const net = board.sea;
+  if (!net) return [];
+  const blocked = pirateEdges(net, pirate);
+  return (net.vertexMap[vertexId]?.edges ?? []).filter((e) => !roadAt(roads, e) && !shipAt(ships, e) && !blocked.has(e));
 }
 
 function touchesOwnRoad(board: BoardGeometry, roads: readonly Road[], vertexId: VertexId, playerId: string): boolean {
@@ -419,15 +443,29 @@ function shipJoins(net: SeaNet, buildings: readonly Building[], ships: readonly 
   return (net.vertexMap[v]?.edges ?? []).some((o) => o !== except && shipAt(ships, o)?.owner === playerId);
 }
 
+/** 해적선이 선 바다 칸의 여섯 변 (해적선이 없으면 빈 묶음) */
+export function pirateEdges(net: SeaNet | null | undefined, pirate: SeaCellId | null | undefined): ReadonlySet<EdgeId> {
+  return new Set(net && pirate ? (net.cellEdges[pirate] ?? []) : []);
+}
+
 /**
  * 배를 띄울 수 있는 변: 바다에 닿은 빈 변(길도 배도 없는)이고, 한쪽 끝이 내 마을·도시이거나 내 배와 이어진다.
  * 길에서 배로는 내 마을·도시를 거쳐야 이어지고, 남의 마을·도시가 선 꼭짓점을 지나서는 잇지 못한다.
+ * 해적선이 선 바다 칸의 변에는 띄우지 못한다.
  */
-export function buildableShips(board: ShipBoard, buildings: readonly Building[], roads: readonly Road[], ships: readonly Ship[], playerId: string): EdgeId[] {
+export function buildableShips(
+  board: ShipBoard,
+  buildings: readonly Building[],
+  roads: readonly Road[],
+  ships: readonly Ship[],
+  playerId: string,
+  pirate: SeaCellId | null = null,
+): EdgeId[] {
   const net = board.sea;
   if (!net) return [];
+  const blocked = pirateEdges(net, pirate);
   return net.edges
-    .filter((e) => !shipAt(ships, e.id) && !roadAt(roads, e.id) && [e.a, e.b].some((v) => shipJoins(net, buildings, ships, v, playerId, e.id)))
+    .filter((e) => !blocked.has(e.id) && !shipAt(ships, e.id) && !roadAt(roads, e.id) && [e.a, e.b].some((v) => shipJoins(net, buildings, ships, v, playerId, e.id)))
     .map((e) => e.id);
 }
 
@@ -441,7 +479,7 @@ function shipLoose(net: SeaNet, buildings: readonly Building[], ships: readonly 
   return [e.a, e.b].some((v) => !shipJoins(net, buildings, ships, v, ship.owner, e.id));
 }
 
-type ShipState = Pick<GameState, 'tiles' | 'sea' | 'buildings' | 'roads' | 'ships' | 'turn' | 'shipMoved'>;
+type ShipState = Pick<GameState, 'tiles' | 'sea' | 'buildings' | 'roads' | 'ships' | 'turn' | 'shipMoved' | 'pirate'>;
 
 /** 배를 옮길 수 없는 까닭 (옮길 수 있으면 null). 차례·단계는 따로 본다. */
 export function shipMoveProblem(s: ShipState, playerId: string, from: EdgeId): string | null {
@@ -450,6 +488,7 @@ export function shipMoveProblem(s: ShipState, playerId: string, from: EdgeId): s
   if (!net || !ship || ship.owner !== playerId) return '옮길 내 배를 고르세요.';
   if (s.shipMoved) return '배는 한 턴에 한 번만 옮길 수 있습니다.';
   if (ship.builtTurn >= s.turn) return '이번 턴에 띄운 배는 다음 턴부터 옮길 수 있습니다.';
+  if (pirateEdges(net, s.pirate).has(from)) return '해적선 옆에 묶인 배는 해적선이 떠날 때까지 옮길 수 없습니다.';
   if (!shipLoose(net, s.buildings, s.ships, ship)) return '항로 끝에 있는 배만 옮길 수 있습니다. 양 끝이 내 마을·도시나 다른 배와 이어진 배는 그대로 둡니다.';
   if (!shipMoveTargets(s, playerId, from).length) return '이 배를 옮겨 댈 곳이 없습니다.';
   return null;
@@ -460,10 +499,30 @@ export function movableShips(s: ShipState, playerId: string): EdgeId[] {
   return s.ships.filter((sh) => sh.owner === playerId && !shipMoveProblem(s, playerId, sh.edgeId)).map((sh) => sh.edgeId);
 }
 
-/** 배 from 을 옮겨 댈 수 있는 변: 그 배를 빼고 보았을 때 배를 띄울 수 있는 다른 변 */
+/** 배 from 을 옮겨 댈 수 있는 변: 그 배를 빼고 보았을 때 배를 띄울 수 있는 다른 변 (해적선 옆은 빼고) */
 export function shipMoveTargets(s: ShipState, playerId: string, from: EdgeId): EdgeId[] {
   const rest = s.ships.filter((sh) => sh.edgeId !== from);
-  return buildableShips(boardOf(s), s.buildings, s.roads, rest, playerId).filter((id) => id !== from);
+  return buildableShips(boardOf(s), s.buildings, s.roads, rest, playerId, s.pirate).filter((id) => id !== from);
+}
+
+// ───────────────────────── 새 섬·해적선·금광 (섬 맵) ─────────────────────────
+
+/** 새 섬 보너스로 받은 점수 */
+export function islandBonusPoints(s: Pick<GameState, 'islandBonus'>, playerId: string): number {
+  return (s.islandBonus?.[playerId]?.length ?? 0) * ISLAND_BONUS_POINTS;
+}
+
+/** 해적선을 옮긴 바다 칸에 배가 닿은 상대 중 자원이 있는 사람 (배가 여러 척이어도 한 번만) */
+export function pirateStealCandidates(s: GameState, cell: SeaCellId, playerId: string): string[] {
+  const edges = pirateEdges(boardOf(s).sea, cell);
+  const owners = new Set(s.ships.filter((sh) => sh.owner !== playerId && edges.has(sh.edgeId)).map((sh) => sh.owner));
+  return s.order.filter((id) => owners.has(id) && bundleTotal(s.players[id].resources) > 0);
+}
+
+/** 해적선을 옮길 수 있는 바다 칸 (지금 선 칸 말고 모두). 섬 맵이 아니면 빈 목록. */
+export function pirateTargets(s: Pick<GameState, 'tiles' | 'sea' | 'pirate'>): SeaCellId[] {
+  const net = boardOf(s).sea;
+  return net ? Object.keys(net.cellMap).filter((c) => c !== s.pirate) : [];
 }
 
 /** 도시로 올릴 수 있는 꼭짓점: 내 마을 (도시는 마을을 올려서만 짓는다) */
@@ -485,13 +544,17 @@ export function tradeRatios(s: Pick<GameState, 'harbors' | 'buildings' | 'tiles'
   return ratio;
 }
 
-/** 주사위 합이 total 일 때의 생산. 마을은 1개, 도시는 2개. 기사단 동상이 선 칸은 생산하지 않는다. */
+/**
+ * 주사위 합이 total 일 때의 생산. 마을은 1개, 도시는 2개. 기사단 동상이 선 칸은 생산하지 않는다.
+ * 금광(섬 맵)은 자원 대신 골라 받을 장수(gold)를 준다.
+ */
 export function productionFor(
   s: Pick<GameState, 'numbers' | 'robber' | 'buildings' | 'tiles'>,
   total: number,
   playerIds: readonly string[],
-): { gains: Record<string, Bundle>; tiles: TileId[]; blocked: TileId[] } {
+): { gains: Record<string, Bundle>; gold: Record<string, number>; tiles: TileId[]; blocked: TileId[] } {
   const gains: Record<string, Bundle> = {};
+  const gold: Record<string, number> = {};
   for (const id of playerIds) gains[id] = emptyBundle();
   const board = boardOf(s);
   const hit = board.tiles.filter((t) => t.kind !== 'plaza' && s.numbers[t.id] === total);
@@ -501,11 +564,13 @@ export function productionFor(
     if (!gains[b.owner]) continue;
     for (const tileId of board.vertexMap[b.vertexId]?.tiles ?? []) {
       if (!tiles.includes(tileId)) continue;
-      const kind = board.tileMap[tileId].kind as Resource;
-      gains[b.owner][kind] += b.kind === 'city' ? 2 : 1;
+      const kind = board.tileMap[tileId].kind;
+      const n = b.kind === 'city' ? 2 : 1;
+      if (kind === 'gold') gold[b.owner] = (gold[b.owner] ?? 0) + n;
+      else if (kind !== 'plaza') gains[b.owner][kind] += n;
     }
   }
-  return { gains, tiles, blocked };
+  return { gains, gold, tiles, blocked };
 }
 
 /**
@@ -554,9 +619,9 @@ export function longestRoadPath(board: ShipBoard, roads: readonly Road[], buildi
   return best;
 }
 
-/** 승점: 마을·도시 + 최장 교역로·최강 기사단 각 2점 (+ 숨긴 승점 카드, hidden=true 일 때) */
+/** 승점: 마을·도시 + 새 섬 보너스 + 최장 교역로·최강 기사단 각 2점 (+ 숨긴 승점 카드, hidden=true 일 때) */
 export function victoryPoints(s: GameState, playerId: string, includeHidden = false): number {
-  let vp = buildingPoints(s.buildings, playerId);
+  let vp = buildingPoints(s.buildings, playerId) + islandBonusPoints(s, playerId);
   if (s.longestRoad.holder === playerId) vp += AWARD_POINTS;
   if (s.largestArmy.holder === playerId) vp += AWARD_POINTS;
   if (includeHidden) vp += s.players[playerId].devCards.filter((c) => c.kind === 'victory').length;
@@ -597,6 +662,9 @@ export function applyAction(s: GameState, playerId: string, action: GameAction, 
     case 'place_road':
       result = doPlaceRoad(s, playerId, action.edgeId);
       break;
+    case 'place_ship':
+      result = doPlaceShip(s, playerId, action.edgeId);
+      break;
     case 'place':
       result = doPlace(s, playerId, action.vertexId, action.edgeId);
       break;
@@ -608,6 +676,12 @@ export function applyAction(s: GameState, playerId: string, action: GameAction, 
       break;
     case 'move_robber':
       result = doMoveRobber(s, playerId, action.tileId, random);
+      break;
+    case 'move_pirate':
+      result = doMovePirate(s, playerId, action.cell, random);
+      break;
+    case 'gold_pick':
+      result = doGoldPick(s, playerId, action.bundle);
       break;
     case 'steal':
       result = doSteal(s, playerId, action.from, random);
@@ -717,6 +791,7 @@ function villageSpotProblem(s: GameState, vertexId: VertexId): ActionResult | nu
   if (!boardOf(s).vertexMap[vertexId]) return fail('SPOT_INVALID', '보드에 없는 꼭짓점입니다.');
   if (buildingAt(s.buildings, vertexId)) return fail('SPOT_TAKEN', '이미 마을이 있는 꼭짓점입니다.');
   if (!vertexOpen(boardOf(s), s.buildings, vertexId)) return fail('TOO_CLOSE', '바로 옆 꼭짓점에 마을이 있어 지을 수 없습니다. 한 칸 이상 떨어뜨리세요.');
+  if (smallIslandAt(boardOf(s), vertexId) !== null) return fail('SPOT_INVALID', '작은 섬에는 시작 마을을 지을 수 없습니다. 큰 섬에서 시작해 배로 건너가세요.');
   return null;
 }
 
@@ -727,7 +802,10 @@ function roadSpotProblem(s: GameState, vertexId: VertexId, edgeId: EdgeId): Acti
   return null;
 }
 
-/** 시작 마을을 짓는다. 두 번째 시작 마을은 닿은 생산 칸마다 자원 1장을 바로 받는다. 길은 place_road 로 이어 놓는다. */
+/**
+ * 시작 마을을 짓는다. 두 번째 시작 마을은 닿은 생산 칸마다 자원 1장을 바로 받는다 (금광이면 원하는 자원 1장을 골라 받을 몫이 생긴다).
+ * 길은 place_road (섬 맵의 바닷가면 배는 place_ship) 로 이어 놓는다.
+ */
 function putSetupVillage(s: GameState, playerId: string, vertexId: VertexId): Bundle | undefined {
   s.buildings.push({ vertexId, owner: playerId, kind: 'village', builtTurn: 0 });
   s.setupVillage = vertexId;
@@ -735,15 +813,20 @@ function putSetupVillage(s: GameState, playerId: string, vertexId: VertexId): Bu
   const gained = emptyBundle();
   for (const t of boardOf(s).vertexMap[vertexId].tiles) {
     const kind = boardOf(s).tileMap[t].kind;
-    if (kind !== 'plaza' && (!s.bank || s.bank[kind] > gained[kind])) gained[kind] += 1;
+    if (kind === 'gold') s.goldPicks[playerId] = (s.goldPicks[playerId] ?? 0) + 1;
+    else if (kind !== 'plaza' && (!s.bank || s.bank[kind] > gained[kind])) gained[kind] += 1;
   }
   takeFromBank(s, s.players[playerId].resources, gained);
   return gained;
 }
 
-/** 시작 길을 놓고 다음 사람에게 넘긴다. 마지막 배치였으면 게임을 시작한다. */
-function putSetupRoad(s: GameState, playerId: string, edgeId: EdgeId): void {
-  s.roads.push({ edgeId, owner: playerId, builtTurn: 0 });
+/**
+ * 시작 길(또는 배)을 놓고 다음 사람에게 넘긴다. 마지막 배치였으면 게임을 시작한다.
+ * 시작 마을로 금광 몫을 받아 놓고 아직 고르지 않은 사람이 있으면 첫 주사위 전에 고르는 단계(gold)부터 한다.
+ */
+function putSetupRoad(s: GameState, playerId: string, edgeId: EdgeId, ship = false): void {
+  if (ship) s.ships.push({ edgeId, owner: playerId, builtTurn: 0 });
+  else s.roads.push({ edgeId, owner: playerId, builtTurn: 0 });
   s.setupVillage = null;
   s.placementIndex += 1;
   updateLongestRoad(s);
@@ -752,7 +835,27 @@ function putSetupRoad(s: GameState, playerId: string, edgeId: EdgeId): void {
     s.turn = 1;
     s.current = 0;
     s.step = 'roll';
+    if (Object.keys(s.goldPicks).length) {
+      s.resumeStep = 'roll';
+      s.step = 'gold';
+    }
   }
+}
+
+/** 시작 배치 (섬 맵): 방금 지은 바닷가 시작 마을에 길 대신 배를 붙여 띄운다. */
+function doPlaceShip(s: GameState, playerId: string, edgeId: EdgeId): ActionResult {
+  const bad = placementCheck(s, playerId);
+  if (bad) return bad;
+  const vertexId = s.setupVillage;
+  if (!vertexId) return fail('WRONG_STEP', '시작 마을을 먼저 지으세요.');
+  const net = boardOf(s).sea;
+  if (!net) return fail('NOT_ALLOWED', '이 맵에서는 배를 띄울 수 없습니다.');
+  const edge = net.edgeMap[edgeId];
+  if (!edge || (edge.a !== vertexId && edge.b !== vertexId)) return fail('NOT_CONNECTED', '시작 배는 방금 지은 바닷가 마을에 붙여 띄워야 합니다.');
+  if (!setupShipEdges(boardOf(s), s.roads, s.ships, vertexId, s.pirate).includes(edgeId)) return fail('SPOT_TAKEN', '배를 띄울 수 없는 바닷길입니다.');
+  pushEvent(s, { kind: 'placement', player: playerId, vertexId, edgeId, step: 'road', ship: true });
+  putSetupRoad(s, playerId, edgeId, true);
+  return OK;
 }
 
 function doPlaceVillage(s: GameState, playerId: string, vertexId: VertexId): ActionResult {
@@ -814,6 +917,8 @@ function stepHint(step: TurnStep): string {
       return '먼저 자원을 빼앗을 사람을 고르세요.';
     case 'road_building':
       return '길 건설 카드의 공짜 길을 먼저 놓으세요.';
+    case 'gold':
+      return '금광 자원을 고르는 중입니다. 모두 고를 때까지 기다리세요.';
     default:
       return '지금은 할 수 없습니다.';
   }
@@ -825,8 +930,8 @@ function doRoll(s: GameState, playerId: string, random: () => number): ActionRes
   // 고르게 굴리기: 눈 카드 더미에서 무게를 준 한 장을 뽑는다. 그 합으로 자원을 받을 사람은 지금 보드로 센다.
   const fair = s.diceMode === 'balanced' ? (s.fairDice ??= newFairDice(s.order)) : null;
   const producers = (t: number) => {
-    const g = productionFor(s, t, s.order).gains;
-    return s.order.filter((id) => bundleTotal(g[id]) > 0);
+    const p = productionFor(s, t, s.order);
+    return s.order.filter((id) => bundleTotal(p.gains[id]) > 0 || (p.gold[id] ?? 0) > 0);
   };
   const dice: [number, number] = fair
     ? drawFairDice(fair, playerId, s.order, producers, random)
@@ -846,16 +951,56 @@ function doRoll(s: GameState, playerId: string, random: () => number): ActionRes
     return OK;
   }
   const owed = productionFor(s, total, s.order);
-  const { tiles, blocked } = owed;
+  const { tiles, blocked, gold } = owed;
   const { paid: gains, short } = settleProduction(s.bank, owed.gains);
   const totals: Record<string, number> = {};
   for (const id of s.order) {
     takeFromBank(s, s.players[id].resources, gains[id]);
     totals[id] = bundleTotal(gains[id]);
   }
-  if (fair) recordProduction(fair, s.order, (id) => totals[id] > 0);
-  pushEvent(s, { kind: 'roll', player: playerId, dice, gains: totals, tiles, blocked, detail: gains, ...(short.length ? { short } : {}) });
-  s.step = 'main';
+  if (fair) recordProduction(fair, s.order, (id) => totals[id] > 0 || (gold[id] ?? 0) > 0);
+  const hasGold = Object.keys(gold).length > 0;
+  pushEvent(s, {
+    kind: 'roll',
+    player: playerId,
+    dice,
+    gains: totals,
+    tiles,
+    blocked,
+    detail: gains,
+    ...(short.length ? { short } : {}),
+    ...(hasGold ? { gold: { ...gold } } : {}),
+  });
+  // 금광에 닿은 사람이 있으면 모두 원하는 자원을 고를 때까지 기다린다.
+  for (const [id, n] of Object.entries(gold)) s.goldPicks[id] = (s.goldPicks[id] ?? 0) + n;
+  s.resumeStep = 'main';
+  s.step = hasGold ? 'gold' : 'main';
+  return OK;
+}
+
+/** 금광에서 지금 골라 받을 수 있는 장수: 받을 몫과 은행에 남은 자원 중 작은 쪽 */
+export function goldPickCount(s: Pick<GameState, 'goldPicks' | 'bank'>, playerId: string): number {
+  const owed = s.goldPicks?.[playerId] ?? 0;
+  return s.bank ? Math.min(owed, bundleTotal(s.bank)) : owed;
+}
+
+/**
+ * 금광 자원 고르기: 받을 몫만큼(은행에 그보다 적게 남았으면 남은 만큼) 원하는 자원을 골라 은행에서 받는다.
+ * gold 단계에서는 모두 고르면 원래 단계로 돌아가고, 시작 배치 중에 생긴 몫은 아무 때나 고른다.
+ */
+function doGoldPick(s: GameState, playerId: string, bundle: Bundle): ActionResult {
+  const owed = s.goldPicks[playerId] ?? 0;
+  if (!owed) return fail('NOT_ALLOWED', '금광에서 골라 받을 자원이 없습니다.');
+  if (RESOURCES.some((r) => !Number.isInteger(bundle[r]) || bundle[r] < 0)) return fail('BAD_REQUEST', '고른 수량이 올바르지 않습니다.');
+  const count = goldPickCount(s, playerId);
+  if (bundleTotal(bundle) !== count) return fail('BAD_REQUEST', `금광 자원 ${count}장을 고르세요.`);
+  const lack = s.bank ? RESOURCES.find((r) => bundle[r] > s.bank![r]) : undefined;
+  if (lack) return fail('NOT_ENOUGH', `은행에 ${RESOURCE_LABEL[lack]}이(가) ${s.bank![lack]}장밖에 없습니다.`);
+  takeFromBank(s, s.players[playerId].resources, bundle);
+  delete s.goldPicks[playerId];
+  pushEvent(s, { kind: 'gold_pick', player: playerId, count, detail: { ...bundle } });
+  if (s.phase === 'playing' && s.step === 'gold' && Object.keys(s.goldPicks).length === 0) s.step = s.resumeStep;
+  afterAction(s);
   return OK;
 }
 
@@ -880,7 +1025,12 @@ function doMoveRobber(s: GameState, playerId: string, tileId: TileId, random: ()
   if (tileId === s.robber) return fail('SPOT_INVALID', '기사단 동상은 다른 칸으로 옮겨야 합니다.');
   s.robber = tileId;
   pushEvent(s, { kind: 'robber', player: playerId, tileId });
-  const candidates = stealCandidates(s, tileId, playerId);
+  afterThiefMove(s, playerId, stealCandidates(s, tileId, playerId), random);
+  return OK;
+}
+
+/** 동상이나 해적선을 옮긴 뒤: 빼앗을 상대가 하나면 바로 빼앗고, 여럿이면 고르는 단계로, 없으면 원래 단계로 돌아간다. */
+function afterThiefMove(s: GameState, playerId: string, candidates: string[], random: () => number): void {
   if (candidates.length === 1) {
     stealOne(s, playerId, candidates[0], random);
     s.step = s.resumeStep;
@@ -890,6 +1040,22 @@ function doMoveRobber(s: GameState, playerId: string, tileId: TileId, random: ()
   } else {
     s.step = s.resumeStep;
   }
+}
+
+/**
+ * 해적선 옮기기 (섬 맵): 7이나 기사 카드로 기사단 동상 대신 해적선을 다른 바다 칸으로 옮긴다.
+ * 그 칸에 배가 닿은 상대 한 명에게서 자원 1장을 빼앗고, 해적선이 선 칸의 여섯 변에는 배를 띄우거나 옮기지 못한다.
+ */
+function doMovePirate(s: GameState, playerId: string, cell: SeaCellId, random: () => number): ActionResult {
+  const bad = requireTurn(s, playerId, ['robber']);
+  if (bad) return bad;
+  const net = boardOf(s).sea;
+  if (!net) return fail('NOT_ALLOWED', '이 맵에는 해적선이 없습니다.');
+  if (!net.cellMap[cell]) return fail('SPOT_INVALID', '해적선은 바다 칸에만 옮길 수 있습니다.');
+  if (cell === s.pirate) return fail('SPOT_INVALID', '해적선은 다른 바다 칸으로 옮겨야 합니다.');
+  s.pirate = cell;
+  pushEvent(s, { kind: 'pirate', player: playerId, cell });
+  afterThiefMove(s, playerId, pirateStealCandidates(s, cell, playerId), random);
   return OK;
 }
 
@@ -905,7 +1071,7 @@ function stealOne(s: GameState, thief: string, from: string, random: () => numbe
 function doSteal(s: GameState, playerId: string, from: string, random: () => number): ActionResult {
   const bad = requireTurn(s, playerId, ['steal']);
   if (bad) return bad;
-  if (!s.stealFrom.includes(from)) return fail('NOT_ALLOWED', '동상을 옮긴 칸에 닿은 사람 중에서 고르세요.');
+  if (!s.stealFrom.includes(from)) return fail('NOT_ALLOWED', '동상이나 해적선을 옮긴 칸에 닿은 사람 중에서 고르세요.');
   stealOne(s, playerId, from, random);
   s.stealFrom = [];
   s.step = s.resumeStep;
@@ -929,7 +1095,7 @@ function freePieceSpots(s: GameState, playerId: string): { roads: EdgeId[]; ship
   const roomFor = (kind: 'road' | 'ship') => pieceCount(s.buildings, s.roads, playerId, kind, s.ships) < pieceLimit(s, kind);
   return {
     roads: roomFor('road') ? buildableRoads(board, s.buildings, s.roads, playerId, s.ships) : [],
-    ships: roomFor('ship') ? buildableShips(board, s.buildings, s.roads, s.ships, playerId) : [],
+    ships: roomFor('ship') ? buildableShips(board, s.buildings, s.roads, s.ships, playerId, s.pirate) : [],
   };
 }
 
@@ -972,7 +1138,8 @@ function doBuildShip(s: GameState, playerId: string, edgeId: EdgeId): ActionResu
   if (!net.edgeMap[edgeId]) return fail('SPOT_INVALID', '바다에 닿은 변에만 배를 띄울 수 있습니다.');
   if (shipAt(s.ships, edgeId)) return fail('SPOT_TAKEN', '이미 배가 떠 있는 변입니다.');
   if (roadAt(s.roads, edgeId)) return fail('SPOT_TAKEN', '이미 길이 있는 변입니다.');
-  if (!buildableShips(boardOf(s), s.buildings, s.roads, s.ships, playerId).includes(edgeId)) {
+  if (pirateEdges(net, s.pirate).has(edgeId)) return fail('NOT_ALLOWED', '해적선이 선 바다 칸 둘레에는 배를 띄울 수 없습니다.');
+  if (!buildableShips(boardOf(s), s.buildings, s.roads, s.ships, playerId, s.pirate).includes(edgeId)) {
     return fail('NOT_CONNECTED', '배는 내 마을·도시나 내 배에 이어서만 띄울 수 있습니다. 길 끝에서는 마을을 지어야 바다로 나갑니다.');
   }
   const free = s.step === 'road_building';
@@ -1017,6 +1184,12 @@ function doBuildVillage(s: GameState, playerId: string, vertexId: VertexId): Act
   payToBank(s, s.players[playerId].resources, PIECE_COST.village);
   s.buildings.push({ vertexId, owner: playerId, kind: 'village', builtTurn: s.turn });
   pushEvent(s, { kind: 'build', player: playerId, piece: 'village', at: vertexId });
+  // 새 섬 보너스 (섬 맵): 작은 섬에 처음 지은 마을이면 그 섬마다 한 번 2점 (다른 사람이 먼저 지었어도 받는다).
+  const island = smallIslandAt(boardOf(s), vertexId);
+  if (island !== null && !(s.islandBonus[playerId] ?? []).includes(island)) {
+    (s.islandBonus[playerId] ??= []).push(island);
+    pushEvent(s, { kind: 'island_bonus', player: playerId, island, points: ISLAND_BONUS_POINTS });
+  }
   afterBuild(s, playerId);
   return OK;
 }
@@ -1420,6 +1593,7 @@ export function clockHolders(s: GameState): string[] {
   }
   if (s.phase !== 'playing') return [];
   if (s.step === 'discard') return s.order.filter((id) => s.discards[id]);
+  if (s.step === 'gold') return s.order.filter((id) => s.goldPicks[id]);
   const c = currentPlayer(s);
   return c ? [c] : [];
 }
@@ -1435,8 +1609,20 @@ export function clockKey(s: GameState): string | null {
     return `order:${round}`;
   }
   if (s.phase === 'placement') return `place:${s.placementIndex}`;
-  if (s.phase === 'playing') return `turn:${s.turn}:${s.step === 'discard' ? 'discard' : 'own'}`;
+  if (s.phase === 'playing') return `turn:${s.turn}:${s.step === 'discard' || s.step === 'gold' ? s.step : 'own'}`;
   return null;
+}
+
+/** 시간이 다 된 금광 고르기: 은행에 남은 자원 중에서 내가 가장 적게 가진 것부터 고른다 */
+function autoGoldBundle(s: GameState, playerId: string): Bundle {
+  const out = emptyBundle();
+  const have = { ...s.players[playerId].resources };
+  for (let i = 0; i < goldPickCount(s, playerId); i++) {
+    const r = [...RESOURCES].filter((x) => !s.bank || s.bank[x] > out[x]).sort((a, b) => have[a] + out[a] - (have[b] + out[b]))[0];
+    if (!r) break;
+    out[r] += 1;
+  }
+  return out;
 }
 
 function pickRandom<T>(items: readonly T[], random: () => number): T {
@@ -1479,6 +1665,7 @@ function autoRobberTile(s: GameState, playerId: string, random: () => number): T
  *  - 순서 정하기: 아직 굴리지 않은 사람의 주사위를 굴린다
  *  - 시작 배치: 점이 가장 많은 자리에 마을을, 그 마을에 붙여 길을 놓는다
  *  - 7 버리기: 버려야 할 장수만큼 무작위로 버린다
+ *  - 금광 고르기: 은행에 남은 자원 중 가장 적게 가진 것부터 고른다
  *  - 차례인 사람: 굴리기·동상·빼앗기·공짜 길을 무작위로 마치고 턴을 넘긴다
  * 무엇이든 바꿨으면 true.
  */
@@ -1502,12 +1689,17 @@ export function autoPlay(s: GameState, random: () => number = Math.random): bool
       pushEvent(s, { kind: 'timeout', player: id });
       doDiscard(s, id, autoDiscardBundle(s.players[id].resources, s.discards[id], random));
     }
+  } else if (s.phase === 'playing' && s.step === 'gold') {
+    for (const id of s.order.filter((x) => s.goldPicks[x])) {
+      pushEvent(s, { kind: 'timeout', player: id });
+      doGoldPick(s, id, autoGoldBundle(s, id));
+    }
   } else if (s.phase === 'playing') {
     const p = currentPlayer(s);
     if (p) {
       pushEvent(s, { kind: 'timeout', player: p });
-      // 한 단계씩 끝까지 진행한다. 7이 나와 다른 사람이 버려야 하면 그 사람들의 시간으로 넘어간다.
-      for (let guard = 0; guard < 40 && s.phase === 'playing' && currentPlayer(s) === p && s.step !== 'discard'; guard++) {
+      // 한 단계씩 끝까지 진행한다. 7이 나와 다른 사람이 버려야 하거나 금광 자원을 골라야 하면 그 사람들의 시간으로 넘어간다.
+      for (let guard = 0; guard < 40 && s.phase === 'playing' && currentPlayer(s) === p && s.step !== 'discard' && s.step !== 'gold'; guard++) {
         if (s.step === 'roll') doRoll(s, p, random);
         else if (s.step === 'robber') doMoveRobber(s, p, autoRobberTile(s, p, random), random);
         else if (s.step === 'steal') doSteal(s, p, pickRandom(s.stealFrom, random), random);

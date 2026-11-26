@@ -14,6 +14,7 @@ export const RESOURCE_LABEL: Record<Resource, string> = {
 export const TILE_KIND_LABEL: Record<TileKind, string> = {
   ...RESOURCE_LABEL,
   plaza: '광장',
+  gold: '금광',
 };
 
 /** 줄 글자. 표준 육각형은 A~E 다섯 줄이고, 대형 맵은 I 까지 아홉 줄이다. */
@@ -215,6 +216,11 @@ export const DEV_HELP: Record<DevKind, string> = {
   year_of_plenty: '원하는 자원 2개를 은행에서 받는다 (같은 종류 2개도 된다).',
   monopoly: '자원 한 종류를 고르면 다른 사람 모두가 그 자원을 전부 나에게 준다.',
 };
+
+/** 새 섬 보너스 (섬 맵): 작은 섬에 처음 마을을 지은 사람마다, 섬마다 2점 */
+export const ISLAND_BONUS_POINTS = 2;
+/** 섬 맵의 기본 승리 점수 (항해사 「새로운 해안으로」처럼 14점. 방장이 바꿀 수 있다) */
+export const ISLANDS_WIN_POINTS = 14;
 
 /** 최장 교역로: 이어진 길 5칸 이상, 가장 긴 한 사람에게 2점 */
 export const LONGEST_ROAD_MIN = 5;

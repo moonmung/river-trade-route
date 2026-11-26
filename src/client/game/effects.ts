@@ -181,7 +181,8 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             for (const tileId of e.tiles) {
               const kind = boardOf(g).tileMap[tileId]?.kind;
               // 은행에 모자라 나눠 주지 못한 자원은 날리지 않는다 (받은 장수는 서버 화면 정보에 이미 맞춰져 있다).
-              if (!kind || kind === 'plaza' || e.short?.includes(kind)) continue;
+              // 금광은 고른 뒤에 받으므로 여기서 날리지 않는다.
+              if (!kind || kind === 'plaza' || kind === 'gold' || e.short?.includes(kind)) continue;
               for (const b of g.buildings) {
                 if (!boardOf(g).vertexMap[b.vertexId]?.tiles.includes(tileId)) continue;
                 items.push({ tileId, vertexId: b.vertexId, resource: kind, amount: b.kind === 'city' ? 2 : 1, owner: b.owner });
@@ -208,6 +209,11 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
               return;
             }
             if (mine && Object.values(mine).some((n) => n > 0)) showToast(`${total} · 내 생산 ${bundleText(mine)}`, 'good', 3200);
+            const myGold = e.gold?.[me] ?? 0;
+            if (myGold) {
+              showToast(`금광! 원하는 자원 ${myGold}장을 골라 받으세요.`, 'good', 4200);
+              sfx.alert();
+            }
             if (blocked.length) showToast(`${blocked.join(', ')} 칸은 기사단 동상에 막혀 생산하지 않았습니다.`, 'warn', 3200);
             if (!animate) return;
             rendererRef.current?.playRoll(e.tiles, e.blocked, items);
@@ -235,7 +241,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           break;
         }
         case 'placement':
-          if (animate) sfx.build(e.step === 'road' ? 'road' : 'village');
+          if (animate) sfx.build(e.step === 'road' ? (e.ship ? 'ship' : 'road') : 'village');
           // 두 번째 시작 마을: 닿은 칸의 자원이 마을 자리에서 손으로 날아든다.
           if (animate && e.gained) {
             const from = boardPoint(rendererRef.current, e.vertexId);
@@ -302,6 +308,21 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
           break;
         case 'move_ship':
           if (animate) sfx.sail();
+          break;
+        case 'pirate': {
+          if (animate) sfx.robber(0);
+          if (e.player !== me) showToast(`${josa(name(e.player), '이/가')} 해적선을 옮겼습니다. 그 바다 둘레에는 배를 띄우거나 옮길 수 없습니다.`, 'warn');
+          const stoleLater = fresh.slice(i + 1).some((x) => x.kind === 'steal' && x.player === e.player);
+          if (e.player === me && !stoleLater && g.step !== 'steal') showToast('해적선 옆에 배를 둔 상대 중 자원을 가진 사람이 없어 빼앗지 않았습니다.', 'info', 3600);
+          break;
+        }
+        case 'island_bonus':
+          if (animate) sfx.longestRoad();
+          if (e.player === me) showToast(`새 섬 개척! 작은 섬에 처음 마을을 지어 +${e.points}점`, 'good', 4200);
+          else showToast(`${josa(name(e.player), '이/가')} 새 섬을 개척했습니다 (+${e.points}점).`, 'info', 3600);
+          break;
+        case 'gold_pick':
+          if (animate && e.player === me) sfx.cardIn(0);
           break;
         case 'buy_dev':
           if (animate) sfx.buyDev();
@@ -370,6 +391,7 @@ export function useGameEffects(view: RoomView, renderer: BoardRenderer | null, p
             buildings: g.buildings.filter((b) => b.owner === winner).map((b) => ({ vertexId: b.vertexId, kind: b.kind })),
             longestRoad: g.longestRoad.holder === winner,
             largestArmy: g.largestArmy.holder === winner,
+            islands: g.players.find((p) => p.id === winner)?.islands ?? 0,
             score: g.players.find((p) => p.id === winner)?.score ?? 0,
             walk,
           });

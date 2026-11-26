@@ -37,6 +37,20 @@ const SHIP_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
 </svg>`;
 export const SHIP_ART = `data:image/svg+xml,${encodeURIComponent(SHIP_SVG)}`;
 
+/** 금광 (섬 맵): 반짝이는 금덩이 셋. 다른 카드 그림처럼 투명 바탕에 갈색 먹선으로 그린다. */
+const GOLD_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+<ellipse cx="128" cy="200" rx="92" ry="18" fill="#b9975a" opacity=".35"/>
+<path d="M44 188l22-62 54-12 26 52-18 34z" fill="#e8b93a" stroke="#4a3020" stroke-width="7" stroke-linejoin="round"/>
+<path d="M66 126l20 26 34-38" fill="none" stroke="#f8de7e" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M128 196l14-58 48-18 32 44-14 38z" fill="#d9a62c" stroke="#4a3020" stroke-width="7" stroke-linejoin="round"/>
+<path d="M142 138l26 22 22-40" fill="none" stroke="#f3cf62" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M96 112l12-46 44-10 22 40-12 30-46 8z" fill="#f2c84b" stroke="#4a3020" stroke-width="7" stroke-linejoin="round"/>
+<path d="M108 66l18 24 26-34" fill="none" stroke="#fff0a8" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M200 54l6 16 16 6-16 6-6 16-6-16-16-6 16-6z" fill="#fff6c8" stroke="#a8802a" stroke-width="3" stroke-linejoin="round"/>
+<path d="M58 70l4 10 10 4-10 4-4 10-4-10-10-4 10-4z" fill="#fff6c8" stroke="#a8802a" stroke-width="3" stroke-linejoin="round"/>
+</svg>`;
+export const GOLD_ART = `data:image/svg+xml,${encodeURIComponent(GOLD_SVG)}`;
+
 /** 길은 판자 길 한 조각, 마을은 작은 집, 도시는 성벽 두른 마을, 배는 작은 돛배 (길 건설 카드는 판자 길 두 조각에 ×2 딱지) */
 export const PIECE_ART: Record<PieceKind, string> = {
   road: `${BASE}road.webp`,

@@ -2,8 +2,11 @@
 
 /** 목재(숲)·곡물(밭)·양모(목초지)·벽돌(점토 구덩이)·석재(채석장) */
 export type Resource = 'wood' | 'grain' | 'wool' | 'brick' | 'stone';
-/** 생산 칸 다섯 종류와 가운데 광장(아무것도 나지 않는 빈 땅, 기사단 동상이 처음 서는 곳) */
-export type TileKind = Resource | 'plaza';
+/**
+ * 생산 칸 다섯 종류와 가운데 광장(아무것도 나지 않는 빈 땅, 기사단 동상이 처음 서는 곳),
+ * 섬 맵의 금광(숫자가 나오면 닿은 마을·도시가 원하는 자원을 골라 받는다)
+ */
+export type TileKind = Resource | 'plaza' | 'gold';
 export type Bundle = Record<Resource, number>;
 /** 'A1' ~ 'E3' 형식의 타일 ID (줄 글자 + 줄 안 번호). 맵을 만들고 바꿀 때 쓰는 코드이고, 게임 화면에는 주사위 숫자를 보여 준다. */
 export type TileId = string;
@@ -89,8 +92,10 @@ export interface DevCard {
  * steal: 동상을 옮긴 칸에 닿은 사람 중 누구에게서 자원을 빼앗을지 고르는 중
  * main: 교환·건설·발전 카드
  * road_building: 길 건설 카드로 공짜 길을 놓는 중
+ * gold: 금광(섬 맵)에 닿은 사람들이 받을 자원을 고르는 중
+ * robber 단계에서 섬 맵은 기사단 동상 대신 해적선을 옮겨도 된다.
  */
-export type TurnStep = 'roll' | 'discard' | 'robber' | 'steal' | 'main' | 'road_building';
+export type TurnStep = 'roll' | 'discard' | 'robber' | 'steal' | 'main' | 'road_building' | 'gold';
 
 /** 교환 제안을 받은 사람의 응답. 수락해도 바로 옮기지 않고 제안한 사람이 수락한 사람 중 한 명을 골라 확정한다. */
 export type TradeResponse = 'pending' | 'accepted' | 'rejected';
@@ -120,10 +125,16 @@ export type GameAction =
   /** 시작 배치: 마을을 먼저 짓고(place_village) 그 마을에 붙여 길을 놓는다(place_road). place 는 둘을 한 번에 한다. */
   | { type: 'place_village'; vertexId: string }
   | { type: 'place_road'; edgeId: string }
+  /** 시작 배치 (섬 맵): 바닷가 시작 마을에는 길 대신 배를 붙여 띄울 수 있다 */
+  | { type: 'place_ship'; edgeId: string }
   | { type: 'place'; vertexId: string; edgeId: string }
   | { type: 'roll' }
   | { type: 'discard'; bundle: Bundle }
   | { type: 'move_robber'; tileId: TileId }
+  /** 섬 맵: 기사단 동상 대신 해적선을 바다 칸(c…)으로 옮긴다 */
+  | { type: 'move_pirate'; cell: string }
+  /** 금광에서 받을 자원 고르기 (고를 장수만큼) */
+  | { type: 'gold_pick'; bundle: Bundle }
   | { type: 'steal'; from: string }
   | { type: 'build_road'; edgeId: string }
   /** 배 띄우기 (섬 맵) */
@@ -167,18 +178,20 @@ export type GameEvent = EventBase &
     /** 순서 정하기에서 같은 수가 나와 이 사람들만 다시 굴린다 */
     | { kind: 'order_tie'; players: string[]; total: number }
     /**
-     * 시작 배치. step 이 village 면 마을만 지었고(edgeId 없음), road 면 그 마을에 붙여 길을 놓았다.
+     * 시작 배치. step 이 village 면 마을만 지었고(edgeId 없음), road 면 그 마을에 붙여 길을 놓았다 (ship 이면 길 대신 배).
      * step 이 없으면 마을과 길을 한 번에 놓았다.
      */
-    | { kind: 'placement'; player: string; vertexId: string; edgeId?: string; step?: 'village' | 'road'; gained?: Bundle }
+    | { kind: 'placement'; player: string; vertexId: string; edgeId?: string; step?: 'village' | 'road'; ship?: boolean; gained?: Bundle }
     /** 차례 시간이 다 되어 서버가 대신 진행했다 */
     | { kind: 'timeout'; player: string }
     | {
         kind: 'roll';
         player: string;
         dice: [number, number];
-        /** 플레이어별 생산 총량 (공개). 7이면 비어 있다. */
+        /** 플레이어별 생산 총량 (공개). 7이면 비어 있다. 금광에서 골라 받을 장수는 gold 에 따로 있다. */
         gains: Record<string, number>;
+        /** 금광(섬 맵)에 닿아 원하는 자원을 골라 받을 장수 */
+        gold?: Record<string, number>;
         /** 생산한 칸 (기사단 동상이 막은 칸은 빠진다) */
         tiles: TileId[];
         /** 동상에 막혀 생산하지 못한 칸 */
@@ -190,6 +203,12 @@ export type GameEvent = EventBase &
       }
     | { kind: 'discard'; player: string; count: number; detail?: Bundle }
     | { kind: 'robber'; player: string; tileId: TileId }
+    /** 해적선을 바다 칸으로 옮겼다 */
+    | { kind: 'pirate'; player: string; cell: string }
+    /** 작은 섬에 처음 마을을 지어 새 섬 보너스를 받았다 */
+    | { kind: 'island_bonus'; player: string; island: number; points: number }
+    /** 금광에서 자원을 골라 받았다 (detail 은 본인만) */
+    | { kind: 'gold_pick'; player: string; count: number; detail?: Bundle }
     | { kind: 'steal'; player: string; from: string; detail?: Resource }
     | { kind: 'build'; player: string; piece: PieceKind; at: string; free?: boolean }
     /** 배를 from 변에서 to 변으로 옮겼다 */

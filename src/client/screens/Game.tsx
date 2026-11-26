@@ -24,6 +24,7 @@ import {
 import {
   DevPlayCard,
   DiscardDialog,
+  GoldDialog,
   MenuDialog,
   PlacementBanner,
   ResultOverlay,
@@ -147,7 +148,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   const highlights = useMemo<BoardState['highlights']>(() => {
     if (wait) return null;
     const h = boardHighlights(view, pick);
-    if (!h.vertices.length && !h.edges.length && !h.shipEdges.length && !h.tiles.length) return null;
+    if (!h.vertices.length && !h.edges.length && !h.shipEdges.length && !h.tiles.length && !h.seaCells.length) return null;
     return { ...h, kind: g.phase === 'placement' ? 'placeable' : 'buildable' };
   }, [view, pick, g.phase, wait]);
   // 내 차례(건설 모드 밖)에는 길을 이을 수 있는 변과 마을을 지을 수 있는 꼭짓점을 은은하게 보여 준다.
@@ -178,6 +179,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       roads: g.roads.map((r) => ({ edgeId: r.edgeId, owner: r.owner, colorIndex: players.get(r.owner)?.colorIndex ?? 0 })),
       ships: g.ships.map((s) => ({ edgeId: s.edgeId, owner: s.owner, colorIndex: players.get(s.owner)?.colorIndex ?? 0 })),
       movingShip: moveFrom,
+      pirate: g.pirate,
       highlights,
       selected,
       numbers: g.numbers,
@@ -186,7 +188,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       hints,
       trace,
     }),
-    [g.buildings, g.roads, g.ships, moveFrom, players, highlights, selected, g.numbers, g.robber, g.harbors, hints, trace],
+    [g.buildings, g.roads, g.ships, moveFrom, g.pirate, players, highlights, selected, g.numbers, g.robber, g.harbors, hints, trace],
   );
 
   // HUD 가 가리는 영역을 재서 보드가 남은 공간 가운데에 오도록 한다.
@@ -265,7 +267,9 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
   const stepBanner = wait
     ? null
     : myTurn && g.step === 'robber'
-      ? '기사단 동상을 옮길 칸을 누르세요. 그 칸은 동상이 떠날 때까지 생산하지 않습니다.'
+      ? g.sea.length
+        ? '기사단 동상을 옮길 땅이나 해적선을 옮길 바다 칸을 누르세요. 해적선 둘레에는 배를 띄우거나 옮길 수 없습니다.'
+        : '기사단 동상을 옮길 칸을 누르세요. 그 칸은 동상이 떠날 때까지 생산하지 않습니다.'
       : myTurn && g.step === 'road_building'
         ? `길 건설 카드: 빛나는 변을 고르고 ✓ 를 누르세요. 공짜 길이 ${g.freeRoads}개 남았습니다.`
         : null;
@@ -566,6 +570,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       {dialog === 'log' && <LogOverlay view={view} players={players} onClose={() => setDialog(null)} />}
       {g.phase === 'playing' && g.step === 'discard' && g.discards[view.you] > 0 && !wait && <DiscardDialog key={`d-${g.turn}`} view={view} />}
       {myTurn && g.step === 'steal' && !wait && <StealDialog view={view} players={players} />}
+      {(g.goldPicks[view.you] ?? 0) > 0 && g.phase !== 'finished' && !wait && <GoldDialog key={`g-${g.turn}-${g.goldPicks[view.you]}`} view={view} />}
       <SpectacleHost />
       {!away && <DiceTray view={view} paused={dialog !== null} hold={!!wait} />}
       {away && <AwayBanner />}

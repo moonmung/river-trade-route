@@ -33,7 +33,7 @@ import {
 } from '../shared/constants';
 import { normalizeNickname } from '../shared/validate';
 import { SEAT_CODE_LENGTH, type AckResult, type RoomListing, type RoomPeek, type SeatHandover } from '../shared/protocol';
-import { DEFAULT_MAP, mapCardDefaults, maxPlayersFor, normalizeMapArrange, normalizeMapShape } from '../shared/maps';
+import { DEFAULT_MAP, mapCardDefaults, mapWinPoints, maxPlayersFor, normalizeMapArrange, normalizeMapShape } from '../shared/maps';
 import { normalizeDiceMode, type DiceMode } from '../shared/fairDice';
 import { applyAction, autoPlay, clockKey, createGame, currentPlayer, placementPlayer, type GameState } from '../shared/rules';
 import { botSideAction, botTurnAction } from '../shared/bot';
@@ -337,6 +337,8 @@ export class RoomManager {
       const now = mapCardDefaults(shape);
       if (p.resourceCards === undefined && room.resourceCards === was.resourceCards) next.resourceCards = now.resourceCards;
       if (p.devCards === undefined && !room.devMix && room.devCards === was.devCards) next.devCards = now.devCards;
+      // 승리 점수도 맵 기본값 그대로 두었으면 새 맵의 기본값으로 바꾼다 (섬 맵은 14점).
+      if (p.winPoints === undefined && room.winPoints === mapWinPoints(room.map.shape)) next.winPoints = mapWinPoints(shape);
       next.map.shape = shape;
     }
     if (p.mapArrange !== undefined) {
@@ -376,7 +378,7 @@ export class RoomManager {
     }
     if (p.pieceLimits !== undefined) {
       const limits = normalizePieceLimits(p.pieceLimits);
-      if (!limits) return { error: '길 5~40개, 마을 2~15개, 도시 1~12개 사이로 정하세요.' };
+      if (!limits) return { error: '길 5~40개, 마을 2~15개, 도시 1~12개, 배 5~40척 사이로 정하세요.' };
       next.pieceLimits = limits;
     }
     const same =
