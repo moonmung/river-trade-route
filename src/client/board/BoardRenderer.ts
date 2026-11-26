@@ -72,11 +72,13 @@ export interface BoardState {
   ships?: BoardShipView[];
   /** 옮기려고 고른 내 배가 떠 있는 변 (그 배를 들어 올린 듯이 빛낸다) */
   movingShip?: string | null;
+  /** 해적선이 선 바다 칸 ID (섬 맵, 없으면 그리지 않는다) */
+  pirate?: string | null;
   /**
    * 빛낼 꼭짓점·변·칸 (시작 배치·건설 모드에서 지을 수 있는 자리, 기사단 동상을 옮길 수 있는 칸).
-   * shipEdges 는 배를 띄우거나 옮겨 댈 수 있는 바닷길로, 물 위 배 자리에 빛을 그린다.
+   * shipEdges 는 배를 띄우거나 옮겨 댈 수 있는 바닷길로, 물 위 배 자리에 빛을 그린다. seaCells 는 해적선을 옮길 수 있는 바다 칸이다.
    */
-  highlights: { vertices: string[]; edges: string[]; shipEdges?: string[]; tiles?: string[]; kind: HighlightKind } | null;
+  highlights: { vertices: string[]; edges: string[]; shipEdges?: string[]; tiles?: string[]; seaCells?: string[]; kind: HighlightKind } | null;
   selected: BoardSelection | null;
   /** 칸마다 놓인 숫자 패 (2~12). 없으면 숫자 패를 그리지 않는다. */
   numbers?: Record<string, number>;
@@ -237,9 +239,11 @@ const GROUND_FALLBACK: Record<TileKind | 'dirt' | 'sand', string> = {
   brick: '#c98a5c',
   stone: '#bdb9ae',
   plaza: '#cfc0a2',
+  gold: '#e3bd4f',
   dirt: '#b99e72',
   sand: '#dcc595',
 };
+/** 금광은 채석장 바닥 그림에 금빛을 곱해 칠한다 */
 const TILE_GROUND: Record<TileKind, GroundTextureKey> = {
   wood: 'ground_forest',
   grain: 'ground_field',
@@ -247,7 +251,10 @@ const TILE_GROUND: Record<TileKind, GroundTextureKey> = {
   brick: 'ground_clay',
   stone: 'ground_quarry',
   plaza: 'ground_cobble',
+  gold: 'ground_quarry',
 };
+/** 그림 위에 곱하는 색 (금광만 금빛, 나머지는 그림 그대로) */
+const TILE_TINT: Partial<Record<TileKind, string>> = { gold: '#ffcf4d' };
 /** 타일 옆면(둑) 색: 길보다 한 뼘 높은 풀·흙 둑처럼 보이게 지형마다 흙빛을 다르게 한다. */
 const TILE_SIDE: Record<TileKind, string> = {
   wood: '#4a5a2f',
@@ -256,6 +263,7 @@ const TILE_SIDE: Record<TileKind, string> = {
   brick: '#93593b',
   stone: '#857f72',
   plaza: '#9d8a6a',
+  gold: '#9b7a2a',
 };
 /**
  * 빈 변의 샛길: 타일 사이 흙 땅(틈 폭 약 0.31) 한가운데로 난 희끄무레한 오솔길.
@@ -821,6 +829,12 @@ export class BoardRenderer {
   /** 배 자리 빛: 물 위 알약 고리와 그 안을 옅게 채운 빛 (바닷가 변까지 포함해 바닷길 변마다 하나) */
   private seaMark: THREE.InstancedMesh | null = null;
   private seaFill: THREE.InstancedMesh | null = null;
+  /** 해적선을 옮길 수 있는 바다 칸의 육각 고리 (바다 칸마다 하나) */
+  private seaCellRing: THREE.InstancedMesh | null = null;
+  /** 해적선: 검은 돛을 단 큰 돛배 한 척 (부품마다 인스턴스 하나) */
+  private pirateParts: { mesh: THREE.InstancedMesh; tint: boolean }[] = [];
+  /** 해적선이 지금 그려진 자리 (옮기면 여기서 새 칸으로 미끄러져 간다) */
+  private pirateAt: { cell: string; pos: THREE.Vector3 } | null = null;
   private pieceParts: { mesh: THREE.InstancedMesh; tint: boolean; kind: BoardPieceKind }[] = [];
   private pieceShadow: THREE.InstancedMesh | null = null;
   private knownPieces = new Set<string>();
@@ -1505,11 +1519,13 @@ export class BoardRenderer {
 
     // 육각 타일 판 (종류별로 하나의 InstancedMesh). 옆면은 지형마다 흙·풀 둑 색이라 샛길보다 한 뼘 높은 둑처럼 보인다.
     const slabGeo = this.own(new THREE.CylinderGeometry(HEX_RADIUS, HEX_RADIUS + 0.035, TILE_THICKNESS, 6));
-    const kinds: TileKind[] = [...RESOURCES, 'plaza'];
+    const kinds: TileKind[] = [...RESOURCES, 'plaza', 'gold'];
     for (const kind of kinds) {
       const tiles = this.options.tiles.filter((t) => t.kind === kind);
       if (tiles.length === 0) continue;
-      const top = this.groundMaterial(TILE_GROUND[kind], GROUND_FALLBACK[kind]);
+      const tint = TILE_TINT[kind];
+      const map = this.art?.ground(TILE_GROUND[kind]) ?? null;
+      const top = tint ? this.own(paintMaterial({ map, color: map ? tint : GROUND_FALLBACK[kind] })) : this.groundMaterial(TILE_GROUND[kind], GROUND_FALLBACK[kind]);
       const sideMat = this.own(paintMaterial({ color: TILE_SIDE[kind], wash: 0.8 }));
       const mesh = new THREE.InstancedMesh(slabGeo, [sideMat, top, sideMat], tiles.length);
       tiles.forEach((t, i) => {
@@ -2049,7 +2065,18 @@ export class BoardRenderer {
       ['joint', 'roadjoint', nv],
     ];
     // 섬 맵: 플레이어 배 (해상 교역 배와 같은 돛배, 돛에 플레이어 색). 바닷길 변마다 하나까지 띄울 수 있다.
-    if (this.net) pools.push(['ship', 'ship', this.net.edges.length]);
+    if (this.net) {
+      pools.push(['ship', 'ship', this.net.edges.length]);
+      // 해적선: 같은 돛배에 검은 돛. 한 척뿐이다.
+      for (const part of art.prop('ship', 0, true).parts) {
+        const mesh = new THREE.InstancedMesh(part.geometry, part.material, 1);
+        mesh.count = 0;
+        if (part.tint) mesh.setColorAt(0, new THREE.Color('#2b2a31'));
+        mesh.frustumCulled = false;
+        this.pirateParts.push({ mesh, tint: part.tint });
+        this.scene.add(mesh);
+      }
+    }
     for (const [kind, key, capacity] of pools) {
       // 플레이어 조각은 기사단 동상이 선 칸 가장자리에 있어도 제 색을 지킨다.
       const template = art.prop(key, 0, true);
@@ -2093,6 +2120,18 @@ export class BoardRenderer {
     this.highlightRing.frustumCulled = false;
     this.highlightFill.frustumCulled = false;
     this.scene.add(this.highlightFill, this.highlightRing);
+    // 섬 맵: 해적선을 옮길 수 있는 바다 칸에 같은 육각 고리를 물 위에 그린다.
+    if (this.net) {
+      const cells = Object.keys(this.net.cellMap).length;
+      this.seaCellRing = new THREE.InstancedMesh(ringGeo, ringMat, cells);
+      for (let i = 0; i < cells; i++) {
+        this.seaCellRing.setColorAt(i, new THREE.Color('#ffffff'));
+        this.seaCellRing.setMatrixAt(i, compose(0, 0, 0, 0, 0, 1, 0));
+      }
+      this.seaCellRing.renderOrder = 3;
+      this.seaCellRing.frustumCulled = false;
+      this.scene.add(this.seaCellRing);
+    }
     const flashShape = new THREE.Shape().setFromPoints(hexPoints(HEX_RADIUS + 0.07));
     flashShape.holes.push(new THREE.Path().setFromPoints(hexPoints(HEX_RADIUS - 0.16)));
     const flashGeo = this.own(new THREE.ShapeGeometry(flashShape, 6).rotateX(-Math.PI / 2));
@@ -2222,9 +2261,10 @@ export class BoardRenderer {
     if (!hov) return;
     if (hov.kind === 'tile') {
       const t = this.tileById.get(hov.id);
-      if (!t) return;
-      const c = tileCenter(t, this.metrics);
-      m.tile.position.set(c.x, TILE_TOP + 0.016, c.z);
+      const cell = t ? null : this.net?.cellMap[hov.id];
+      if (!t && !cell) return;
+      const c = tileCenter((t ?? cell)!, this.metrics);
+      m.tile.position.set(c.x, t ? TILE_TOP + 0.016 : FLEET_Y + 0.03, c.z);
       m.tile.visible = true;
       return;
     }
@@ -2265,6 +2305,48 @@ export class BoardRenderer {
     m.edge.position.set(mid.x, PLATFORM_TOP + ROAD_DECK_TOP + (road ? 0.02 : 0.016), mid.z);
     m.edge.rotation.y = ew.angle;
     m.edge.visible = true;
+  }
+
+  /** 해적선 그리기: 처음에는 제자리에 두고, 칸이 바뀌면 옛 자리에서 새 칸으로 물결을 타며 미끄러져 간다. */
+  private syncPirate(): void {
+    if (!this.pirateParts.length || !this.net) return;
+    const cell = this.state.pirate ? this.net.cellMap[this.state.pirate] : undefined;
+    if (!cell || !this.state.pirate) {
+      for (const p of this.pirateParts) p.mesh.count = 0;
+      this.pirateAt = null;
+      return;
+    }
+    const to = tileCenter(cell, this.metrics).setY(FLEET_Y);
+    const from = this.pirateAt?.pos;
+    if (this.pirateAt?.cell === this.state.pirate) return;
+    this.pirateAt = { cell: this.state.pirate, pos: to.clone() };
+    if (!from || this.firstState || !this.motion) {
+      this.placePirate(to, 0);
+      return;
+    }
+    const yaw = Math.atan2(-(to.z - from.z), to.x - from.x);
+    this.addAnim({
+      duration: 1100,
+      update: (t) => {
+        const e = easeInOut(t);
+        const p = from.clone().lerp(to, e);
+        p.y += Math.sin(t * Math.PI) * 0.06;
+        this.placePirate(p, yaw);
+      },
+      done: () => this.placePirate(to, yaw),
+    });
+  }
+
+  private placePirate(at: THREE.Vector3, yaw: number): void {
+    // 플레이어 배보다 한 둘레 크게, 조금 기울여 띄운다.
+    tmpQ.setFromAxisAngle(yAxis, yaw || 0.6).multiply(tmpQ2.setFromAxisAngle(xAxis, 0.05));
+    tmpM.compose(at, tmpQ, tmpS.setScalar(FLEET_SCALE * 1.35));
+    for (const p of this.pirateParts) {
+      p.mesh.setMatrixAt(0, tmpM);
+      p.mesh.count = 1;
+      p.mesh.instanceMatrix.needsUpdate = true;
+    }
+    this.shadowDirty = true;
   }
 
   /** 이 변에 배가 떠 있는지 */
@@ -2471,6 +2553,7 @@ export class BoardRenderer {
     this.syncNumbers();
     this.syncHarbors();
     this.syncRobber();
+    this.syncPirate();
     this.updateHighlights();
     // 새로 띄운 표식은 다음 그림을 기다리지 않고 바로 제자리에 놓는다 (화면 구석에 잠깐 비치지 않게).
     if (newBadge) this.updateOverlay();
@@ -2680,6 +2763,20 @@ export class BoardRenderer {
       fill.instanceMatrix.needsUpdate = true;
       if (ring.instanceColor) ring.instanceColor.needsUpdate = true;
       if (fill.instanceColor) fill.instanceColor.needsUpdate = true;
+    }
+    // 바다 칸: 해적선을 옮길 수 있는 칸과 고른 칸에 물 위 육각 고리
+    const seaRing = this.seaCellRing;
+    if (seaRing && this.net) {
+      const hs = new Set(this.state.highlights?.seaCells ?? []);
+      Object.entries(this.net.cellMap).forEach(([id, cell], i) => {
+        const selected = same(sel, 'tile', id);
+        const kind: keyof typeof HIGHLIGHT_COLOR | null = selected ? 'selected' : hs.has(id) && hlKind ? hlKind : null;
+        const c = tileCenter(cell, this.metrics);
+        seaRing.setMatrixAt(i, compose(c.x, FLEET_Y + 0.02, c.z, 0, kind ? 1 : 0, 1, kind ? 1 : 0));
+        if (kind) seaRing.setColorAt(i, color.set(HIGHLIGHT_COLOR[kind]));
+      });
+      seaRing.instanceMatrix.needsUpdate = true;
+      if (seaRing.instanceColor) seaRing.instanceColor.needsUpdate = true;
     }
     const hl = this.state.highlights;
     const hv = new Set(hl?.vertices ?? []);
@@ -4579,7 +4676,7 @@ export class BoardRenderer {
 
   /** 타일 중심의 화면 좌표 (테스트·접근성용) */
   tileScreenPosition(tileId: string): { x: number; y: number } | null {
-    const t = this.tileById.get(tileId);
+    const t = this.tileById.get(tileId) ?? this.net?.cellMap[tileId];
     if (!t) return null;
     const p = tileCenter(t, this.metrics).project(this.camera);
     return { x: ((p.x + 1) / 2) * this.width, y: ((1 - p.y) / 2) * this.height };
@@ -4597,7 +4694,10 @@ export class BoardRenderer {
   private spotWorld(kind: 'tile' | 'vertex' | 'edge', id: string): THREE.Vector3 | null {
     if (kind === 'tile') {
       const t = this.tileById.get(id);
-      return t ? tileCenter(t, this.metrics).setY(TILE_TOP) : null;
+      if (t) return tileCenter(t, this.metrics).setY(TILE_TOP);
+      // 섬 맵의 바다 칸 (해적선 자리): 물 위 배 몸통 높이
+      const c = this.net?.cellMap[id];
+      return c ? tileCenter(c, this.metrics).setY(FLEET_Y + 0.3) : null;
     }
     if (kind === 'vertex') return this.vertexWorld(id)?.add(new THREE.Vector3(0, 0.16, 0)) ?? null;
     // 배 자리는 물 위 배 몸통 높이
@@ -4818,12 +4918,19 @@ export class BoardRenderer {
       return null;
     };
     const hl = this.state.highlights;
-    if (hl?.tiles?.length) {
+    if (hl?.tiles?.length || hl?.seaCells?.length) {
+      // 동상 옮기기: 빛나는 땅 칸, 섬 맵이면 해적선을 옮길 바다 칸 중 가까운 것 (바다 칸은 물높이에서 잰다)
       let best: { id: string; d: number } | null = null;
-      for (const id of hl.tiles) {
+      for (const id of hl.tiles ?? []) {
         const t = this.tileById.get(id);
         if (!t) continue;
         const d = flat(tileCenter(t, this.metrics), low);
+        if (!best || d < best.d) best = { id, d };
+      }
+      for (const id of hl.seaCells ?? []) {
+        const c = this.net?.cellMap[id];
+        if (!c) continue;
+        const d = flat(tileCenter(c, this.metrics), water);
         if (!best || d < best.d) best = { id, d };
       }
       if (best && best.d < HEX_RADIUS) return { kind: 'tile', id: best.id };

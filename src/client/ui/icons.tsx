@@ -1,6 +1,6 @@
 import type { Resource, TileKind } from '../../shared/types';
 import { playerColor } from '../theme';
-import { ArtImg, RESOURCE_ART } from './art';
+import { ArtImg, GOLD_ART, RESOURCE_ART } from './art';
 
 interface IconProps {
   size?: number;
@@ -8,8 +8,9 @@ interface IconProps {
   className?: string;
 }
 
-/** 자원 아이콘: 사용자가 준 수채화 그림(통나무·볏단·양·벽돌 더미·돌덩이). 광장은 기사단 동상 선화로 그린다. */
+/** 자원 아이콘: 사용자가 준 수채화 그림(통나무·볏단·양·벽돌 더미·돌덩이). 광장은 기사단 동상, 금광은 금덩이 선화로 그린다. */
 export function ResourceIcon({ kind, size = 20, title, className }: IconProps & { kind: TileKind }) {
+  if (kind === 'gold') return <ArtImg src={GOLD_ART} size={size} title={title} className={`res-art${className ? ` ${className}` : ''}`} />;
   if (kind !== 'plaza') return <ArtImg src={RESOURCE_ART[kind]} size={size} title={title} className={`res-art${className ? ` ${className}` : ''}`} />;
   return (
     <svg

@@ -123,9 +123,55 @@ export function DiscardDialog({ view }: { view: RoomView }) {
   );
 }
 
-/** 기사단 동상을 옮긴 칸에 닿은 사람 중 누구에게서 자원 1장을 빼앗을지 고른다 */
+/**
+ * 금광(섬 맵): 받을 몫만큼 원하는 자원을 고른다. 은행에 남은 만큼만 고를 수 있고, 은행이 모자라면 남은 장수까지만 받는다.
+ * 주사위로 생긴 몫이면 모두 고를 때까지 게임이 기다린다.
+ */
+export function GoldDialog({ view }: { view: RoomView }) {
+  const g = view.game!;
+  const owed = g.goldPicks[view.you] ?? 0;
+  const bankTotal = g.bank ? RESOURCES.reduce((n, r) => n + g.bank![r], 0) : Infinity;
+  const need = Math.min(owed, bankTotal);
+  const [pick, setPick] = useState<Bundle>(emptyBundle());
+  const chosen = bundleTotal(pick);
+  return (
+    <div className="sheet-backdrop">
+      <div className="sheet" role="dialog" aria-modal="true" aria-label="금광 자원 고르기">
+        <div className="sheet-head">
+          <h2>금광! 자원 {need}장 고르기</h2>
+        </div>
+        <div className="sheet-body">
+          <p className="small muted">
+            금광에 닿은 마을은 1장, 도시는 2장을 원하는 자원으로 받습니다.{need < owed ? ` 은행에 남은 자원이 모자라 ${need}장만 받습니다.` : ''}
+          </p>
+          {RESOURCES.map((r) => {
+            const max = Math.min(need, g.bank ? g.bank[r] : need);
+            return (
+              <div key={r} className="trade-row">
+                <ResourceIcon kind={r} size={22} />
+                <span>
+                  {RESOURCE_LABEL[r]} <small className="muted">(보유 {g.myResources[r]}{g.bank ? ` · 은행 ${g.bank[r]}` : ''})</small>
+                </span>
+                <Stepper label={`받을 ${RESOURCE_LABEL[r]}`} value={pick[r]} max={max} onChange={(v) => setPick({ ...pick, [r]: v })} />
+              </div>
+            );
+          })}
+          <ActionButton
+            className="btn btn-start btn-wide"
+            label={`${chosen}/${need}장 받기`}
+            blocker={chosen !== need ? `정확히 ${need}장을 고르세요.` : null}
+            onClick={() => sendAction({ type: 'gold_pick', bundle: pick })}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 기사단 동상(섬 맵은 해적선)을 옮긴 칸에 닿은 사람 중 누구에게서 자원 1장을 빼앗을지 고른다 */
 export function StealDialog({ view, players }: { view: RoomView; players: Players }) {
   const g = view.game!;
+  const last = [...g.events].reverse().find((e) => e.kind === 'robber' || e.kind === 'pirate');
   return (
     <div className="sheet-backdrop">
       <div className="sheet" role="dialog" aria-modal="true" aria-label="자원 빼앗기">
@@ -133,7 +179,10 @@ export function StealDialog({ view, players }: { view: RoomView; players: Player
           <h2>누구에게서 빼앗을까요?</h2>
         </div>
         <div className="sheet-body">
-          <p className="small muted">기사단 동상이 선 칸에 마을·도시가 닿은 사람입니다. 고른 사람의 자원 중 1장을 무작위로 가져옵니다.</p>
+          <p className="small muted">
+            {last?.kind === 'pirate' ? '해적선이 선 바다 둘레에 배를 둔 사람입니다.' : '기사단 동상이 선 칸에 마을·도시가 닿은 사람입니다.'} 고른 사람의 자원 중 1장을
+            무작위로 가져옵니다.
+          </p>
           <div className="pick-row">
             {g.stealFrom.map((id) => {
               const p = players.get(id);
@@ -211,6 +260,34 @@ export function SpotConfirm({
           <path d="M5 12.5 L10 17.5 L19 7" />
         </svg>
       </button>
+      {act.alt && (
+        // 바닷가 변: ✓ 는 길, 이 단추는 길 대신 배를 띄운다 (섬 맵).
+        <button
+          type="button"
+          className={`pin-btn pin-alt ${act.alt.blocker ? 'is-blocked' : ''}`}
+          aria-label={act.alt.blocker ? `${act.alt.label} (${act.alt.blocker})` : act.alt.label}
+          aria-disabled={!!act.alt.blocker || busy}
+          title={act.alt.label}
+          onClick={async () => {
+            if (busy || !act.alt) return;
+            if (act.alt.blocker) {
+              showToast(act.alt.blocker, 'warn');
+              return;
+            }
+            setBusy(true);
+            try {
+              if (await sendAction(act.alt.action)) onDone();
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden className="pin-ship">
+            <path d="M3.5 15.5 H20.5 L18 19.5 H6 Z" />
+            <path d="M12 4 V15.5 M12.8 5.5 C15.8 7 17.6 10 18 13.5 H12.8" />
+          </svg>
+        </button>
+      )}
       <button type="button" className="pin-btn pin-no" aria-label="취소" title="취소" onClick={onClose}>
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d="M6.5 6.5 L17.5 17.5 M17.5 6.5 L6.5 17.5" />
@@ -465,11 +542,17 @@ export function PlacementBanner({ view, players, picked }: { view: RoomView; pla
           <span className="pb-step">{step}/2</span>{' '}
           {g.setupVillage
             ? picked
-              ? '고른 변에 길을 놓으려면 ✓ 를 누르세요.'
-              : '빛나는 변을 눌러 방금 지은 마을에 붙일 길을 고르세요.'
+              ? g.sea.length
+                ? '고른 변에 놓으려면 ✓ 를 누르세요. 바닷가 변은 배 단추로 길 대신 배를 띄울 수 있습니다.'
+                : '고른 변에 길을 놓으려면 ✓ 를 누르세요.'
+              : g.sea.length
+                ? '빛나는 변을 눌러 방금 지은 마을에 붙일 길이나 배(바닷가 마을일 때)를 고르세요.'
+                : '빛나는 변을 눌러 방금 지은 마을에 붙일 길을 고르세요.'
             : picked
               ? '고른 자리에 마을을 지으려면 ✓ 를 누르세요.'
-              : '빛나는 꼭짓점을 눌러 시작 마을 자리를 고르세요.'}
+              : g.sea.length
+                ? '빛나는 꼭짓점을 눌러 시작 마을 자리를 고르세요. 시작 마을은 큰 섬에만 짓습니다.'
+                : '빛나는 꼭짓점을 눌러 시작 마을 자리를 고르세요.'}
         </b>
       ) : (
         <span>
@@ -480,8 +563,10 @@ export function PlacementBanner({ view, players, picked }: { view: RoomView; pla
         배치 순서(한 바퀴 돌고 거꾸로 한 바퀴):{' '}
         {g.placementOrder.map((id, i) => {
           const p = players.get(id);
-          const done = i < g.roads.length;
-          const now = i === g.roads.length;
+          // 시작 배치에서는 한 사람이 길이나 배 하나씩만 놓으므로 그 수가 끝낸 차례 수다.
+          const placed = g.roads.length + g.ships.length;
+          const done = i < placed;
+          const now = i === placed;
           return (
             <Fragment key={`${id}-${i}`}>
               <span className={`po ${done ? 'po-done' : ''} ${now ? 'po-now' : ''}`}>

@@ -136,6 +136,10 @@ function reviveRoom(raw: unknown): Room | null {
     if (!('sea' in game)) game.sea = [];
     if (!('ships' in game)) game.ships = [];
     if (!('shipMoved' in game)) game.shipMoved = false;
+    // 해적선·새 섬 보너스·금광이 생기기 전에 저장한 게임에는 셋 다 없었다.
+    if (!('pirate' in game)) game.pirate = null;
+    if (!('islandBonus' in game)) game.islandBonus = {};
+    if (!('goldPicks' in game)) game.goldPicks = {};
     const keys = requiredGameKeys();
     if (keys && keys.some((k) => !(k in game))) return null;
     const ids = new Set(players.map((p) => p.id));

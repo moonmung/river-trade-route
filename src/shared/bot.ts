@@ -20,6 +20,19 @@ export function botSideAction(v: RoomView, random: () => number = Math.random, o
   const g = v.game!;
   const me = v.you;
   if (g.phase === 'order') return g.startPending.includes(me) ? { type: 'order_roll' } : null;
+  // 금광(섬 맵): 은행에 남은 자원 중 가장 적게 가진 것부터 고른다 (시작 배치 중에 생긴 몫도 바로 고른다).
+  const owed = g.goldPicks?.[me] ?? 0;
+  if (owed > 0 && g.phase !== 'finished') {
+    const out = emptyBundle();
+    const bankLeft = (r: (typeof RESOURCES)[number]) => (g.bank ? g.bank[r] - out[r] : Infinity);
+    const count = g.bank ? Math.min(owed, RESOURCES.reduce((n, r) => n + g.bank![r], 0)) : owed;
+    for (let i = 0; i < count; i++) {
+      const r = RESOURCES.filter((x) => bankLeft(x) > 0).sort((a, b) => g.myResources[a] + out[a] - (g.myResources[b] + out[b]))[0];
+      if (!r) break;
+      out[r] += 1;
+    }
+    return { type: 'gold_pick', bundle: out };
+  }
   if (g.phase !== 'playing') return null;
   if (g.step === 'discard' && g.discards[me]) {
     // 가장 많은 자원부터 하나씩 버린다
@@ -62,7 +75,7 @@ export function botTurnAction(v: RoomView, seat: number, random: () => number = 
     return { type: 'place_village', vertexId: top[Math.floor(random() * top.length)] };
   }
   if (g.phase !== 'playing' || g.currentPlayerId !== me) return null;
-  if (g.step === 'discard') return null;
+  if (g.step === 'discard' || g.step === 'gold') return null;
   if (g.step === 'roll') return { type: 'roll' };
   if (g.step === 'robber') {
     // 남의 마을이 많이 닿고 내 마을은 없는 칸
@@ -75,7 +88,7 @@ export function botTurnAction(v: RoomView, seat: number, random: () => number = 
   if (g.step === 'steal') return { type: 'steal', from: g.stealFrom[Math.floor(random() * g.stealFrom.length)] };
   const count = (kind: 'road' | 'village' | 'city' | 'ship') => pieceCount(g.buildings, g.roads, me, kind, g.ships);
   const roadSpots = count('road') < pieceLimit(g, 'road') ? buildableRoads(board, g.buildings, g.roads, me, g.ships) : [];
-  const shipSpots = count('ship') < pieceLimit(g, 'ship') ? buildableShips(board, g.buildings, g.roads, g.ships, me) : [];
+  const shipSpots = count('ship') < pieceLimit(g, 'ship') ? buildableShips(board, g.buildings, g.roads, g.ships, me, g.pirate) : [];
   if (g.step === 'road_building') {
     // 섬 맵에서는 길을 놓을 곳이 없으면 공짜 배를 띄운다.
     if (roadSpots.length) return { type: 'build_road', edgeId: roadSpots[Math.floor(random() * roadSpots.length)] };

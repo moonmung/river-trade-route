@@ -1778,6 +1778,21 @@
   background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 70%);
 }
 
+/* 바닷가 변에서 길 대신 배를 띄우는 단추 (섬 맵) */
+.pin-alt {
+  background-color: #2f7f8f;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 70%);
+}
+
+.pin-alt.is-blocked {
+  background-color: #8a9aa6;
+  filter: saturate(0.4);
+}
+
+.pin-btn svg.pin-ship {
+  stroke-width: 2;
+}
+
 .pin-btn:hover {
   transform: translateY(-1px) scale(1.06);
   filter: brightness(1.08);

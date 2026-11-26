@@ -2,8 +2,8 @@
 // 모양마다 "황금 배치"를 하나씩 둔다: 땅 종류, 숫자 패, 교역로 자원이 모두 정해진 기준 배치다.
 // 황금 배치는 같은 땅끼리 변을 맞대지 않고 6·8과 같은 숫자끼리 이웃하지 않으며 자원마다 나올 확률(숫자 패의 점)이 고르게 나뉘도록 짰다.
 // 섞기는 같은 모양에서 광장 자리만 두고 땅·숫자·교역로 자원을 게임마다 새로 섞는다.
-import { assignNumbers, boardFor, harborsFor, HARBOR_KINDS, INNER_HARBOR_KINDS, innerHarborsFor, tileCenterUnit, type Board } from './board';
-import { BOARD_LAYOUT, DEV_CARDS, RESOURCE_CARDS, ROW_LABELS } from './constants';
+import { assignNumbers, boardFor, harborsFor, HARBOR_KINDS, INNER_HARBOR_KINDS, innerHarborsFor, seaCellId, tileCenterUnit, type Board } from './board';
+import { BOARD_LAYOUT, DEV_CARDS, ISLANDS_WIN_POINTS, RESOURCE_CARDS, ROW_LABELS, WIN_POINTS } from './constants';
 import type { Harbor, MapArrange, MapConfig, MapShape, Resource, SeaCell, TileDef, TileId, TileKind } from './types';
 
 export const MAP_SHAPES: readonly MapShape[] = ['hex', 'diamond', 'big', 'lakes', 'islands'];
@@ -44,6 +44,8 @@ interface MapPreset {
   devCards: number;
   /** 배를 띄우는 맵: 줄 안의 빈 칸(null)과 땅에 닿은 바깥 칸이 모두 바다 칸이 된다 */
   ships?: boolean;
+  /** 해적선이 처음 서는 바다 칸 (배를 띄우는 맵) */
+  pirate?: SeaCell;
 }
 
 const PRESETS: Record<MapShape, MapPreset> = {
@@ -171,31 +173,34 @@ const PRESETS: Record<MapShape, MapPreset> = {
   },
   // 섬 맵 (8인까지, 배를 띄운다). 8-9-10-11-12-11-10-9-8 줄의 옆으로 긴 육각형 88칸에 땅 44칸과 바다 44칸이 반씩이다.
   // 큰 섬 셋(왼쪽 위 11칸·오른쪽 12칸·왼쪽 아래 9칸)과 작은 섬 넷(3칸씩)이 서로 바다 한 칸 이상 떨어져 있어 다른 섬으로는 배로만 건너간다.
-  // 광장은 왼쪽 위 섬과 오른쪽 섬 한가운데에 하나씩. 목재·곡물 9칸, 양모·벽돌·석재 8칸. 숫자 패는 대형 맵처럼 기본판 두 벌에 4·5·6·8·9·10 을 하나씩 더한 42개다.
-  // 큰 섬마다 다섯 자원이 다 있고 2·12 는 하나씩만 두었다. 작은 섬은 세 칸이 모두 다른 자원이다.
+  // 시작 마을은 큰 섬에만 짓고, 작은 섬에 처음 마을을 지으면 새 섬 보너스를 받는다 (항해사 「새로운 해안으로」처럼).
+  // 광장은 왼쪽 위 섬과 오른쪽 섬 한가운데에 하나씩. 목재 9칸, 곡물·양모·벽돌 8칸, 석재 7칸에 금광 2칸(위쪽 작은 섬과 오른쪽 아래 작은 섬).
+  // 숫자 패는 대형 맵처럼 기본판 두 벌에 4·5·6·8·9·10 을 하나씩 더한 42개다.
+  // 큰 섬마다 다섯 자원이 다 있고 2·12 는 하나씩만 두었다. 작은 섬은 세 칸이 모두 다르다. 해적선은 가운데 섬 위쪽 먼 바다에서 시작한다.
   islands: {
     kinds: [
-      ['stone', 'grain', null, null, 'wood', 'brick', null, null],
-      ['wool', 'wood', 'wool', null, null, 'wool', null, null, null],
-      ['stone', 'plaza', 'grain', null, null, null, null, null, 'grain', 'brick'],
-      ['grain', 'brick', 'wood', null, null, null, null, 'stone', 'brick', 'stone', 'wood'],
-      [null, null, null, null, null, 'stone', 'grain', null, 'wool', 'plaza', 'wool', null],
-      ['brick', 'stone', 'grain', null, null, 'wool', null, 'grain', 'wood', 'brick', null],
-      ['wood', 'brick', 'wood', null, null, null, null, null, null, null],
-      ['grain', 'stone', null, null, 'wood', 'grain', null, 'wood', 'wool'],
-      ['wool', null, null, null, 'brick', null, null, 'stone'],
+      ['brick', 'wood', null, null, 'brick', 'gold', null, null],
+      ['wool', 'grain', 'stone', null, null, 'wood', null, null, null],
+      ['grain', 'plaza', 'brick', null, null, null, null, null, 'stone', 'wool'],
+      ['stone', 'wood', 'wool', null, null, null, null, 'brick', 'grain', 'brick', 'wood'],
+      [null, null, null, null, null, 'wool', 'wood', null, 'stone', 'plaza', 'grain', null],
+      ['brick', 'wool', 'grain', null, null, 'brick', null, 'wood', 'wool', 'stone', null],
+      ['wood', 'brick', 'stone', null, null, null, null, null, null, null],
+      ['grain', 'wool', null, null, 'stone', 'wood', null, 'grain', 'wool'],
+      ['wood', null, null, null, 'grain', null, null, 'gold'],
     ],
     numbers: [
-      [6, 3, null, null, 5, 6, null, null],
-      [4, 10, 5, null, null, 2, null, null, null],
-      [12, null, 11, null, null, null, null, null, 6, 3],
-      [10, 8, 9, null, null, null, null, 5, 12, 4, 8],
-      [null, null, null, null, null, 10, 4, null, 10, null, 11, null],
-      [10, 9, 3, null, null, 6, null, 8, 3, 9, null],
-      [2, 4, 6, null, null, null, null, null, null, null],
-      [5, 11, null, null, 4, 9, null, 11, 9],
-      [8, null, null, null, 5, null, null, 8],
+      [6, 11, null, null, 9, 3, null, null],
+      [10, 4, 10, null, null, 6, null, null, null],
+      [3, null, 12, null, null, null, null, null, 12, 6],
+      [8, 5, 9, null, null, null, null, 4, 9, 5, 3],
+      [null, null, null, null, null, 5, 11, null, 11, null, 10, null],
+      [11, 8, 2, null, null, 8, null, 8, 4, 5, null],
+      [4, 10, 6, null, null, null, null, null, null, null],
+      [5, 3, null, null, 4, 10, null, 6, 2],
+      [9, null, null, null, 8, null, null, 9],
     ],
+    pirate: { q: 0, r: -2 },
     rowR: (i) => i - 4,
     qStart: (i) => Math.max(-6, -i - 2),
     maxPlayers: 8,
@@ -224,6 +229,11 @@ const PRESETS: Record<MapShape, MapPreset> = {
 /** 배를 띄우는 맵인지 (섬 맵) */
 export function mapHasShips(shape: MapShape): boolean {
   return !!PRESETS[shape].ships;
+}
+
+/** 방장이 따로 바꾸지 않았을 때의 승리 점수: 섬 맵은 새 섬 보너스가 있어 14점, 나머지는 10점 */
+export function mapWinPoints(shape: MapShape): number {
+  return PRESETS[shape].ships ? ISLANDS_WIN_POINTS : WIN_POINTS;
 }
 
 /**
@@ -317,6 +327,14 @@ export interface BuiltMap {
   robber: TileId;
   /** 배를 띄울 바다 칸 (배를 안 쓰는 맵이면 빈 목록) */
   sea: SeaCell[];
+  /** 해적선이 처음 서는 바다 칸 ID (없으면 null) */
+  pirate: string | null;
+}
+
+/** 모양이 정한 해적선 첫 자리의 바다 칸 ID */
+function pirateStart(shape: MapShape, sea: readonly SeaCell[]): string | null {
+  const p = PRESETS[shape].pirate;
+  return p ? seaCellId(sea, p) : null;
 }
 
 const near = (a: TileDef, b: TileDef) => {
@@ -368,22 +386,25 @@ export function goldenMap(shape: MapShape): BuiltMap {
     const n = p.numbers[t.row][t.col];
     if (n !== null) numbers[t.id] = n;
   }
-  return { tiles, numbers, harbors: placeHarbors(shape, tiles), robber: tiles.find((t) => t.kind === 'plaza')!.id, sea: mapSeaCells(shape) };
+  const sea = mapSeaCells(shape);
+  return { tiles, numbers, harbors: placeHarbors(shape, tiles), robber: tiles.find((t) => t.kind === 'plaza')!.id, sea, pirate: pirateStart(shape, sea) };
 }
 
 /**
- * 광장 자리는 두고 나머지 땅을 섞는다. 섞은 뒤 같은 땅끼리 맞닿은 곳이 있으면 두 칸의 땅을 맞바꿔 맞닿음을 줄여 간다
+ * 광장과 금광 자리는 두고 나머지 땅을 섞는다 (금광은 배로 건너가는 작은 섬에 그대로 남는다).
+ * 섞은 뒤 같은 땅끼리 맞닿은 곳이 있으면 두 칸의 땅을 맞바꿔 맞닿음을 줄여 간다
  * (늘지 않는 맞바꿈만 받아들인다). 그래도 남으면 처음부터 다시 섞고 끝내 못 없애면 맞닿음이 가장 적은 판을 쓴다.
  */
 function shuffleKinds(golden: readonly TileDef[], random: () => number): TileDef[] {
-  const pool = golden.filter((t) => t.kind !== 'plaza').map((t) => t.kind as Resource);
-  const slots = golden.map((t, i) => (t.kind === 'plaza' ? -1 : i)).filter((i) => i >= 0);
+  const fixed = (t: TileDef) => t.kind === 'plaza' || t.kind === 'gold';
+  const pool = golden.filter((t) => !fixed(t)).map((t) => t.kind as Resource);
+  const slots = golden.map((t, i) => (fixed(t) ? -1 : i)).filter((i) => i >= 0);
   let best: TileDef[] = golden.map((t) => ({ ...t }));
   let bestPairs = Infinity;
   for (let restart = 0; restart < 30 && bestPairs > 0; restart++) {
     const kinds = shuffled(pool, random);
     let k = 0;
-    const tiles = golden.map((t) => (t.kind === 'plaza' ? { ...t } : { ...t, kind: kinds[k++] }));
+    const tiles = golden.map((t) => (fixed(t) ? { ...t } : { ...t, kind: kinds[k++] }));
     let pairs = sameKindPairs(tiles);
     for (let step = 0; step < 600 && pairs > 0; step++) {
       const a = tiles[slots[Math.floor(random() * slots.length)]];
@@ -407,7 +428,8 @@ export function shuffledMap(shape: MapShape, random: () => number): BuiltMap {
   const best = shuffleKinds(mapTiles(shape), random);
   const numbers = assignNumbers(random, best, mapNumberTokens(shape));
   const harbors = placeHarbors(shape, best, random);
-  return { tiles: best, numbers, harbors, robber: best.find((t) => t.kind === 'plaza')!.id, sea: mapSeaCells(shape) };
+  const sea = mapSeaCells(shape);
+  return { tiles: best, numbers, harbors, robber: best.find((t) => t.kind === 'plaza')!.id, sea, pirate: pirateStart(shape, sea) };
 }
 
 export function buildMap(config: MapConfig, random: () => number): BuiltMap {

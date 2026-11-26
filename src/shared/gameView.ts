@@ -26,6 +26,7 @@ export function filterEventFor(e: GameEvent, viewer: string): GameEvent {
       return detail && detail[viewer] ? { ...rest, detail: { [viewer]: { ...detail[viewer] } } } : rest;
     }
     case 'discard':
+    case 'gold_pick':
     case 'buy_dev': {
       if (e.player === viewer) return e;
       const { detail: _hidden, ...rest } = e;
@@ -79,6 +80,8 @@ export function buildGameView(g: GameState, viewer: string, clock: ClockInfo = {
     roads: g.roads.map((r) => ({ ...r })),
     ships: (g.ships ?? []).map((sh) => ({ ...sh })),
     shipMoved: !!g.shipMoved,
+    pirate: g.pirate ?? null,
+    goldPicks: { ...(g.goldPicks ?? {}) },
     devDeckCount: g.devDeck.length,
     unlimited: !!g.unlimited,
     diceMode: g.diceMode ?? 'random',
@@ -100,6 +103,7 @@ export function buildGameView(g: GameState, viewer: string, clock: ClockInfo = {
       cities: pieceCount(g.buildings, g.roads, id, 'city'),
       roads: pieceCount(g.buildings, g.roads, id, 'road'),
       ships: pieceCount(g.buildings, g.roads, id, 'ship', g.ships ?? []),
+      islands: g.islandBonus?.[id]?.length ?? 0,
     })),
     myResources: me ? { ...me.resources } : emptyBundle(),
     myDevCards: me ? me.devCards.map((c) => ({ ...c })) : [],

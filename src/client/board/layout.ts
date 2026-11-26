@@ -321,6 +321,22 @@ function quarry(rand: () => number): Local[] {
   return out;
 }
 
+/** 금광 (섬 맵): 뒤쪽에 금빛 바위 더미, 앞쪽에 광부 천막과 금을 담은 상자·통 (땅은 금빛으로 칠한 채석장 바닥) */
+function goldMine(rand: () => number): Local[] {
+  const r = () => rand() * 6.28;
+  const out: Local[] = [
+    { key: 'boulder', variant: 0, x: -0.46, z: -0.56, rotY: r(), scale: 1.25, sy: 1.2, shadow: 0.24 },
+    { key: 'boulder', variant: 2, x: 0.12, z: -0.78, rotY: r(), scale: 1.2, sy: 1.25, shadow: 0.24 },
+    { key: 'boulder', variant: 1, x: 0.56, z: -0.44, rotY: r(), scale: 1.1, sy: 1.15, shadow: 0.24 },
+    { key: 'tent', variant: 0, x: -0.62, z: 0.3, rotY: 0.5, scale: 0.85, shadow: 0.2 },
+    { key: 'crate', variant: 0, x: 0.58, z: 0.22, rotY: 0.3, scale: 0.85, shadow: 0.1 },
+    { key: 'crate', variant: 1, x: 0.44, z: 0.5, rotY: -0.4, scale: 0.8, shadow: 0.1 },
+    { key: 'barrel', variant: 0, x: -0.2, z: 0.78, rotY: 0.7, scale: 0.8, shadow: 0.1 },
+  ];
+  scatter(out, rand, [{ key: 'pebbles', variants: 2, count: 4, scale: [0.8, 1.2], shadow: 0.1 }], (_x, z) => z > -0.2);
+  return out;
+}
+
 /** 목초지: 뒤쪽에 나무 울타리, 앞 왼쪽에 여물통과 건초 더미, 풀밭 곳곳에 양 */
 function pasture(rand: () => number): Local[] {
   const out: Local[] = [
@@ -407,7 +423,9 @@ export function tilePlacements(tile: TileDef, m: BoardMetrics): Placement[] {
             ? clayPit(rand)
             : tile.kind === 'stone'
               ? quarry(rand)
-              : plaza();
+              : tile.kind === 'gold'
+                ? goldMine(rand)
+                : plaza();
   return local.map((p) => ({
     ...p,
     x: center.x + p.x,

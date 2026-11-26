@@ -54,6 +54,8 @@ export function parseAction(raw: unknown): GameAction | null {
       return isVertexId(raw.vertexId) ? { type: 'place_village', vertexId: raw.vertexId } : null;
     case 'place_road':
       return isEdgeId(raw.edgeId) ? { type: 'place_road', edgeId: raw.edgeId } : null;
+    case 'place_ship':
+      return isSeaEdgeId(raw.edgeId) ? { type: 'place_ship', edgeId: raw.edgeId } : null;
     case 'place':
       return isVertexId(raw.vertexId) && isEdgeId(raw.edgeId) ? { type: 'place', vertexId: raw.vertexId, edgeId: raw.edgeId } : null;
     case 'build_road':
@@ -75,6 +77,12 @@ export function parseAction(raw: unknown): GameAction | null {
     }
     case 'move_robber':
       return isTileId(raw.tileId) ? { type: 'move_robber', tileId: raw.tileId } : null;
+    case 'move_pirate':
+      return typeof raw.cell === 'string' && /^c[1-9]\d{0,3}$/.test(raw.cell) ? { type: 'move_pirate', cell: raw.cell } : null;
+    case 'gold_pick': {
+      const bundle = parseBundle(raw.bundle, 99);
+      return bundle ? { type: 'gold_pick', bundle } : null;
+    }
     case 'steal':
       return typeof raw.from === 'string' && raw.from.length <= 64 ? { type: 'steal', from: raw.from } : null;
     case 'bank_trade': {

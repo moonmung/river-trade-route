@@ -43,4 +43,5 @@ export const RESOURCE_COLOR: Record<Resource, string> = {
 export const TILE_COLOR: Record<TileKind, string> = {
   ...RESOURCE_COLOR,
   plaza: '#b0533c',
+  gold: '#e0b43a',
 };

@@ -52,6 +52,8 @@ export interface GamePlayerView {
   roads: number;
   /** 띄운 배 (섬 맵이 아니면 0) */
   ships: number;
+  /** 새 섬 보너스를 받은 작은 섬 수 (섬 맵, 섬마다 2점이 score 에 들어 있다) */
+  islands: number;
 }
 
 /** 열린 교환 제안. 모두에게 제안하므로 내용과 응답은 모두에게 보인다 (종류별 보유량은 들어 있지 않다). */
@@ -113,6 +115,10 @@ export interface GameView {
   ships: Ship[];
   /** 이번 턴에 배를 이미 옮겼는지 */
   shipMoved: boolean;
+  /** 해적선이 선 바다 칸 ID (섬 맵, 없으면 null) */
+  pirate: string | null;
+  /** 금광에서 원하는 자원을 골라 받을 장수 (사람마다, 다 고르면 빠진다) */
+  goldPicks: Record<string, number>;
   devDeckCount: number;
   /** 개수 제한 없음: 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않는다 */
   unlimited: boolean;
