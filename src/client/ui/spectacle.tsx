@@ -379,30 +379,40 @@ function VictoryQuoteBanner({ show }: { show: VictoryQuote }) {
 
 /**
  * 달성 공지: 띠나 도장 없이 글자만 보드 위에 크게 띄운다. 어떤 칸 위에서도 읽히게 글자에 먹 테두리를 두르고,
- * 맨 앞 닉네임을 그 플레이어 색으로 칠한다. 아래 줄에 색 이름과 덧붙임이 온다. 자랑하기면 그 아래에 한마디가 붙는다.
+ * 맨 앞 닉네임을 그 플레이어 색으로 칠한다. 아래 줄에 색 이름과 덧붙임이 온다.
+ * 자랑하기는 "철수의 최강 기사단을 뽐냅니다" 한 줄과 그 사람이 고른 한마디만 띄운다 (색 이름·길 칸 수·기사 장수 줄은 없다).
  * 움직임 없이 나타났다가 흐려지며 사라진다.
  */
 function AwardBanner({ show }: { show: AwardShow }) {
   const color = playerColor(show.colorIndex);
   const label = AWARD_LABEL[show.award];
   const word = colorWord(show.colorIndex);
+  const ariaLabel = show.brag
+    ? `${show.nickname}의 ${josa(label, '을/를')} 뽐냅니다. ${show.quote ?? ''}`
+    : `${show.nickname}${show.mine ? '(나)' : ''} ${label} 달성. ${word} 플레이어, ${show.detail}`;
   return (
     <div
       className="award-banner"
       role="status"
       aria-live="assertive"
-      aria-label={`${show.nickname}${show.mine ? '(나)' : ''} ${show.brag ? `님이 ${josa(label, '을/를')} 뽐냅니다` : `${label} 달성`}. ${word} 플레이어, ${show.detail}${show.quote ? `. ${show.quote}` : ''}`}
+      aria-label={ariaLabel}
       style={{ ['--pc' as string]: color.hex, ['--pc-ink' as string]: color.ink } as CSSProperties}
     >
-      <div className="award-headline">
-        <span className="award-color">{show.nickname}</span>
-        {show.brag ? ' 님이 ' : ' '}
-        <span className="award-what">{show.brag ? `${josa(label, '을/를')} 뽐냅니다` : `${label} 달성`}</span>
-      </div>
-      <div className="award-sub">
-        {word} 플레이어
-        {show.mine ? ' (나)' : ''} · {show.detail}
-      </div>
+      {show.brag ? (
+        <div className="award-headline">
+          <span className="award-color">{show.nickname}</span>의 <span className="award-what">{josa(label, '을/를')} 뽐냅니다</span>
+        </div>
+      ) : (
+        <>
+          <div className="award-headline">
+            <span className="award-color">{show.nickname}</span> <span className="award-what">{label} 달성</span>
+          </div>
+          <div className="award-sub">
+            {word} 플레이어
+            {show.mine ? ' (나)' : ''} · {show.detail}
+          </div>
+        </>
+      )}
       {show.quote && <div className="award-quote">“{show.quote}”</div>}
     </div>
   );

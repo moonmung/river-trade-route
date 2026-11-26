@@ -168,10 +168,16 @@ const VICTORY_FADE_MS = 600;
  * 그 사람의 길이 카메라보다 앞서 금빛으로 물드는 거리
  */
 const STREET_EYE = PLATFORM_TOP + ROAD_DECK_TOP + 0.11;
-const STREET_FOV = 54;
+const STREET_FOV = 58;
 const STREET_FAR_FOV = 9;
 const STREET_SPEED = 2.6;
 const STREET_LEAD = 0.8;
+/**
+ * 건물 앞에 멈춰 올려다보는 거리 (변 하나는 1.32). 건물로 곧게 들어가는 마지막 길 위에 서야 옆 칸의 바위·나무가
+ * 건물을 가리지 않으므로 변 길이보다 조금 짧게 두고, 대신 시야각(STREET_FOV)을 넓혀 건물 둘레까지 여유 있게 담는다.
+ */
+const STOP_VILLAGE = 1.2;
+const STOP_CITY = 1.26;
 /** 가마 하나에서 동시에 피어오르는 연기 공 수 */
 const SMOKE_PUFFS = 5;
 /** 바람·양·연기만 움직일 때 프레임 간격 (약 30fps) */
@@ -576,8 +582,6 @@ interface VictoryRun {
   street: boolean;
   /** 빛이 닿은 때 (조각 키 → 연출 시작부터 ms) */
   lit: Map<string, number>;
-  /** 마을·도시가 톡 부푼 때 */
-  bumps: Map<string, number>;
   /** 이미 터뜨린 단계 수 */
   fired: number;
   finale: boolean;
@@ -3855,7 +3859,6 @@ export class BoardRenderer {
       shots: null,
       street: false,
       lit: new Map(),
-      bumps: new Map(),
       fired: 0,
       finale: false,
       anim: { start: 0, duration: 1, update: () => undefined },
@@ -3893,7 +3896,6 @@ export class BoardRenderer {
     if (this.victory !== run) return;
     this.victory = null;
     this.victoryGlow.clear();
-    for (const key of run.bumps.keys()) this.growing.delete(key);
     this.leaveStreet(run);
     if (run.camera) this.placeCamera(this.defaultTarget, 1);
     this.controls.enabled = true;
@@ -4137,7 +4139,7 @@ export class BoardRenderer {
         const city = step.kind === 'city';
         const hold = Math.min(step.span * 0.42, 320);
         const walkLen = first ? 0.25 : THREE.MathUtils.clamp((STREET_SPEED * (step.at - free)) / 1000, 0.45, 2.6);
-        const path = this.approachPath(run.playerId, step.vertexId, prev, walkLen, city ? 1.3 : 1.0);
+        const path = this.approachPath(run.playerId, step.vertexId, prev, walkLen, city ? STOP_CITY : STOP_VILLAGE);
         const focus = this.vertexWorld(step.vertexId)!.setY(TILE_TOP + (city ? 0.45 : 0.3));
         const eye = path.pts[path.pts.length - 1];
         const stopPose = poseOf(eye, focus, this.streetFov());
@@ -4238,26 +4240,17 @@ export class BoardRenderer {
       const g = d < 0 ? 0 : Math.min(1, d / 120) * (VICTORY_GLOW_FLOOR + (1 - VICTORY_GLOW_FLOOR) * Math.exp(-d / 420));
       this.victoryGlow.set(key, g * fade);
     }
-    // 점수를 센 마을·도시가 톡 부풀었다 돌아온다.
-    for (const [key, at] of run.bumps) {
-      const u = (ms - at) / 460;
-      if (u < 0) continue;
-      if (u >= 1) {
-        this.growing.delete(key);
-        run.bumps.delete(key);
-        continue;
-      }
-      this.growing.set(key, 1 + 0.32 * Math.sin(u * Math.PI) * (1 - u * 0.4));
-    }
     this.updatePieceInstances();
   }
 
-  /** 점수가 오르는 순간: 마을·도시는 부풀며 반짝이고 +1·+2 가 뜬다. 최장 교역로는 금빛이 훑고, 최강 기사단은 동상이 뛴다. */
+  /**
+   * 점수가 오르는 순간: 마을·도시는 크기는 그대로 둔 채 금빛으로 빛나며 반짝이와 +1·+2 가 뜬다.
+   * 최장 교역로는 금빛이 훑고, 최강 기사단은 동상이 뛴다.
+   */
   private victoryBeat(run: VictoryRun, step: VictoryStep, ms: number): void {
     if (step.vertexId) {
       const key = `b:${step.vertexId}`;
       run.lit.set(key, ms);
-      run.bumps.set(key, ms);
       const p = this.vertexWorld(step.vertexId);
       if (!p) return;
       const lift = BADGE_LIFT[step.kind === 'city' ? 'city' : 'village'];
@@ -4315,7 +4308,6 @@ export class BoardRenderer {
       const delay = 180 + Math.hypot(m.p.x - center.x, m.p.z - center.z) * 85;
       run.lit.set(m.key, ms + delay);
       if (m.lift !== undefined) {
-        run.bumps.set(m.key, ms + delay);
         if (budget >= 5) {
           this.sparkBurst(m.p.clone().add(new THREE.Vector3(0, m.lift * 0.8, 0)), delay, 5, 0.3, 0.12);
           budget -= 5;
