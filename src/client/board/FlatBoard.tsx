@@ -281,13 +281,7 @@ export function FlatBoard({
               aria-label={`${seaEdgeLabel(geo, e.id)}${ship ? ' 배' : ' 배 자리'}`}
             >
               {ship && traceE.has(e.id) && <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} className="flat-trace" />}
-              {ship && (
-                <>
-                  <line x1={sp.x1} y1={sp.y1} x2={sp.x2} y2={sp.y2} className="flat-lane-edge" />
-                  <line x1={sp.x1} y1={sp.y1} x2={sp.x2} y2={sp.y2} className="flat-lane" style={{ stroke: playerColor(ship.colorIndex).hex }} />
-                  <line x1={sp.x1} y1={sp.y1} x2={sp.x2} y2={sp.y2} className="flat-lane-dash" />
-                </>
-              )}
+              {ship && <line x1={sp.x1} y1={sp.y1} x2={sp.x2} y2={sp.y2} className="flat-lane" style={{ stroke: playerColor(ship.colorIndex).hex }} />}
               {(lit || picked) && <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} className={`flat-edge-hl flat-sea-hl ${picked ? 'flat-edge-sel' : ''}`} />}
               {ship && fleetAt.has(e.id) && (
                 <g transform={`translate(${sp.x.toFixed(3)} ${sp.y.toFixed(3)}) rotate(${sp.deg.toFixed(1)})`} className="flat-ship">

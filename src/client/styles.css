@@ -1613,32 +1613,19 @@ h2 {
   }
 }
 
-/* 항로 뱃길: 크림색 테두리 위에 그 사람 색 띠, 가운데 흰 점선 (배는 항로마다 한 척) */
-.flat-lane-edge {
-  stroke: #fbf3dc;
-  stroke-width: 0.2;
-  stroke-linecap: round;
-  pointer-events: none;
-}
-
+/* 항로 뱃길: 그 사람 색으로 바닷물을 은은하게 물들인 넓은 띠 (배는 항로마다 한 척) */
 .flat-lane {
-  stroke-width: 0.13;
+  stroke-width: 0.22;
   stroke-linecap: round;
-  pointer-events: none;
-}
-
-.flat-lane-dash {
-  stroke: #fffaf0;
-  stroke-width: 0.035;
-  stroke-dasharray: 0.12 0.18;
+  stroke-opacity: 0.3;
   pointer-events: none;
 }
 
 /* 섬 땅따먹기: 처음 닿은 사람 색으로 섬 칸을 옅게 물들이고 테두리를 두른다 */
 .flat-claim {
-  fill-opacity: 0.22;
-  stroke-width: 0.07;
-  stroke-opacity: 0.85;
+  fill-opacity: 0.14;
+  stroke-width: 0.03;
+  stroke-opacity: 0.45;
   pointer-events: none;
 }
 
