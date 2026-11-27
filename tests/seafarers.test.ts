@@ -122,10 +122,14 @@ describe('새 섬 보너스', () => {
     expect(s.islandBonus).toEqual({ a: [island] });
     expect(s.events.some((e) => e.kind === 'island_bonus' && e.player === 'a' && e.island === island && e.points === ISLAND_BONUS_POINTS)).toBe(true);
     expect(buildGameView(s, 'b').players.find((p) => p.id === 'a')!.islands).toBe(1);
+    // 섬 땅따먹기: 처음 닿은 사람이 그 섬의 주인으로 남는다
+    expect(s.islandClaims).toEqual({ [island]: 'a' });
+    expect(buildGameView(s, 'b').islandClaims).toEqual({ [island]: 'a' });
     // b 도 같은 섬에 처음 지으면 받는다
     s.current = 1;
     act(s, 'b', { type: 'build_village', vertexId: v2 });
     expect(s.islandBonus.b).toEqual([island]);
+    expect(s.islandClaims).toEqual({ [island]: 'a' });
     // 큰 섬에 지은 마을은 보너스가 없다
     const big = placeableVertices(board, s.buildings).find((v) => board.vertexMap[v].tiles.length === 1)!;
     s.ships.push({ edgeId: seaEdge(big), owner: 'b', builtTurn: 0 });
@@ -221,7 +225,7 @@ describe('금광', () => {
     }
   });
 
-  it('금광 숫자가 나오면 닿은 마을은 1장, 도시는 2장을 골라 받고, 모두 고를 때까지 기다린다', () => {
+  it('금광 숫자가 나오면 닿은 마을은 2장, 도시는 3장을 골라 받고, 모두 고를 때까지 기다린다', () => {
     const s = islandGame();
     const board = boardOf(s);
     const gold = s.tiles.find((t) => t.kind === 'gold')!;
@@ -231,17 +235,17 @@ describe('금광', () => {
     s.step = 'roll';
     const d1 = Math.min(6, n - 1);
     act(s, 'a', { type: 'roll' }, dice(d1, n - d1));
-    expect(s.goldPicks).toEqual({ a: 2, b: 1 });
+    expect(s.goldPicks).toEqual({ a: 3, b: 2 });
     expect(s.step).toBe('gold');
-    expect(s.events.find((e) => e.kind === 'roll')).toMatchObject({ gold: { a: 2, b: 1 } });
+    expect(s.events.find((e) => e.kind === 'roll')).toMatchObject({ gold: { a: 3, b: 2 } });
     fail(s, 'a', { type: 'end_turn' }, 'WRONG_STEP');
     fail(s, 'a', { type: 'gold_pick', bundle: { wood: 1, grain: 0, wool: 0, brick: 0, stone: 0 } }, 'BAD_REQUEST');
     const stone = s.players.a.resources.stone;
-    act(s, 'a', { type: 'gold_pick', bundle: { wood: 0, grain: 0, wool: 0, brick: 0, stone: 2 } });
+    act(s, 'a', { type: 'gold_pick', bundle: { wood: 0, grain: 0, wool: 0, brick: 1, stone: 2 } });
     expect(s.players.a.resources.stone).toBe(stone + 2);
     expect(s.step).toBe('gold');
     // 남이 고른 것은 남에게만 보인다
-    act(s, 'b', { type: 'gold_pick', bundle: { wood: 0, grain: 1, wool: 0, brick: 0, stone: 0 } });
+    act(s, 'b', { type: 'gold_pick', bundle: { wood: 0, grain: 1, wool: 1, brick: 0, stone: 0 } });
     expect(s.step).toBe('main');
     expect(s.goldPicks).toEqual({});
     const pickB = buildGameView(s, 'a').events.find((e) => e.kind === 'gold_pick' && e.player === 'b');
@@ -260,7 +264,7 @@ describe('금광', () => {
     const n = s.numbers[gold.id];
     const d1 = Math.min(6, n - 1);
     act(s, 'a', { type: 'roll' }, dice(d1, n - d1));
-    expect(s.goldPicks).toEqual({ b: 2 });
+    expect(s.goldPicks).toEqual({ b: 3 });
     fail(s, 'b', { type: 'gold_pick', bundle: { wood: 1, grain: 1, wool: 0, brick: 0, stone: 0 } }, 'BAD_REQUEST');
     expect(autoPlay(s, seeded(1))).toBe(true);
     expect(s.goldPicks).toEqual({});

@@ -8,6 +8,7 @@ import { buildMap, DEFAULT_MAP, mapCardDefaults, maxPlayersFor } from './maps';
 import { drawFairDice, newFairDice, recordProduction, type DiceMode, type FairDiceState } from './fairDice';
 import {
   AWARD_POINTS,
+  GOLD_YIELD,
   ISLAND_BONUS_POINTS,
   BANK_RATIO,
   DEV_COST,
@@ -140,6 +141,8 @@ export interface GameState {
   pirate: SeaCellId | null;
   /** 새 섬 보너스를 받은 작은 섬 번호 (사람마다). 섬마다 ISLAND_BONUS_POINTS 점이다. */
   islandBonus: Record<string, number[]>;
+  /** 작은 섬마다 처음 마을을 지은 사람 (섬 번호 → 플레이어). 보드에서 그 섬을 그 사람 색으로 물들인다. */
+  islandClaims: Record<string, string>;
   /** 금광에서 원하는 자원을 골라 받을 장수 (사람마다). 주사위로 생겼으면 다 고를 때까지 gold 단계다. */
   goldPicks: Record<string, number>;
   /** 남은 발전 카드 (맨 뒤부터 뽑는다). 제한 없음이면 줄지 않고 이 구성에서 무작위로 뽑는다. */
@@ -304,6 +307,7 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     shipMoved: false,
     pirate: map.pirate,
     islandBonus: {},
+    islandClaims: {},
     goldPicks: {},
     devDeck: shuffle(deck, random),
     unlimited: !!o.unlimited,
@@ -576,7 +580,7 @@ export function productionFor(
       if (!tiles.includes(tileId)) continue;
       const kind = board.tileMap[tileId].kind;
       const n = b.kind === 'city' ? 2 : 1;
-      if (kind === 'gold') gold[b.owner] = (gold[b.owner] ?? 0) + n;
+      if (kind === 'gold') gold[b.owner] = (gold[b.owner] ?? 0) + GOLD_YIELD[b.kind];
       else if (kind !== 'plaza') gains[b.owner][kind] += n;
     }
   }
@@ -813,7 +817,7 @@ function roadSpotProblem(s: GameState, vertexId: VertexId, edgeId: EdgeId): Acti
 }
 
 /**
- * 시작 마을을 짓는다. 두 번째 시작 마을은 닿은 생산 칸마다 자원 1장을 바로 받는다 (금광이면 원하는 자원 1장을 골라 받을 몫이 생긴다).
+ * 시작 마을을 짓는다. 두 번째 시작 마을은 닿은 생산 칸마다 자원 1장을 바로 받는다 (금광이면 원하는 자원 2장을 골라 받을 몫이 생긴다).
  * 길은 place_road (섬 맵의 바닷가면 배는 place_ship) 로 이어 놓는다.
  */
 function putSetupVillage(s: GameState, playerId: string, vertexId: VertexId): Bundle | undefined {
@@ -823,7 +827,7 @@ function putSetupVillage(s: GameState, playerId: string, vertexId: VertexId): Bu
   const gained = emptyBundle();
   for (const t of boardOf(s).vertexMap[vertexId].tiles) {
     const kind = boardOf(s).tileMap[t].kind;
-    if (kind === 'gold') s.goldPicks[playerId] = (s.goldPicks[playerId] ?? 0) + 1;
+    if (kind === 'gold') s.goldPicks[playerId] = (s.goldPicks[playerId] ?? 0) + GOLD_YIELD.village;
     else if (kind !== 'plaza' && (!s.bank || s.bank[kind] > gained[kind])) gained[kind] += 1;
   }
   takeFromBank(s, s.players[playerId].resources, gained);
@@ -1198,6 +1202,7 @@ function doBuildVillage(s: GameState, playerId: string, vertexId: VertexId): Act
   const island = smallIslandAt(boardOf(s), vertexId);
   if (island !== null && !(s.islandBonus[playerId] ?? []).includes(island)) {
     (s.islandBonus[playerId] ??= []).push(island);
+    (s.islandClaims ??= {})[island] ??= playerId;
     pushEvent(s, { kind: 'island_bonus', player: playerId, island, points: ISLAND_BONUS_POINTS });
   }
   afterBuild(s, playerId);

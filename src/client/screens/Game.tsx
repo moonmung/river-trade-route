@@ -11,6 +11,8 @@ import type { PerfStats } from '../board/perf';
 import type { Bundle, DevKind, PieceKind } from '../../shared/types';
 import {
   boardHighlights,
+  previewHighlights,
+  type BoardHighlights,
   buildBlocker,
   formatScoreEvent,
   isScoreEvent,
@@ -70,6 +72,8 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     setMoveFrom(null);
   };
   const pick = useMemo<BoardPick>(() => ({ mode: buildMode, moveFrom }), [buildMode, moveFrom]);
+  /** 마우스를 올린 건설 버튼 (마우스만). 건설 모드가 아니면 그 조각을 놓을 수 있는 자리(배는 뻗을 수 있는 항로)를 미리 빛낸다. */
+  const [preview, setPreview] = useState<PieceKind | null>(null);
   /** 보드에서 고른 자리. 할 일이 있는 자리면 그 위에 ✓ / ✕ 가 붙고 ✓ 를 눌러야 짓는다. */
   const [selected, setSelected] = useState<BoardSelection | null>(null);
   const [dialog, setDialog] = useState<null | 'menu' | 'log'>(null);
@@ -147,19 +151,22 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
 
   const highlights = useMemo<BoardState['highlights']>(() => {
     if (wait) return null;
-    const h = boardHighlights(view, pick);
-    if (!h.vertices.length && !h.edges.length && !h.shipEdges.length && !h.tiles.length && !h.seaCells.length) return null;
+    const empty = (x: BoardHighlights) => !x.vertices.length && !x.edges.length && !x.shipEdges.length && !x.tiles.length && !x.seaCells.length;
+    let h = boardHighlights(view, pick);
+    // 건설 버튼에 마우스를 올리면 (다른 빛낼 자리가 없을 때) 그 조각을 놓을 수 있는 자리를 미리 빛낸다.
+    if (empty(h) && preview && !buildMode && !moveFrom) h = previewHighlights(view, preview);
+    if (empty(h)) return null;
     return { ...h, kind: g.phase === 'placement' ? 'placeable' : 'buildable' };
-  }, [view, pick, g.phase, wait]);
+  }, [view, pick, g.phase, wait, preview, buildMode, moveFrom]);
   // 내 차례(건설 모드 밖)에는 길을 이을 수 있는 변과 마을을 지을 수 있는 꼭짓점을 은은하게 보여 준다.
   const hints = useMemo<BoardState['hints']>(() => {
-    if (!myTurn || g.step !== 'main' || buildMode || moveFrom || wait) return null;
+    if (!myTurn || g.step !== 'main' || buildMode || moveFrom || wait || preview) return null;
     const me = view.you;
     return {
       edges: pieceCount(g.buildings, g.roads, me, 'road') < pieceLimit(g, 'road') ? buildableRoads(boardOf(g), g.buildings, g.roads, me, g.ships) : [],
       vertices: pieceCount(g.buildings, g.roads, me, 'village') < pieceLimit(g, 'village') ? buildableVillages(boardOf(g), g.buildings, g.roads, me, g.ships) : [],
     };
-  }, [myTurn, g.step, buildMode, moveFrom, wait, g.buildings, g.roads, g.ships, view.you]);
+  }, [myTurn, g.step, buildMode, moveFrom, wait, preview, g.buildings, g.roads, g.ships, view.you]);
   // 길·배에 마우스를 올리거나 누르면 그 주인의 가장 긴 교역로를 금빛으로 따라 그린다.
   const pieceOwner = (edgeId: string) => g.roads.find((r) => r.edgeId === edgeId)?.owner ?? g.ships.find((s) => s.edgeId === edgeId)?.owner;
   const traceOwner = (hoverRoad && pieceOwner(hoverRoad.edgeId)) || (selected?.kind === 'edge' ? pieceOwner(selected.id) : undefined) || null;
@@ -167,6 +174,16 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
     () => (traceOwner ? longestRoadPath(boardOf(g), g.roads, g.buildings, traceOwner, g.ships) : null),
     [traceOwner, g.roads, g.buildings, g.ships],
   );
+  // 섬 땅따먹기: 작은 섬마다 처음 마을을 지은 사람의 색으로 그 섬을 물들인다.
+  const claims = useMemo<BoardState['claims']>(() => {
+    const owners = g.islandClaims ?? {};
+    if (!Object.keys(owners).length) return null;
+    const board = boardOf(g);
+    return Object.entries(owners).map(([island, owner]) => ({
+      tiles: g.tiles.map((t) => t.id).filter((id) => board.islandOf[id] === Number(island)),
+      colorIndex: players.get(owner)?.colorIndex ?? 0,
+    }));
+  }, [g.islandClaims, g.tiles, g.sea, players]);
   const boardState = useMemo<BoardState>(
     () => ({
       buildings: g.buildings.map((b) => ({
@@ -187,8 +204,9 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
       harbors: g.harbors,
       hints,
       trace,
+      claims,
     }),
-    [g.buildings, g.roads, g.ships, moveFrom, g.pirate, players, highlights, selected, g.numbers, g.robber, g.harbors, hints, trace],
+    [g.buildings, g.roads, g.ships, moveFrom, g.pirate, players, highlights, selected, g.numbers, g.robber, g.harbors, hints, trace, claims],
   );
 
   // HUD 가 가리는 영역을 재서 보드가 남은 공간 가운데에 오도록 한다.
@@ -539,6 +557,7 @@ export default function Game({ view, onRenderer, children }: { view: RoomView; o
               view={view}
               buildMode={buildMode}
               wait={wait}
+              onPreview={setPreview}
               onBuild={(kind) => {
                 setSelected(null);
                 setTradeDraft(null);

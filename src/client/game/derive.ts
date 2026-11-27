@@ -187,6 +187,20 @@ export interface BoardPick {
 export const NO_PICK: BoardPick = { mode: null, moveFrom: null };
 
 /**
+ * 건설 버튼에 마우스를 올렸을 때 미리 빛낼 자리: 내 차례나 재료와 상관없이 지금 판에서 이을 수 있는 자리.
+ * 배는 바다로 뻗을 수 있는 항로가 뱃길 모양으로 빛난다. 게임 중이 아니면 빛내지 않는다.
+ */
+export function previewHighlights(view: RoomView, kind: PieceKind): BoardHighlights {
+  const none = { vertices: [], edges: [], shipEdges: [], tiles: [], seaCells: [] };
+  const g = view.game;
+  if (!g || g.phase !== 'playing') return none;
+  const spots = buildSpots(view, kind);
+  if (kind === 'road') return { ...none, edges: spots };
+  if (kind === 'ship') return { ...none, shipEdges: spots };
+  return { ...none, vertices: spots };
+}
+
+/**
  * 보드에서 빛낼 자리.
  * 시작 배치: 마을 자리 → (마을을 지은 뒤) 그 마을에 붙일 길(바닷가면 배도). 동상 옮기기: 동상이 없는 칸(섬 맵은 해적선을 옮길 바다 칸도).
  * 길 건설 카드: 공짜 길·배 자리. 건설 모드: 지을 수 있는 자리. 배를 옮기는 중: 그 배를 옮겨 댈 수 있는 자리.

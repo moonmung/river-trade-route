@@ -82,6 +82,7 @@ export function buildGameView(g: GameState, viewer: string, clock: ClockInfo = {
     shipMoved: !!g.shipMoved,
     pirate: g.pirate ?? null,
     goldPicks: { ...(g.goldPicks ?? {}) },
+    islandClaims: { ...(g.islandClaims ?? {}) },
     devDeckCount: g.devDeck.length,
     unlimited: !!g.unlimited,
     diceMode: g.diceMode ?? 'random',

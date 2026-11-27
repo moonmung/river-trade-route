@@ -57,7 +57,10 @@ export type PropKey =
   | 'ship'
   | 'soldier'
   | 'soldierarm'
-  | 'shore';
+  | 'shore'
+  | 'mine'
+  | 'minecart'
+  | 'nuggets';
 
 type Vec3 = [number, number, number];
 /** 밝기 배율. 숫자 하나는 밝기만 바꾸고, 세 값은 색조까지 바꾼다 (이끼 낀 돌처럼). */
@@ -2372,6 +2375,137 @@ export function buildShip(): PropPart[] {
   return k.build(0.12, 0.72);
 }
 
+/** 금덩이 한 알: 각진 돌 모양에 윗면은 볕을 받아 밝게 번쩍이고 옆면은 짙은 호박색이다. */
+function addNugget(k: Kit, at: Vec3, r: number, seed: number): void {
+  k.add('gold', rock(r, 0, seed, 0.55), {
+    position: at,
+    rotation: [seed * 0.7, seed * 1.3, seed * 0.4],
+    scale: [1, 0.78, 1],
+    flat: true,
+    faceShade: (c, n) => {
+      const lit = smoothstep(-0.2, 0.95, n.y);
+      // 볕 드는 면 몇 곳은 거의 흰빛으로 반짝인다.
+      if (n.y > 0.5 && hash3(c.x * 31, c.z * 29, seed) > 0.55) return [1.5, 1.42, 1.1];
+      return [0.95 + 0.45 * lit, 0.78 + 0.45 * lit, 0.32 + 0.3 * lit];
+    },
+  });
+}
+
+/**
+ * 금광 입구: 바위 언덕 앞면에 검은 갱도 입구를 내고 통나무 기둥과 들보로 받쳤다. 언덕 곳곳에 금 광맥이 드러나 있고
+ * 입구 위에는 등불, 입구에서 앞으로 짧은 레일이 나온다 (앞은 +z).
+ */
+export function buildMine(): PropPart[] {
+  const rand = mulberry32(91);
+  const k = new Kit();
+  const hill = rock(0.34, 2, 17, 0.34);
+  const pos = hill.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    // 아래는 납작하게 땅에 앉히고 앞면(+z)은 입구를 낼 만큼 깎아 세운다.
+    pos.setY(i, y < 0 ? y * 0.2 : y * 1.05);
+    if (pos.getZ(i) > 0.1) pos.setZ(i, 0.1 + (pos.getZ(i) - 0.1) * 0.3);
+  }
+  hill.computeVertexNormals();
+  // 짙은 갈색 바위라 금빛이 도드라진다. 위쪽 몇 면에는 금빛 광맥이 줄무늬로 비친다.
+  k.add('stone', hill, {
+    position: [0, 0.03, -0.06],
+    scale: [1.15, 1, 1],
+    color: '#9c8466',
+    uvScale: 0.45,
+    flat: true,
+    faceShade: (c, n) => {
+      const s = 0.62 + 0.45 * smoothstep(-0.3, 0.9, n.y) + 0.05 * hash3(c.x * 17, c.y * 17, c.z * 17);
+      if (Math.abs(Math.sin(c.x * 22 + c.y * 31)) < 0.16 && n.y > 0.1) return [s * 1.5, s * 1.25, s * 0.55];
+      return s;
+    },
+  });
+  // 드러난 금 광맥: 언덕 겉에 박힌 굵은 금덩이들
+  const veins: Vec3[] = [
+    [-0.26, 0.22, 0.0],
+    [0.25, 0.26, -0.03],
+    [0.1, 0.36, -0.12],
+    [-0.12, 0.33, -0.16],
+    [0.32, 0.12, 0.05],
+    [-0.34, 0.1, 0.02],
+    [0.02, 0.4, -0.04],
+  ];
+  veins.forEach((p, i) => addNugget(k, p, 0.045 + rand() * 0.02, 40 + i));
+  // 갱도 입구: 언덕 앞면에 아치로 뚫린 검은 굴
+  k.add('dark', box(0.26, 0.2, 0.1), { position: [0, 0.1, 0.1], color: '#0b0806' });
+  k.add('dark', cyl(0.13, 0.13, 0.1, 14), { position: [0, 0.2, 0.1], rotation: [Math.PI / 2, 0, 0], color: '#0b0806' });
+  // 통나무 기둥 둘과 들보, 들보를 받친 비스듬한 버팀목
+  for (const x of [-0.15, 0.15]) {
+    k.add('wood', cyl(0.024, 0.028, 0.34, 7), { position: [x, 0.17, 0.16], color: '#7a5531' });
+    k.add('wood', cyl(0.012, 0.012, 0.12, 5), { position: [x * 0.78, 0.31, 0.165], rotation: [0, 0, x > 0 ? 0.8 : -0.8], color: '#6b4a2a' });
+  }
+  k.add('wood', box(0.38, 0.05, 0.065), { position: [0, 0.35, 0.16], color: '#8a6238' });
+  // 들보에 매단 등불
+  k.add('metal', box(0.012, 0.04, 0.012), { position: [0.11, 0.31, 0.2] });
+  k.add('paint', box(0.045, 0.055, 0.045), { position: [0.11, 0.27, 0.2], color: '#ffd768', shade: () => 1.3 });
+  // 입구 옆에 막 캐낸 금 무더기
+  [
+    [-0.2, 0.03, 0.22],
+    [-0.24, 0.04, 0.27],
+    [-0.16, 0.06, 0.26],
+    [0.2, 0.03, 0.24],
+  ].forEach((p, i) => addNugget(k, p as Vec3, 0.04, 70 + i));
+  // 입구에서 앞으로 뻗은 레일과 침목
+  for (const x of [-0.05, 0.05]) k.add('metal', box(0.014, 0.016, 0.42), { position: [x, 0.012, 0.34] });
+  for (let i = 0; i < 6; i++) k.add('wood', box(0.16, 0.012, 0.032), { position: [0, 0.005, 0.16 + i * 0.07], color: '#6e4d2e' });
+  return k.build(0.2, 0.55);
+}
+
+/** 금을 가득 실은 광차: 쇠테를 두른 나무 수레에 바퀴 넷, 위로 금덩이가 소복이 쌓였다 (레일 방향은 z). */
+export function buildMineCart(): PropPart[] {
+  const k = new Kit();
+  const body = box(0.16, 0.1, 0.2, 1, 1, 1);
+  const pos = body.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    // 위로 갈수록 벌어지는 통
+    if (pos.getY(i) > 0) {
+      pos.setX(i, pos.getX(i) * 1.18);
+      pos.setZ(i, pos.getZ(i) * 1.12);
+    }
+  }
+  body.computeVertexNormals();
+  k.add('wood', body, { position: [0, 0.085, 0], color: '#7d5733', faceShade: (_c, n) => 0.8 + 0.25 * smoothstep(-0.5, 1, n.y) });
+  k.add('metal', box(0.195, 0.018, 0.23), { position: [0, 0.128, 0] });
+  k.add('metal', box(0.17, 0.016, 0.21), { position: [0, 0.05, 0] });
+  for (const x of [-0.075, 0.075]) {
+    for (const z of [-0.06, 0.06]) k.add('dark', cyl(0.028, 0.028, 0.018, 10), { position: [x, 0.03, z], rotation: [0, 0, Math.PI / 2] });
+  }
+  const pile: Vec3[] = [
+    [0, 0.15, 0],
+    [-0.04, 0.15, 0.05],
+    [0.045, 0.148, -0.05],
+    [0.03, 0.17, 0.035],
+    [-0.035, 0.168, -0.035],
+    [0.0, 0.19, 0.0],
+  ];
+  pile.forEach((p, i) => addNugget(k, p, i === 5 ? 0.034 : 0.04, 60 + i));
+  return k.build(0.1, 0.65);
+}
+
+/** 금덩이 무더기 (두 번째는 곡괭이를 기대 둔 무더기) */
+export function buildNuggets(variant = 0): PropPart[] {
+  const rand = mulberry32(variant * 53 + 11);
+  const k = new Kit();
+  const n = 6 + variant * 2;
+  for (let i = 0; i < n; i++) {
+    const a = rand() * Math.PI * 2;
+    const d = Math.sqrt(rand()) * 0.08;
+    const r = 0.025 + rand() * 0.025;
+    addNugget(k, [Math.cos(a) * d, r * 0.6 + (d < 0.03 ? 0.025 : 0), Math.sin(a) * d], r, 80 + i + variant * 10);
+  }
+  if (variant === 1) {
+    // 무더기에 기대 둔 곡괭이
+    k.add('wood', cyl(0.009, 0.009, 0.26, 5), { position: [0.09, 0.1, 0.02], rotation: [0, 0, 0.55], color: '#8a6238' });
+    k.add('metal', box(0.16, 0.022, 0.02), { position: [0.025, 0.205, 0.02], rotation: [0, 0, 0.55 - Math.PI / 2 + 0.25] });
+  }
+  return k.build(0.06, 0.7);
+}
+
 /** 소품 종류별로 만들 수 있는 변형 개수 (시드) */
 export const PROP_VARIANTS: Record<PropKey, number> = {
   house: 1,
@@ -2417,6 +2551,9 @@ export const PROP_VARIANTS: Record<PropKey, number> = {
   soldier: 1,
   soldierarm: 1,
   shore: 3,
+  mine: 1,
+  minecart: 1,
+  nuggets: 2,
 };
 
 export function buildProp(key: PropKey, variant = 0): PropPart[] {
@@ -2508,6 +2645,12 @@ export function buildProp(key: PropKey, variant = 0): PropPart[] {
       return buildSoldierArm();
     case 'shore':
       return buildShore(variant);
+    case 'mine':
+      return buildMine();
+    case 'minecart':
+      return buildMineCart();
+    case 'nuggets':
+      return buildNuggets(variant);
   }
 }
 

@@ -221,6 +221,8 @@ export const DEV_HELP: Record<DevKind, string> = {
 export const ISLAND_BONUS_POINTS = 2;
 /** 섬 맵의 기본 승리 점수 (항해사 「새로운 해안으로」처럼 14점. 방장이 바꿀 수 있다) */
 export const ISLANDS_WIN_POINTS = 14;
+/** 금광 (섬 맵): 숫자가 나오면 닿은 마을은 원하는 자원 2장, 도시는 3장을 골라 받는다 (두 번째 시작 마을도 2장) */
+export const GOLD_YIELD = { village: 2, city: 3 } as const;
 
 /** 최장 교역로: 이어진 길 5칸 이상, 가장 긴 한 사람에게 2점 */
 export const LONGEST_ROAD_MIN = 5;

@@ -10,6 +10,7 @@ import { playerColor } from '../theme';
 import { GOLD_ART, RESOURCE_ART } from '../ui/art';
 import { ResourceIcon } from '../ui/icons';
 import type { BoardSelection, BoardState } from './BoardRenderer';
+import { shipRoutes } from './fleet';
 
 const HEX_R = 0.93;
 
@@ -93,23 +94,27 @@ export function FlatBoard({
   const hlS = new Set(state.highlights?.shipEdges ?? []);
   const hlSea = new Set(state.highlights?.seaCells ?? []);
   const onWater = (id: string) => !!net?.edgeMap[id] && (shipEdges.has(id) || !geo.edgeMap[id] || (hlS.has(id) && !hlE.has(id)));
+  // 뱃길 꼭짓점: 땅에 닿은 바닷가 꼭짓점은 닿은 땅 칸들 가운데에서 먼 쪽(바다 쪽)으로 밀어 이웃한 뱃길과 같은 점에서 만난다.
+  const lanePoint = (v: string) => {
+    const p = net!.vertexMap[v];
+    const land = geo.vertexMap[v];
+    if (!land?.tiles.length) return { x: p.x, y: p.y };
+    let cx = 0;
+    let cy = 0;
+    for (const id of land.tiles) {
+      const c = tileCenterUnit(tiles.find((t) => t.id === id)!);
+      cx += c.x / land.tiles.length;
+      cy += c.y / land.tiles.length;
+    }
+    const len = Math.hypot(p.x - cx, p.y - cy) || 1;
+    return { x: p.x + ((p.x - cx) / len) * 0.3, y: p.y + ((p.y - cy) / len) * 0.3 };
+  };
   const shipSpot = (id: string) => {
     const e = net?.edgeMap[id];
     if (!net || !e) return null;
-    const a = net.vertexMap[e.a];
-    const b = net.vertexMap[e.b];
-    let ox = 0;
-    let oy = 0;
-    const land = geo.edgeMap[id];
-    if (land) {
-      const c = tileCenterUnit(tiles.find((t) => t.id === land.tiles[0])!);
-      const mx = (a.x + b.x) / 2 - c.x;
-      const my = (a.y + b.y) / 2 - c.y;
-      const len = Math.hypot(mx, my) || 1;
-      ox = (mx / len) * 0.3;
-      oy = (my / len) * 0.3;
-    }
-    return { x1: a.x + ox, y1: a.y + oy, x2: b.x + ox, y2: b.y + oy, x: (a.x + b.x) / 2 + ox, y: (a.y + b.y) / 2 + oy, deg: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI };
+    const a = lanePoint(e.a);
+    const b = lanePoint(e.b);
+    return { x1: a.x, y1: a.y, x2: b.x, y2: b.y, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, deg: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI };
   };
   const spotAt = (sel: BoardSelection): { x: number; y: number } | null => {
     const { kind, id } = sel;
@@ -123,6 +128,17 @@ export function FlatBoard({
     return t ? tileCenterUnit(t) : null;
   };
   const pinAt = pin ? spotAt(pin.sel) : null;
+  // 항로: 배는 변마다 그리지 않고 항로마다 섬에 닿은 첫 뱃길에 한 척만 그린다. 뱃길은 그 사람 색 띠로 잇는다.
+  const fleetAt = new Set(
+    shipRoutes(state.ships ?? [], {
+      ends: (id) => net?.edgeMap[id] ?? null,
+      isCoast: (v) => !!geo.vertexMap[v],
+      ownsBuilding: (v, owner) => state.buildings.some((b) => b.vertexId === v && b.owner === owner),
+    }).map((r) => r.edges[0] ?? r.all[0]),
+  );
+  // 섬 땅따먹기: 처음 닿은 사람 색으로 섬 칸을 옅게 물들이고 테두리를 두른다.
+  const claimColor = new Map<string, string>();
+  for (const c of state.claims ?? []) for (const id of c.tiles) claimColor.set(id, playerColor(c.colorIndex).hex);
   const pct = (p: { x: number; y: number }) => ({ left: `${((p.x - minX) / w) * 100}%`, top: `${((p.y - minY) / h) * 100}%` });
 
   return (
@@ -141,6 +157,7 @@ export function FlatBoard({
               aria-label={`${t.id} ${TILE_KIND_LABEL[t.kind]}${num ? ` 주사위 ${num}` : ''}${locked ? ' 기사단 동상에 막힘' : ''}`}
             >
               <polygon points={hexPoints(c.x, c.y, HEX_R)} />
+              {claimColor.has(t.id) && <polygon points={hexPoints(c.x, c.y, HEX_R * 0.94)} className="flat-claim" style={{ fill: claimColor.get(t.id), stroke: claimColor.get(t.id) }} />}
               {t.kind === 'plaza' ? (
                 <g transform={`translate(${c.x - 0.22}, ${c.y - 0.5})`}>
                   <ResourceIcon kind={t.kind} size={0.44} />
@@ -264,8 +281,15 @@ export function FlatBoard({
               aria-label={`${seaEdgeLabel(geo, e.id)}${ship ? ' 배' : ' 배 자리'}`}
             >
               {ship && traceE.has(e.id) && <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} className="flat-trace" />}
-              {(lit || picked) && <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} className={`flat-edge-hl flat-sea-hl ${picked ? 'flat-edge-sel' : ''}`} />}
               {ship && (
+                <>
+                  <line x1={sp.x1} y1={sp.y1} x2={sp.x2} y2={sp.y2} className="flat-lane-edge" />
+                  <line x1={sp.x1} y1={sp.y1} x2={sp.x2} y2={sp.y2} className="flat-lane" style={{ stroke: playerColor(ship.colorIndex).hex }} />
+                  <line x1={sp.x1} y1={sp.y1} x2={sp.x2} y2={sp.y2} className="flat-lane-dash" />
+                </>
+              )}
+              {(lit || picked) && <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} className={`flat-edge-hl flat-sea-hl ${picked ? 'flat-edge-sel' : ''}`} />}
+              {ship && fleetAt.has(e.id) && (
                 <g transform={`translate(${sp.x.toFixed(3)} ${sp.y.toFixed(3)}) rotate(${sp.deg.toFixed(1)})`} className="flat-ship">
                   <path d="M-0.24 0.02 H0.24 L0.16 0.11 H-0.17 Z" className="flat-ship-hull" />
                   <path d="M0.02 0.01 V-0.27 L0.17 -0.02 Z" style={{ fill: playerColor(ship.colorIndex).hex }} className="flat-ship-sail" />

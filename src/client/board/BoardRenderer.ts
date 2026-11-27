@@ -13,6 +13,7 @@ import type { Bundle, Harbor, Resource, SeaCell, TileDef, TileKind } from '../..
 import { GOODS_VARIANT, ROAD_DECK_TOP, SOLDIER_REACH, SOLDIER_SHOULDER, type PropKey } from './art/builders';
 import { PARADE_LOWER_MS, paradeTiming, type ParadeTiming } from './parade';
 import { harborLegs } from './harborTrade';
+import { shipRoutes, type FleetRoute } from './fleet';
 import type { VictoryPlan, VictoryStep } from './victory';
 import { loadArtLibrary, type ArtLibrary, type ArtReport, type GroundTextureKey, type LoadProgress } from './assets';
 import {
@@ -90,6 +91,8 @@ export interface BoardState {
   hints?: { vertices: string[]; edges: string[] } | null;
   /** 금빛으로 따라 그릴 길 (마우스를 올린 길 주인의 가장 긴 교역로) */
   trace?: string[] | null;
+  /** 섬 땅따먹기 (섬 맵): 작은 섬마다 처음 마을을 지은 사람. 그 섬 둘레를 그 사람 색으로 두르고 칸을 옅게 물들인다. */
+  claims?: { tiles: string[]; colorIndex: number }[] | null;
 }
 
 export interface Insets {
@@ -302,6 +305,23 @@ function beachHeight(o: number): number {
 }
 /** 모래밭이 물과 만나는 줄 (물가): beachHeight 가 0 이 되는 거리 (평평한 시작 구간보다 바깥이다) */
 const WATERLINE = LAND_MARGIN + (BEACH_OUT - LAND_MARGIN) * (1 - Math.sqrt(1 - BEACH_HIGH / (BEACH_HIGH - BEACH_LOW)));
+/**
+ * 항로 뱃길 (섬 맵): 배를 띄운 변마다 크림색 테두리 띠 위에 그 사람 색 띠를 깔고 가운데에 흰 점선을 찍어 바다 위에 새로 낸 길처럼 보인다.
+ * 바닷가 꼭짓점은 모래밭에 걸리지 않게 물가 너머 바다 쪽으로 LANE_PUSH 만큼 밀어 잇는다.
+ */
+const LANE_PUSH = WATERLINE + 0.16;
+const LANE_Y = 0.012;
+const LANE_EDGE_W = 0.34;
+const LANE_W = 0.23;
+/** 배를 띄우거나 옮겨 댈 수 있는 바닷길 빛 띠의 폭 */
+const LANE_HINT_W = 0.38;
+/** 항로마다 한 척이 오가는 빠르기(초당 거리)와 양 끝에서 쉬는 시간(초) */
+const FLEET_SPEED = 0.3;
+const FLEET_REST = 1.8;
+/** 섬 땅따먹기 띠: 섬 둘레에서 떨어진 안쪽·바깥쪽 거리, 칸을 물들이는 옅기 */
+const CLAIM_IN = 0.05;
+const CLAIM_OUT = 0.17;
+const CLAIM_WASH = 0.3;
 /** 흙 땅 윗면이 바닷가 쪽에서 모래로 바뀌는 폭 (흙 땅 끝에서 안쪽으로). 잡음으로 경계를 흐트러뜨린다. */
 const SHORE_SAND = 0.14;
 /** 물가에서 이만큼 나가면 깊은 물(장면 배경색)이 된다 */
@@ -437,6 +457,15 @@ function smoothOpen(pts: THREE.Vector3[], iterations: number): THREE.Vector3[] {
     cur = next;
   }
   return cur;
+}
+
+/** 항로 하나를 오가는 배: 지나는 점(뱃길 꼭짓점), 첫 점부터 점마다 쌓인 거리, 전체 길이, 배마다 다른 박자 */
+interface FleetTrip {
+  route: FleetRoute;
+  pts: THREE.Vector3[];
+  cum: number[];
+  total: number;
+  phase: number;
 }
 
 interface Anim {
@@ -829,6 +858,22 @@ export class BoardRenderer {
   /** 배 자리 빛: 물 위 알약 고리와 그 안을 옅게 채운 빛 (바닷가 변까지 포함해 바닷길 변마다 하나) */
   private seaMark: THREE.InstancedMesh | null = null;
   private seaFill: THREE.InstancedMesh | null = null;
+  /** 항로 뱃길: 배가 떠 있는 변마다 테두리 띠·색 띠, 꼭짓점 이음 원, 가운데 흰 점선 */
+  private laneEdge: THREE.InstancedMesh | null = null;
+  private laneBand: THREE.InstancedMesh | null = null;
+  private laneJointEdge: THREE.InstancedMesh | null = null;
+  private laneJointBand: THREE.InstancedMesh | null = null;
+  private laneDash: THREE.InstancedMesh | null = null;
+  /** 배를 띄우거나 옮겨 댈 수 있는 바닷길: 뱃길 모양 빛 띠가 숨 쉬듯 밝아졌다 어두워진다 */
+  private laneHint: THREE.InstancedMesh | null = null;
+  /** 항로마다 오가는 배 한 척: 지나는 점(뱃길 꼭짓점)과 점까지 쌓인 거리 */
+  private fleet: FleetTrip[] = [];
+  /** 섬 땅따먹기 띠와 물들인 칸 */
+  private claimMeshes: THREE.Mesh[] = [];
+  private claimKey = '';
+  private claimsSeeded = false;
+  /** 바닷가 고리 (땅을 지을 때 한 번 잰다) */
+  private coasts: CoastLoop[] = [];
   /** 해적선을 옮길 수 있는 바다 칸의 육각 고리 (바다 칸마다 하나) */
   private seaCellRing: THREE.InstancedMesh | null = null;
   /** 해적선: 검은 돛을 단 큰 돛배 한 척 (부품마다 인스턴스 하나) */
@@ -1171,6 +1216,8 @@ export class BoardRenderer {
     const dt = Math.min(0.1, Math.max(0, (now - this.lastTraderTime) / 1000));
     this.lastTraderTime = now;
     if (this.motion && this.traders.length) this.updateTraders(dt);
+    if (this.motion && this.fleet.length) this.updateFleet(now);
+    if (this.motion && this.laneHint?.count) (this.laneHint.material as THREE.MeshBasicMaterial).opacity = 0.42 + 0.4 * (0.5 + 0.5 * Math.sin(t * 3.2));
     if (this.motion && this.hintDots && (this.hintDots.count || this.hintRings?.count)) {
       const pulse = 0.5 + 0.35 * (0.5 + 0.5 * Math.sin(t * 2.6));
       (this.hintDots.material as THREE.MeshBasicMaterial).opacity = pulse;
@@ -1491,6 +1538,7 @@ export class BoardRenderer {
     // 땅: 바깥 타일 둘레(바닷가 변)를 따라 조금 넓힌 흙 땅. 타일 사이 틈은 흙 땅 위로 샛길이 나고, 둘레는 모래밭과 얕은 물로 이어진다.
     // 바닷가 고리: 섬마다 바깥 둘레 고리가 하나씩 있고, 대형 맵처럼 가운데가 바다이거나 호수가 있는 판은 그 물 둘레 고리가 더 있다.
     const coasts = this.coastLoops();
+    this.coasts = coasts;
     const toV2 = (pts: Pt[]) => pts.map((q) => new THREE.Vector2(q.x, -q.z));
     // 바다: 흙 땅 → 물 밑으로 비스듬히 잠기는 모래밭 → 옥빛 얕은 물 → 차츰 짙어지는 깊은 물.
     // 높이가 뚝 끊기는 곳이 없어야 후처리 먹선이 바닷가에 울퉁불퉁한 테두리를 긋지 않는다.
@@ -2164,6 +2212,33 @@ export class BoardRenderer {
       this.seaMark = new THREE.InstancedMesh(this.own(capsuleRing(1.02, 0.42, 0.085)), markMat(0.95), this.net.edges.length);
       this.seaFill = new THREE.InstancedMesh(this.own(capsuleRing(1.02, 0.42, 0.21)), markMat(0.32), this.net.edges.length);
       marks.push(this.seaMark, this.seaFill);
+      const ne = this.net.edges.length;
+      const nvSea = Object.keys(this.net.vertexMap).length;
+      const quad = this.own(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
+      const disc = this.own(new THREE.CircleGeometry(0.5, 20).rotateX(-Math.PI / 2));
+      const laneMat = (opacity: number, c = '#ffffff') =>
+        this.own(new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity, depthWrite: false, toneMapped: false }));
+      this.laneEdge = new THREE.InstancedMesh(quad, laneMat(0.92, '#fbf3dc'), ne);
+      this.laneJointEdge = new THREE.InstancedMesh(disc, laneMat(0.92, '#fbf3dc'), nvSea * 3);
+      this.laneBand = new THREE.InstancedMesh(quad, laneMat(0.96), ne);
+      this.laneJointBand = new THREE.InstancedMesh(disc, laneMat(0.96), nvSea * 3);
+      this.laneDash = new THREE.InstancedMesh(quad, laneMat(0.92, '#fffaf0'), ne * 3);
+      this.laneHint = new THREE.InstancedMesh(quad, laneMat(0.7), ne);
+      const lanes: [THREE.InstancedMesh, number][] = [
+        [this.laneEdge, 2],
+        [this.laneJointEdge, 2],
+        [this.laneBand, 3],
+        [this.laneJointBand, 3],
+        [this.laneDash, 3],
+        [this.laneHint, 4],
+      ];
+      for (const [m, order] of lanes) {
+        for (let i = 0; i < m.instanceMatrix.count; i++) m.setColorAt(i, new THREE.Color('#ffffff'));
+        m.count = 0;
+        m.renderOrder = order;
+        m.frustumCulled = false;
+        this.scene.add(m);
+      }
     }
     for (const m of marks) {
       for (let i = 0; i < m.count; i++) m.setColorAt(i, new THREE.Color('#ffffff'));
@@ -2370,16 +2445,240 @@ export class BoardRenderer {
    * 뱃머리는 변을 따라 둔다.
    */
   private shipSpot(edgeId: string): { mid: THREE.Vector3; angle: number; length: number; a: THREE.Vector3; b: THREE.Vector3 } | null {
-    const ew = this.edgeWorld(edgeId);
-    if (!ew) return null;
-    const land = this.geo.edgeMap[edgeId];
-    const off = new THREE.Vector3();
-    if (land) {
-      const c = tileCenter(this.tileById.get(land.tiles[0])!, this.metrics);
-      off.set(ew.mid.x - c.x, 0, ew.mid.z - c.z).normalize().multiplyScalar(WATERLINE + 0.28);
+    const e = this.net?.edgeMap[edgeId] ?? this.geo.edgeMap[edgeId];
+    if (!e) return null;
+    const a = this.lanePoint(e.a);
+    const b = this.lanePoint(e.b);
+    if (!a || !b) return null;
+    return { mid: a.clone().add(b).multiplyScalar(0.5), angle: Math.atan2(-(b.z - a.z), b.x - a.x), length: a.distanceTo(b), a, b };
+  }
+
+  /**
+   * 뱃길 꼭짓점: 바다 한가운데 꼭짓점은 그 자리 물 위, 땅에 닿은 바닷가 꼭짓점은 닿은 땅 칸들 가운데에서 먼 쪽(바다 쪽)으로
+   * 물가 너머까지 민 자리. 이웃한 뱃길이 같은 점에서 만나 항로가 끊기지 않는다.
+   */
+  private lanePoint(vertexId: string): THREE.Vector3 | null {
+    const p = this.vertexWorld(vertexId);
+    if (!p) return null;
+    const land = this.geo.vertexMap[vertexId];
+    if (land?.tiles.length) {
+      let cx = 0;
+      let cz = 0;
+      for (const t of land.tiles) {
+        const c = tileCenter(this.tileById.get(t)!, this.metrics);
+        cx += c.x / land.tiles.length;
+        cz += c.z / land.tiles.length;
+      }
+      const d = new THREE.Vector3(p.x - cx, 0, p.z - cz);
+      if (d.lengthSq() > 1e-6) p.add(d.normalize().multiplyScalar(LANE_PUSH));
     }
-    const lift = (p: THREE.Vector3) => p.clone().add(off).setY(FLEET_Y);
-    return { mid: lift(ew.mid), angle: ew.angle, length: ew.length, a: lift(ew.a), b: lift(ew.b) };
+    return p.setY(FLEET_Y);
+  }
+
+  /** 사람마다 이어 띄운 배를 항로로 묶는다 (배를 띄우거나 옮길 때마다 다시 묶는다). */
+  private computeFleet(): void {
+    const net = this.net;
+    if (!net) {
+      this.fleet = [];
+      return;
+    }
+    const routes = shipRoutes(this.state.ships ?? [], {
+      ends: (id) => net.edgeMap[id] ?? null,
+      isCoast: (v) => !!this.geo.vertexMap[v],
+      ownsBuilding: (v, owner) => this.state.buildings.some((b) => b.vertexId === v && b.owner === owner),
+    });
+    this.fleet = routes.map((route) => {
+      const pts = route.vertices.map((v) => this.lanePoint(v)).filter((p): p is THREE.Vector3 => !!p);
+      const cum = [0];
+      for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i - 1].distanceTo(pts[i]));
+      return { route, pts, cum, total: cum[cum.length - 1], phase: (hashString(route.owner + route.all[0]) % 1000) / 37 };
+    });
+  }
+
+  /**
+   * 항로의 배 한 척이 지금 있을 자리: 섬에 닿은 쪽 끝에서 쉬었다가 뱃길을 따라 끝까지 가고, 쉬었다가 돌아온다.
+   * 동작 줄이기면 섬에 닿은 첫 뱃길에 멈춰 있다.
+   */
+  private fleetPose(f: FleetTrip, now: number): { pos: THREE.Vector3; yaw: number; roll: number } {
+    const lo = Math.min(0.42, f.total / 2);
+    const hi = Math.max(lo, f.total - lo);
+    let d = lo;
+    let back = false;
+    const t = now / 1000 + f.phase;
+    if (this.motion && hi - lo > 0.05) {
+      const travel = (hi - lo) / FLEET_SPEED;
+      const cycle = 2 * (travel + FLEET_REST);
+      const c = ((t % cycle) + cycle) % cycle;
+      if (c < FLEET_REST) d = lo;
+      else if (c < FLEET_REST + travel) d = lo + (hi - lo) * smoothstep(0, 1, (c - FLEET_REST) / travel);
+      else if (c < 2 * FLEET_REST + travel) {
+        d = hi;
+        back = true;
+      } else {
+        d = hi - (hi - lo) * smoothstep(0, 1, (c - 2 * FLEET_REST - travel) / travel);
+        back = true;
+      }
+    }
+    let k = 1;
+    while (k < f.cum.length - 1 && f.cum[k] < d) k++;
+    const a = f.pts[k - 1];
+    const b = f.pts[k];
+    const span = Math.max(1e-6, f.cum[k] - f.cum[k - 1]);
+    const pos = a.clone().lerp(b, Math.min(1, Math.max(0, (d - f.cum[k - 1]) / span)));
+    let yaw = Math.atan2(-(b.z - a.z), b.x - a.x);
+    if (back) yaw += Math.PI;
+    pos.y = FLEET_Y + (this.motion ? Math.sin(t * 1.9) * 0.008 : 0);
+    return { pos, yaw, roll: this.motion ? Math.sin(t * 1.4 + 1) * 0.06 : 0 };
+  }
+
+  /** 항로마다 배 한 척을 그린다. 돛에 그 사람 색을 입힌다. */
+  private writeFleet(mesh: THREE.InstancedMesh, tinted: boolean, now: number): number {
+    const color = new THREE.Color();
+    let i = 0;
+    for (const f of this.fleet) {
+      if (i >= mesh.instanceMatrix.count || f.pts.length < 2) continue;
+      const { pos, yaw, roll } = this.fleetPose(f, now);
+      tmpQ.setFromAxisAngle(yAxis, yaw).multiply(tmpQ2.setFromAxisAngle(xAxis, roll));
+      tmpM.compose(pos, tmpQ, tmpS.setScalar(FLEET_SCALE));
+      mesh.setMatrixAt(i, tmpM);
+      if (tinted) mesh.setColorAt(i, color.set(this.playerColor(f.route.colorIndex)));
+      i++;
+    }
+    return i;
+  }
+
+  /** 움직임 시계마다 항로의 배를 옮긴다. */
+  private updateFleet(now: number): void {
+    for (const part of this.pieceParts) {
+      if (part.kind !== 'ship') continue;
+      part.mesh.count = this.writeFleet(part.mesh, part.tint, now);
+      part.mesh.instanceMatrix.needsUpdate = true;
+      if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
+    }
+  }
+
+  /** 항로 뱃길: 배가 떠 있는 변마다 테두리 띠·그 사람 색 띠·흰 점선, 같은 사람 뱃길이 만나는 점에 이음 원. 새로 띄운 배는 뱃길이 뻗어 나간다. */
+  private updateLanes(): void {
+    const edge = this.laneEdge;
+    const band = this.laneBand;
+    const jEdge = this.laneJointEdge;
+    const jBand = this.laneJointBand;
+    const dash = this.laneDash;
+    if (!edge || !band || !jEdge || !jBand || !dash || !this.net) return;
+    const color = new THREE.Color();
+    let ne = 0;
+    let nj = 0;
+    let nd = 0;
+    const joints = new Set<string>();
+    for (const sh of this.state.ships ?? []) {
+      const e = this.net.edgeMap[sh.edgeId];
+      if (!e || ne >= edge.instanceMatrix.count) continue;
+      const a = this.lanePoint(e.a);
+      const b = this.lanePoint(e.b);
+      if (!a || !b) continue;
+      const g = Math.min(1, Math.max(0.01, this.growing.get(`s:${sh.edgeId}`) ?? 1));
+      const end = a.clone().lerp(b, g);
+      const mid = a.clone().add(end).multiplyScalar(0.5);
+      const angle = Math.atan2(-(b.z - a.z), b.x - a.x);
+      const len = a.distanceTo(end);
+      color.set(this.playerColor(sh.colorIndex));
+      edge.setMatrixAt(ne, compose(mid.x, LANE_Y, mid.z, angle, len, 1, LANE_EDGE_W));
+      band.setMatrixAt(ne, compose(mid.x, LANE_Y + 0.002, mid.z, angle, len, 1, LANE_W));
+      band.setColorAt(ne, color);
+      ne++;
+      for (const p of [a, end]) {
+        const key = `${sh.owner}:${p.x.toFixed(2)},${p.z.toFixed(2)}`;
+        if (joints.has(key) || nj >= jEdge.instanceMatrix.count) continue;
+        joints.add(key);
+        jEdge.setMatrixAt(nj, compose(p.x, LANE_Y, p.z, 0, LANE_EDGE_W, 1, LANE_EDGE_W));
+        jBand.setMatrixAt(nj, compose(p.x, LANE_Y + 0.002, p.z, 0, LANE_W, 1, LANE_W));
+        jBand.setColorAt(nj, color);
+        nj++;
+      }
+      for (const t of [0.25, 0.5, 0.75]) {
+        if (t > g || nd >= dash.instanceMatrix.count) continue;
+        const p = a.clone().lerp(b, t);
+        dash.setMatrixAt(nd++, compose(p.x, LANE_Y + 0.004, p.z, angle, Math.min(0.18, len * 0.15), 1, 0.055));
+      }
+    }
+    edge.count = band.count = ne;
+    jEdge.count = jBand.count = nj;
+    dash.count = nd;
+    for (const m of [edge, band, jEdge, jBand, dash]) {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
+  }
+
+  /**
+   * 섬 땅따먹기: 작은 섬에 처음 마을을 지은 사람 색으로 그 섬 둘레(바닷가 흙 땅 위)를 두르고 섬 칸을 옅게 물들인다.
+   * 게임 중에 새로 차지하면 띠와 물이 천천히 번진다.
+   */
+  private syncClaims(): void {
+    const claims = this.state.claims ?? [];
+    const keyOf = (c: { tiles: string[]; colorIndex: number }) => `${c.colorIndex}:${c.tiles.join(',')}`;
+    const key = claims.map(keyOf).join('|');
+    if (key === this.claimKey) {
+      this.claimsSeeded = true;
+      return;
+    }
+    const before = new Set(this.claimKey.split('|'));
+    const animate = this.claimsSeeded && this.motion;
+    this.claimKey = key;
+    this.claimsSeeded = true;
+    for (const m of this.claimMeshes) {
+      this.scene.remove(m);
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+    }
+    this.claimMeshes = [];
+    for (const c of claims) {
+      const tiles = c.tiles.map((id) => this.tileById.get(id)).filter((t): t is TileDef => !!t);
+      if (!tiles.length) continue;
+      const color = new THREE.Color(this.playerColor(c.colorIndex));
+      const fresh = animate && !before.has(keyOf(c));
+      const fade: [THREE.MeshBasicMaterial, number][] = [];
+      const center = tileCenter(tiles[0], this.metrics);
+      const loop = this.coasts.find((l) => !isWaterInside(l) && insideLoop({ x: center.x, z: center.z }, l.pts));
+      if (loop) {
+        const inner = chaikin(offsetLoop(loop, CLAIM_IN), 3);
+        const outer = chaikin(offsetLoop(loop, CLAIM_OUT), 3);
+        const pos: number[] = [];
+        const idx: number[] = [];
+        const n = inner.length;
+        for (let i = 0; i < n; i++) pos.push(inner[i].x, PLATFORM_TOP + 0.004, inner[i].z, outer[i].x, PLATFORM_TOP + 0.004, outer[i].z);
+        for (let i = 0; i < n; i++) {
+          const j = (i + 1) % n;
+          idx.push(2 * i, 2 * i + 1, 2 * j, 2 * j, 2 * i + 1, 2 * j + 1);
+        }
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        geo.setIndex(idx);
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+        const ribbon = new THREE.Mesh(geo, mat);
+        ribbon.renderOrder = 2;
+        this.scene.add(ribbon);
+        this.claimMeshes.push(ribbon);
+        fade.push([mat, 0.9]);
+      }
+      const washGeo = new THREE.CylinderGeometry(HEX_RADIUS - 0.02, HEX_RADIUS - 0.02, 0.002, 6);
+      const washMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: CLAIM_WASH, depthWrite: false, toneMapped: false });
+      const wash = new THREE.InstancedMesh(washGeo, washMat, tiles.length);
+      tiles.forEach((t, i) => {
+        const p = tileCenter(t, this.metrics);
+        wash.setMatrixAt(i, compose(p.x, TILE_TOP + 0.003, p.z, 0, 1, 1, 1));
+      });
+      wash.renderOrder = 1;
+      wash.frustumCulled = false;
+      this.scene.add(wash);
+      this.claimMeshes.push(wash);
+      fade.push([washMat, CLAIM_WASH]);
+      if (fresh) {
+        for (const [m] of fade) m.opacity = 0;
+        this.addAnim({ duration: 1400, update: (u) => fade.forEach(([m, to]) => (m.opacity = to * smoothstep(0, 1, u))) });
+      }
+    }
+    this.requestRender();
   }
 
   /** 달성 연출: 조각 아래 바닥에 번지는 금빛(더하기 섞기)과 화면을 향한 반짝이 별. 둘 다 그리기 호출 한 번씩이다. */
@@ -2554,6 +2853,7 @@ export class BoardRenderer {
     this.syncHarbors();
     this.syncRobber();
     this.syncPirate();
+    this.syncClaims();
     this.updateHighlights();
     // 새로 띄운 표식은 다음 그림을 기다리지 않고 바로 제자리에 놓는다 (화면 구석에 잠깐 비치지 않게).
     if (newBadge) this.updateOverlay();
@@ -2594,6 +2894,8 @@ export class BoardRenderer {
     };
     const villages = this.state.buildings.filter((b) => b.kind === 'village');
     const cities = this.state.buildings.filter((b) => b.kind === 'city');
+    this.computeFleet();
+    this.updateLanes();
     // 같은 사람의 길이 꼭짓점에서 이어지면(길끼리, 또는 내 마을·도시에 닿으면) 그쪽 끝을 꼭짓점까지 늘려 끊김 없이 잇는다.
     // 남의 마을·도시가 선 꼭짓점에서는 규칙대로 길이 끊기므로 늘리지 않는다.
     const roadsAt = new Map<string, Map<string, number>>();
@@ -2629,17 +2931,8 @@ export class BoardRenderer {
           i++;
         }
       } else if (part.kind === 'ship') {
-        // 배: 물 위 배 자리에 뱃머리를 변 방향으로 띄운다. 옮기려고 고른 배는 조금 떠올라 있다.
-        for (const sh of this.state.ships ?? []) {
-          const sp = this.shipSpot(sh.edgeId);
-          if (!sp || i >= part.mesh.instanceMatrix.count) continue;
-          const g = this.growing.get(`s:${sh.edgeId}`) ?? 1;
-          const lifted = this.state.movingShip === sh.edgeId ? 0.08 : 0;
-          const sc = FLEET_SCALE * Math.max(0.01, g);
-          part.mesh.setMatrixAt(i, compose(sp.mid.x, sp.mid.y + lifted, sp.mid.z, sp.angle, sc, sc, sc));
-          if (part.tint) part.mesh.setColorAt(i, tint(sh.colorIndex, `r:${sh.edgeId}`));
-          i++;
-        }
+        // 배는 변마다 그리지 않고 항로마다 한 척: 섬에 닿은 쪽에서 출발해 그 사람 색 뱃길을 오간다 (updateFleet 가 움직인다).
+        i = this.writeFleet(part.mesh, part.tint, performance.now());
       } else if (part.kind === 'joint') {
         // 길 둘 이상이 만나는 빈 꼭짓점에 판자 받침 (마을·도시가 선 자리는 집이 덮는다)
         for (const [v, owners] of roadsAt) {
@@ -2848,6 +3141,22 @@ export class BoardRenderer {
         if (m.instanceColor) m.instanceColor.needsUpdate = true;
       }
     }
+    // 배를 띄우거나 옮겨 댈 수 있는 바닷길: 뱃길 모양 빛 띠로 항로가 어디로 뻗을지 보여 준다.
+    if (this.laneHint) {
+      const lh = this.laneHint;
+      const lit = this.state.highlights;
+      let n = 0;
+      for (const id of lit?.shipEdges ?? []) {
+        const sp = this.shipSpot(id);
+        if (!lit || !sp || n >= lh.instanceMatrix.count) continue;
+        lh.setMatrixAt(n, compose(sp.mid.x, LANE_Y + 0.006, sp.mid.z, sp.angle, sp.length * 0.9, 1, LANE_HINT_W));
+        lh.setColorAt(n, color.set(HIGHLIGHT_COLOR[lit.kind]));
+        n++;
+      }
+      lh.count = n;
+      lh.instanceMatrix.needsUpdate = true;
+      if (lh.instanceColor) lh.instanceColor.needsUpdate = true;
+    }
     // 안내 표식: 빛나는 자리(건설 모드)나 고른 자리와 겹치는 곳은 빼고 그린다.
     const hints = this.state.hints;
     if (this.hintDots && this.hintRings) {
@@ -2881,7 +3190,7 @@ export class BoardRenderer {
         // 교역로의 배는 물 위 배 자리 밑에 금빛 띠를 깐다.
         if (this.shipOn(id)) {
           const sp = this.shipSpot(id);
-          if (sp) this.traceMark.setMatrixAt(nt++, compose(sp.mid.x, FLEET_Y + 0.008, sp.mid.z, sp.angle, 0.9, 1, 2.2));
+          if (sp) this.traceMark.setMatrixAt(nt++, compose(sp.mid.x, LANE_Y + 0.008, sp.mid.z, sp.angle, sp.length * 0.86, 1, 2.2));
           continue;
         }
         const ew = this.edgeWorld(id);

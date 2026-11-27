@@ -321,19 +321,24 @@ function quarry(rand: () => number): Local[] {
   return out;
 }
 
-/** 금광 (섬 맵): 뒤쪽에 금빛 바위 더미, 앞쪽에 광부 천막과 금을 담은 상자·통 (땅은 금빛으로 칠한 채석장 바닥) */
+/**
+ * 금광 (섬 맵): 뒤쪽 바위 언덕에 통나무로 받친 갱도 입구가 있고 언덕 곳곳에 금 광맥이 드러나 있다.
+ * 입구에서 앞으로 레일이 나와 금을 가득 실은 광차가 서 있고, 둘레에 금덩이 무더기와 곡괭이, 통과 상자가 있다 (땅은 금빛 채석장 바닥).
+ */
 function goldMine(rand: () => number): Local[] {
   const r = () => rand() * 6.28;
   const out: Local[] = [
-    { key: 'boulder', variant: 0, x: -0.46, z: -0.56, rotY: r(), scale: 1.25, sy: 1.2, shadow: 0.24 },
-    { key: 'boulder', variant: 2, x: 0.12, z: -0.78, rotY: r(), scale: 1.2, sy: 1.25, shadow: 0.24 },
-    { key: 'boulder', variant: 1, x: 0.56, z: -0.44, rotY: r(), scale: 1.1, sy: 1.15, shadow: 0.24 },
-    { key: 'tent', variant: 0, x: -0.62, z: 0.3, rotY: 0.5, scale: 0.85, shadow: 0.2 },
-    { key: 'crate', variant: 0, x: 0.58, z: 0.22, rotY: 0.3, scale: 0.85, shadow: 0.1 },
-    { key: 'crate', variant: 1, x: 0.44, z: 0.5, rotY: -0.4, scale: 0.8, shadow: 0.1 },
-    { key: 'barrel', variant: 0, x: -0.2, z: 0.78, rotY: 0.7, scale: 0.8, shadow: 0.1 },
+    // 숫자 패가 칸 가운데를 덮으니 갱도와 레일·광차는 왼쪽으로, 금 무더기는 오른쪽으로 비켜 둔다.
+    { key: 'mine', variant: 0, x: -0.3, z: -0.52, rotY: 0, scale: 1.45, shadow: 0.42, shadowAspect: 1.2 },
+    { key: 'minecart', variant: 0, x: -0.3, z: 0.24, rotY: 0, scale: 1.3, shadow: 0.16 },
+    { key: 'boulder', variant: 1, x: 0.56, z: -0.56, rotY: r(), scale: 0.75, sy: 1.05, shadow: 0.24 },
+    { key: 'nuggets', variant: 1, x: 0.5, z: -0.12, rotY: 0.4, scale: 1.5, shadow: 0.14 },
+    { key: 'nuggets', variant: 0, x: 0.46, z: 0.4, rotY: 1.2, scale: 1.4, shadow: 0.12 },
+    { key: 'nuggets', variant: 0, x: 0.06, z: 0.66, rotY: 2.4, scale: 1.1, shadow: 0.1 },
+    { key: 'barrel', variant: 0, x: -0.66, z: 0.1, rotY: 0.7, scale: 0.75, shadow: 0.1 },
+    { key: 'crate', variant: 0, x: -0.62, z: 0.42, rotY: 0.3, scale: 0.75, shadow: 0.1 },
   ];
-  scatter(out, rand, [{ key: 'pebbles', variants: 2, count: 4, scale: [0.8, 1.2], shadow: 0.1 }], (_x, z) => z > -0.2);
+  scatter(out, rand, [{ key: 'pebbles', variants: 2, count: 3, scale: [0.8, 1.2], shadow: 0.1 }], (x, z) => z > 0.35 && x > 0.15);
   return out;
 }
 

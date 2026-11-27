@@ -142,6 +142,16 @@ function reviveRoom(raw: unknown): Room | null {
     // 해적선·새 섬 보너스·금광이 생기기 전에 저장한 게임에는 셋 다 없었다.
     if (!('pirate' in game)) game.pirate = null;
     if (!('islandBonus' in game)) game.islandBonus = {};
+    // 섬을 먼저 차지한 사람을 적기 전에 저장한 게임은 보너스를 받은 사람 중 자리 순서가 앞선 사람으로 본다.
+    if (!('islandClaims' in game)) {
+      const claims: Record<string, string> = {};
+      const bonus = isObj(game.islandBonus) ? game.islandBonus : {};
+      for (const id of game.order) {
+        const list = typeof id === 'string' ? bonus[id] : null;
+        if (typeof id === 'string' && Array.isArray(list)) for (const island of list) claims[String(island)] ??= id;
+      }
+      game.islandClaims = claims;
+    }
     if (!('goldPicks' in game)) game.goldPicks = {};
     const keys = requiredGameKeys();
     if (keys && keys.some((k) => !(k in game))) return null;
