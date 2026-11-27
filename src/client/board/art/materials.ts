@@ -21,7 +21,8 @@ export type MaterialKey =
   | 'dark'
   | 'paint'
   | 'fleece'
-  | 'brick';
+  | 'brick'
+  | 'gold';
 
 /** 소품 재질이 쓰는 KTX2 텍스처 키 (public/art/textures/<키>.ktx2) */
 export type PropTextureKey =
@@ -77,6 +78,8 @@ export const MATERIALS: Record<MaterialKey, MaterialSpec> = {
   fleece: { color: '#f1e9d6', roughness: 0.95 },
   /** 구운 벽돌 (가마, 벽돌 더미) */
   brick: { color: '#a24a33', roughness: 0.9 },
+  /** 금 (섬 맵 금광의 금덩이·광맥) */
+  gold: { color: '#f4c443', roughness: 0.3, metalness: 0.8 },
 };
 
 export const MATERIAL_KEYS = Object.keys(MATERIALS) as MaterialKey[];

@@ -142,7 +142,7 @@ export function GoldDialog({ view }: { view: RoomView }) {
         </div>
         <div className="sheet-body">
           <p className="small muted">
-            금광에 닿은 마을은 1장, 도시는 2장을 원하는 자원으로 받습니다.{need < owed ? ` 은행에 남은 자원이 모자라 ${need}장만 받습니다.` : ''}
+            금광에 닿은 마을은 2장, 도시는 3장을 원하는 자원으로 받습니다.{need < owed ? ` 은행에 남은 자원이 모자라 ${need}장만 받습니다.` : ''}
           </p>
           {RESOURCES.map((r) => {
             const max = Math.min(need, g.bank ? g.bank[r] : need);

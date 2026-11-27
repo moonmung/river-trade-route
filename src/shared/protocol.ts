@@ -119,6 +119,8 @@ export interface GameView {
   pirate: string | null;
   /** 금광에서 원하는 자원을 골라 받을 장수 (사람마다, 다 고르면 빠진다) */
   goldPicks: Record<string, number>;
+  /** 작은 섬마다 처음 마을을 지은 사람 (섬 번호 → 플레이어, 예전 서버는 보내지 않는다) */
+  islandClaims?: Record<string, string>;
   devDeckCount: number;
   /** 개수 제한 없음: 길·마을·도시를 몇 개든 짓고 발전 카드도 떨어지지 않는다 */
   unlimited: boolean;

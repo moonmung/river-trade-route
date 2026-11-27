@@ -312,11 +312,14 @@ export function BuildBar({
   buildMode,
   wait = null,
   onBuild,
+  onPreview,
 }: {
   view: RoomView;
   buildMode: PieceKind | null;
   wait?: string | null;
   onBuild: (kind: PieceKind | null) => void;
+  /** 마우스를 올린 건설 버튼 (마우스만, 떠나면 null): 그 조각을 놓을 수 있는 자리를 보드에 미리 빛낸다 */
+  onPreview?: (kind: PieceKind | null) => void;
 }) {
   const g = view.game!;
   const [tip, setTip] = useState<{ key: BuildKey; n: number } | null>(null);
@@ -338,7 +341,12 @@ export function BuildBar({
         const leftText = left === Infinity ? '∞' : String(left);
         const unit = item.key === 'dev' ? '장' : '개';
         return (
-          <div key={item.key} className="bb-slot">
+          <div
+            key={item.key}
+            className="bb-slot"
+            onPointerEnter={(e) => e.pointerType === 'mouse' && item.key !== 'dev' && onPreview?.(item.key)}
+            onPointerLeave={() => item.key !== 'dev' && onPreview?.(null)}
+          >
             <button
               type="button"
               className={`bb-btn bb-${item.key} ${blocker ? 'is-blocked' : ''} ${active ? 'is-active' : ''}`}
