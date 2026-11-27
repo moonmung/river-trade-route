@@ -80,6 +80,10 @@ export interface Room {
   diceMode: DiceMode;
   /** 방장이 정한 7 버리기 (기본 있음, 다음 게임부터 쓴다) */
   sevenDiscard: boolean;
+  /** 방장이 정한 최장 교역로 달성 (기본 있음, 다음 게임부터 쓴다) */
+  longestRoadAward: boolean;
+  /** 방장이 정한 최강 기사단 달성 (기본 있음, 다음 게임부터 쓴다) */
+  largestArmyAward: boolean;
   /** 방장이 정한 한 사람의 길·마을·도시 개수 (기본 15·5·4) */
   pieceLimits: PieceLimits;
   /** 방장이 종류마다 정한 발전 카드 장수. null 이면 devCards 를 기본 비율로 나눈다. */
@@ -133,6 +137,8 @@ export function blankRoom(code: string, now = Date.now()): Room {
     unlimited: false,
     diceMode: 'balanced',
     sevenDiscard: true,
+    longestRoadAward: true,
+    largestArmyAward: true,
     pieceLimits: { ...PIECE_LIMIT },
     devMix: null,
     createdAt: now,
@@ -309,6 +315,8 @@ export class RoomManager {
       unlimited: room.unlimited,
       diceMode: room.diceMode,
       sevenDiscard: room.sevenDiscard,
+      longestRoadAward: room.longestRoadAward,
+      largestArmyAward: room.largestArmyAward,
       pieceLimits: { ...room.pieceLimits },
       devMix: room.devMix ? { ...room.devMix } : null,
     };
@@ -364,6 +372,14 @@ export class RoomManager {
       if (typeof p.sevenDiscard !== 'boolean') return { error: '7 버리기는 있음·없음 중에서 고르세요.' };
       next.sevenDiscard = p.sevenDiscard;
     }
+    if (p.longestRoadAward !== undefined) {
+      if (typeof p.longestRoadAward !== 'boolean') return { error: '최장 교역로는 있음·없음 중에서 고르세요.' };
+      next.longestRoadAward = p.longestRoadAward;
+    }
+    if (p.largestArmyAward !== undefined) {
+      if (typeof p.largestArmyAward !== 'boolean') return { error: '최강 기사단은 있음·없음 중에서 고르세요.' };
+      next.largestArmyAward = p.largestArmyAward;
+    }
     if (p.devCards !== undefined) {
       const n = normalizeDevCards(p.devCards);
       if (n === null) return { error: `발전 카드는 ${DEV_CARDS_MIN}~${DEV_CARDS_MAX}장 사이로 정하세요.` };
@@ -392,6 +408,8 @@ export class RoomManager {
       next.unlimited === room.unlimited &&
       next.diceMode === room.diceMode &&
       next.sevenDiscard === room.sevenDiscard &&
+      next.longestRoadAward === room.longestRoadAward &&
+      next.largestArmyAward === room.largestArmyAward &&
       JSON.stringify(next.pieceLimits) === JSON.stringify(room.pieceLimits) &&
       JSON.stringify(next.devMix) === JSON.stringify(room.devMix);
     if (same) return null;
@@ -427,6 +445,8 @@ export class RoomManager {
         unlimited: room.unlimited,
         diceMode: room.diceMode,
         sevenDiscard: room.sevenDiscard,
+        longestRoadAward: room.longestRoadAward,
+        largestArmyAward: room.largestArmyAward,
       },
     );
     room.phase = 'game';

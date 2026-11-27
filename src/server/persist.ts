@@ -128,6 +128,9 @@ function reviveRoom(raw: unknown): Room | null {
     if (!('fairDice' in game)) game.fairDice = null;
     // 7 버리기를 끌 수 있기 전에 저장한 게임은 늘 버렸다.
     if (!('sevenDiscard' in game)) game.sevenDiscard = true;
+    // 최장 교역로·최강 기사단을 끌 수 있기 전에 저장한 게임에는 둘 다 있었다.
+    if (!('longestRoadAward' in game)) game.longestRoadAward = true;
+    if (!('largestArmyAward' in game)) game.largestArmyAward = true;
     // 길·마을·도시 개수를 정할 수 있기 전에 저장한 게임은 기본 개수였다.
     if (!('pieceLimits' in game)) game.pieceLimits = { ...PIECE_LIMIT };
     // 배 개수가 생기기 전에 저장한 개수에는 배가 없다.
@@ -165,6 +168,8 @@ function reviveRoom(raw: unknown): Room | null {
     devCards: normalizeDevCards(raw.devCards) ?? base.devCards,
     unlimited: raw.unlimited === true,
     sevenDiscard: raw.sevenDiscard !== false,
+    longestRoadAward: raw.longestRoadAward !== false,
+    largestArmyAward: raw.largestArmyAward !== false,
     pieceLimits: normalizePieceLimits(raw.pieceLimits) ?? { ...PIECE_LIMIT },
     devMix: normalizeDevMix(raw.devMix),
     diceMode: normalizeDiceMode(raw.diceMode) ?? base.diceMode,

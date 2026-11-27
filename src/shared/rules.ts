@@ -152,6 +152,10 @@ export interface GameState {
   diceMode: DiceMode;
   /** 7 버리기: 7이 나오면 보유 한도보다 많이 든 사람이 절반을 버린다 (방장이 끌 수 있다. 꺼도 동상 옮기기·빼앗기는 그대로) */
   sevenDiscard: boolean;
+  /** 최장 교역로 2점이 있는지 (방장이 끌 수 있다. 끄면 아무도 갖지 않는다) */
+  longestRoadAward: boolean;
+  /** 최강 기사단 2점이 있는지 (방장이 끌 수 있다. 꺼도 기사 카드는 그대로 쓴다) */
+  largestArmyAward: boolean;
   /** 고르게 굴리기의 남은 눈 카드와 기록 (random 이면 null). 화면에는 보내지 않는다. */
   fairDice: FairDiceState | null;
   /** 이번 턴에 발전 카드를 이미 썼는지 (승점 카드 제외, 한 턴에 1장) */
@@ -233,6 +237,10 @@ export interface GameOptions {
   diceMode?: DiceMode;
   /** 7 버리기 (기본 true) */
   sevenDiscard?: boolean;
+  /** 최장 교역로 달성 (기본 true) */
+  longestRoadAward?: boolean;
+  /** 최강 기사단 달성 (기본 true) */
+  largestArmyAward?: boolean;
 }
 
 /** 한 사람이 가질 수 있는 조각 수 (방장이 정한 개수, 없으면 기본값). 개수 제한 없음이면 끝이 없다. */
@@ -302,6 +310,8 @@ export function createGame(playerIds: string[], random: () => number = Math.rand
     pieceLimits,
     diceMode: o.diceMode ?? 'random',
     sevenDiscard: o.sevenDiscard !== false,
+    longestRoadAward: o.longestRoadAward !== false,
+    largestArmyAward: o.largestArmyAward !== false,
     fairDice: o.diceMode === 'balanced' ? newFairDice(order) : null,
     devPlayedThisTurn: false,
     freeRoads: 0,
@@ -619,11 +629,11 @@ export function longestRoadPath(board: ShipBoard, roads: readonly Road[], buildi
   return best;
 }
 
-/** 승점: 마을·도시 + 새 섬 보너스 + 최장 교역로·최강 기사단 각 2점 (+ 숨긴 승점 카드, hidden=true 일 때) */
+/** 승점: 마을·도시 + 새 섬 보너스 + 최장 교역로·최강 기사단 각 2점(방장이 끄지 않았을 때) (+ 숨긴 승점 카드, hidden=true 일 때) */
 export function victoryPoints(s: GameState, playerId: string, includeHidden = false): number {
   let vp = buildingPoints(s.buildings, playerId) + islandBonusPoints(s, playerId);
-  if (s.longestRoad.holder === playerId) vp += AWARD_POINTS;
-  if (s.largestArmy.holder === playerId) vp += AWARD_POINTS;
+  if (s.longestRoadAward !== false && s.longestRoad.holder === playerId) vp += AWARD_POINTS;
+  if (s.largestArmyAward !== false && s.largestArmy.holder === playerId) vp += AWARD_POINTS;
   if (includeHidden) vp += s.players[playerId].devCards.filter((c) => c.kind === 'victory').length;
   return vp;
 }
@@ -1522,8 +1532,10 @@ function afterAction(s: GameState): void {
 
 /**
  * 최장 교역로: 길과 배를 이어 5칸 이상 가장 긴 한 사람. 가진 사람과 같은 길이면 가진 사람이 지키고, 다른 사람끼리 비기면 아무도 갖지 않는다.
+ * 방장이 최장 교역로를 끄면 아무도 갖지 않는다.
  */
 function updateLongestRoad(s: GameState): void {
+  if (s.longestRoadAward === false) return;
   const lens = Object.fromEntries(s.order.map((id) => [id, longestRoadLength(boardOf(s), s.roads, s.buildings, id, s.ships)]));
   const max = Math.max(...Object.values(lens));
   const prev = s.longestRoad.holder;
@@ -1538,8 +1550,9 @@ function updateLongestRoad(s: GameState): void {
   if (holder !== prev) pushEvent(s, { kind: 'award', award: 'longest_road', player: holder, previous: prev, size: holder ? lens[holder] : max });
 }
 
-/** 최강 기사단: 기사 3장 이상, 지금 가진 사람보다 많이 쓴 사람에게 넘어간다. */
+/** 최강 기사단: 기사 3장 이상, 지금 가진 사람보다 많이 쓴 사람에게 넘어간다. 방장이 끄면 아무도 갖지 않는다. */
 function updateLargestArmy(s: GameState, playerId: string): void {
+  if (s.largestArmyAward === false) return;
   const n = s.players[playerId].knightsPlayed;
   const prev = s.largestArmy.holder;
   if (n < LARGEST_ARMY_MIN || prev === playerId) {

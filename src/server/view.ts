@@ -39,5 +39,7 @@ export function buildRoomView(room: Room, viewer: string, deadline: number | nul
     unlimited: room.unlimited,
     diceMode: room.diceMode,
     sevenDiscard: room.sevenDiscard,
+    longestRoadAward: room.longestRoadAward,
+    largestArmyAward: room.largestArmyAward,
   };
 }
