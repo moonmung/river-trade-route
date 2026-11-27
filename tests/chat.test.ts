@@ -39,6 +39,8 @@ function fakeRoom(): { room: Room; a: RoomPlayer; b: RoomPlayer } {
     unlimited: false,
     diceMode: 'balanced',
     sevenDiscard: true,
+    longestRoadAward: true,
+    largestArmyAward: true,
     pieceLimits: { road: 15, village: 5, city: 4, ship: 15 },
     devMix: null,
     createdAt: 0,

@@ -13,6 +13,7 @@ import { RulesSummary } from '../ui/RulesSummary';
 import { showToast } from '../ui/toast';
 import { NumberStepper, WinPointsStepper, saveWinPoints, turnSecondsLabel } from '../ui/WinPoints';
 import {
+  AWARD_POINTS,
   DEV_CARDS_MAX,
   DEV_CARDS_MIN,
   DEV_KIND_MAX,
@@ -222,6 +223,29 @@ function NameEditor({ view }: { view: RoomView }) {
   );
 }
 
+/** 방장이 켜고 끄는 달성 점수 두 가지 (예전 서버가 값을 보내지 않으면 있음) */
+const AWARD_RULES = [
+  {
+    key: 'longestRoadAward',
+    label: '최장 교역로',
+    on: `있음 (가장 긴 길에 ${AWARD_POINTS}점)`,
+    hint: `없음으로 하면 길을 가장 길게 이어도 ${AWARD_POINTS}점을 받지 않습니다`,
+  },
+  {
+    key: 'largestArmyAward',
+    label: '최강 기사단',
+    on: `있음 (기사를 가장 많이 쓰면 ${AWARD_POINTS}점)`,
+    hint: `없음으로 하면 기사 카드를 가장 많이 써도 ${AWARD_POINTS}점을 받지 않습니다 (기사 카드는 그대로 씁니다)`,
+  },
+] as const;
+
+/** 대기실 규칙 설명에 붙이는 달성 점수 한 줄 (둘 다 있으면 기본 규칙이라 말하지 않는다) */
+function awardsText(road: boolean, army: boolean): string {
+  if (road && army) return '';
+  if (!road && !army) return '최장 교역로와 최강 기사단 점수는 없습니다. ';
+  return road ? '최강 기사단 점수는 없습니다. ' : '최장 교역로 점수는 없습니다. ';
+}
+
 export function Lobby({ view }: { view: RoomView }) {
   const info = useServerInfo();
   const [chosen, setChosen] = useState<string | null>(null);
@@ -357,6 +381,34 @@ export function Lobby({ view }: { view: RoomView }) {
               )}
             </div>
             )}
+            {AWARD_RULES.map((a) => {
+              const on = view[a.key] !== false;
+              return (
+                <div className="rule-row" key={a.key}>
+                  <span className="rule-name" title={a.hint}>
+                    {a.label}
+                  </span>
+                  {isHost ? (
+                    <select
+                      className="rule-select"
+                      value={on ? 'on' : 'off'}
+                      aria-label={`${a.label} 점수`}
+                      onChange={async (e) => {
+                        const res = await client.setSettings({ [a.key]: e.target.value === 'on' });
+                        if (!res.ok) showToast(res.error, 'error');
+                      }}
+                    >
+                      <option value="on">{a.on}</option>
+                      <option value="off">없음 (점수 없음)</option>
+                    </select>
+                  ) : (
+                    <div className="wp-fixed">
+                      <b>{on ? '있음' : '없음'}</b>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             <div className="rule-row">
               <span className="rule-name" title="은행에 자원마다 두는 카드 수. 다 떨어지면 그 자원은 받을 수 없습니다">
                 자원 카드
@@ -594,6 +646,7 @@ export function Lobby({ view }: { view: RoomView }) {
             {sevenDiscard
               ? `7이 나오면 자원이 ${view.handLimit}장보다 많은 사람이 절반을 버립니다.`
               : '7이 나와도 자원을 버리지 않고 동상 옮기기와 빼앗기만 합니다.'}{' '}
+            {awardsText(view.longestRoadAward !== false, view.largestArmyAward !== false)}
             {view.turnSeconds > 0 ? `한 차례 ${turnSecondsLabel(view.turnSeconds)} 안에 끝내지 못하면 자동으로 진행합니다.` : '차례 시간 제한이 없습니다.'}{' '}
             은행에는 자원마다 {view.resourceCards}장이 있고 다 떨어진 자원은 생산과 교환으로 받을 수 없습니다. 발전 카드 {view.devCards}장은{' '}
             {devDeckText(view.devMix)}입니다.{view.unlimited ? '' : ` 한 사람이 ${pieceLimitText(view.pieceLimits, view.map.shape)}개까지 짓습니다.`}

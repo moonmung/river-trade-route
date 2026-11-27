@@ -234,6 +234,7 @@ const CLOSE_REASON: Record<Exclude<TradeCloseReason, 'cancelled'>, string> = {
  */
 export function roadStatus(view: RoomView, owner: string, len: number, name: (id: string) => string): string {
   const g = view.game!;
+  if (g.longestRoadAward === false) return `가장 긴 길 ${len}칸 · 이 판은 최장 교역로 점수가 없습니다`;
   const holder = g.longestRoad.holder;
   if (holder === owner) return `최장 교역로 보유 중 (+${AWARD_POINTS}점)`;
   if (holder) {

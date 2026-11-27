@@ -439,6 +439,37 @@ describe('최장 교역로와 승리', () => {
     expect(longestRoadLength(boardOf(s), s.roads, s.buildings, 'p1')).toBeLessThan(5);
   });
 
+  it('방장이 최장 교역로를 끄면 길 5칸을 이어도 아무도 갖지 않고 점수도 없다', () => {
+    const s = toMain(setup3());
+    s.longestRoadAward = false;
+    s.players.p1.resources = each(9);
+    let at = V('A1', 'B1');
+    let prev = P1A;
+    for (let i = 0; i < 4; i++) {
+      const next = VERTEX_MAP[at].neighbors.find((n) => n !== prev && !s.roads.some((r) => r.edgeId === E(at, n)))!;
+      act(s, 'p1', { type: 'build_road', edgeId: E(at, next) });
+      prev = at;
+      at = next;
+    }
+    expect(longestRoadLength(boardOf(s), s.roads, s.buildings, 'p1')).toBe(5);
+    expect(s.longestRoad.holder).toBeNull();
+    expect(victoryPoints(s, 'p1')).toBe(2);
+    expect(s.events.some((e) => e.kind === 'award')).toBe(false);
+  });
+
+  it('방장이 최강 기사단을 끄면 기사는 그대로 쓰지만 3장을 넘겨도 점수가 없다', () => {
+    const s = toMain(setup3());
+    s.largestArmyAward = false;
+    s.players.p1.knightsPlayed = 2;
+    s.players.p1.devCards = [{ kind: 'knight', boughtTurn: 0 }];
+    act(s, 'p1', { type: 'play_dev', kind: 'knight' });
+    expect(s.players.p1.knightsPlayed).toBe(3);
+    expect(s.step).toBe('robber');
+    expect(s.largestArmy.holder).toBeNull();
+    expect(victoryPoints(s, 'p1')).toBe(2);
+    expect(s.events.some((e) => e.kind === 'award')).toBe(false);
+  });
+
   it('자기 턴에 승점(숨긴 승점 카드 포함)이 10점에 닿으면 바로 이긴다', () => {
     const s = toMain(setup3());
     // 도시 1(2점) + 마을 2(2점) + 숨긴 승점 카드 5장 = 9점. 마을 하나를 도시로 올리면 10점.

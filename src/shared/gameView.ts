@@ -86,6 +86,8 @@ export function buildGameView(g: GameState, viewer: string, clock: ClockInfo = {
     unlimited: !!g.unlimited,
     diceMode: g.diceMode ?? 'random',
     sevenDiscard: g.sevenDiscard !== false,
+    longestRoadAward: g.longestRoadAward !== false,
+    largestArmyAward: g.largestArmyAward !== false,
     pieceLimits: { ...(g.pieceLimits ?? PIECE_LIMIT) },
     devPlayedThisTurn: g.devPlayedThisTurn,
     freeRoads: g.freeRoads,

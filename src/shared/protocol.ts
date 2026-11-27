@@ -126,6 +126,10 @@ export interface GameView {
   diceMode: DiceMode;
   /** 7이 나오면 보유 한도보다 많이 든 사람이 절반을 버리는지 */
   sevenDiscard: boolean;
+  /** 최장 교역로 2점이 있는지 (예전 서버는 보내지 않는다: 없으면 있음) */
+  longestRoadAward?: boolean;
+  /** 최강 기사단 2점이 있는지 (예전 서버는 보내지 않는다: 없으면 있음) */
+  largestArmyAward?: boolean;
   /** 한 사람이 가질 수 있는 길·마을·도시 개수 (방장이 정한 값) */
   pieceLimits: PieceLimits;
   devPlayedThisTurn: boolean;
@@ -185,6 +189,10 @@ export interface RoomView {
   diceMode: DiceMode;
   /** 방장이 정한 7 버리기 (있음·없음) */
   sevenDiscard: boolean;
+  /** 방장이 정한 최장 교역로 달성 (있음·없음, 예전 서버는 보내지 않는다: 없으면 있음) */
+  longestRoadAward?: boolean;
+  /** 방장이 정한 최강 기사단 달성 (있음·없음, 예전 서버는 보내지 않는다: 없으면 있음) */
+  largestArmyAward?: boolean;
 }
 
 /** 방장이 대기실에서 바꾸는 규칙 (보낸 것만 바뀐다) */
@@ -203,6 +211,8 @@ export interface RoomSettingsPatch {
   unlimited?: boolean;
   diceMode?: DiceMode;
   sevenDiscard?: boolean;
+  longestRoadAward?: boolean;
+  largestArmyAward?: boolean;
 }
 
 export interface RoomPeek {
