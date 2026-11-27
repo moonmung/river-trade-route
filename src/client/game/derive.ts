@@ -20,8 +20,11 @@ import {
   buildableVillages,
   pieceCount,
   pieceLimit,
+  pirateEdges,
   pirateTargets,
   placeableVertices,
+  roadAt,
+  shipAt,
   setupRoadEdges,
   setupShipEdges,
   shipMoveProblem,
@@ -176,6 +179,17 @@ export interface BoardHighlights {
   tiles: string[];
   /** 해적선을 옮길 수 있는 바다 칸 (c…) */
   seaCells: string[];
+  /** 배가 앞으로 갈 수 있는 빈 바닷길 전체 (배 버튼 미리 보기·배 건설 중에만, 물 위에 해도 점을 찍는다) */
+  seaChart?: string[];
+}
+
+/** 배가 앞으로 갈 수 있는 빈 바닷길: 길도 배도 없고 해적선이 막지 않은 바다의 변 (지금 띄울 수 있는 자리는 빼고) */
+export function seaChart(g: GameView, except: readonly string[] = []): string[] {
+  const net = boardOf(g).sea;
+  if (!net) return [];
+  const skip = new Set(except);
+  const blocked = pirateEdges(net, g.pirate);
+  return net.edges.filter((e) => !skip.has(e.id) && !blocked.has(e.id) && !shipAt(g.ships, e.id) && !roadAt(g.roads, e.id)).map((e) => e.id);
 }
 
 /** 보드에서 하는 중인 일: 건설 모드(길·마을·도시·배)와 옮기려고 고른 내 배 */
@@ -196,7 +210,7 @@ export function previewHighlights(view: RoomView, kind: PieceKind): BoardHighlig
   if (!g || g.phase !== 'playing') return none;
   const spots = buildSpots(view, kind);
   if (kind === 'road') return { ...none, edges: spots };
-  if (kind === 'ship') return { ...none, shipEdges: spots };
+  if (kind === 'ship') return { ...none, shipEdges: spots, seaChart: seaChart(g, spots) };
   return { ...none, vertices: spots };
 }
 
@@ -226,7 +240,7 @@ export function boardHighlights(view: RoomView, pick: BoardPick = NO_PICK): Boar
   if (!mode || buildBlocker(view, mode)) return none;
   const spots = buildSpots(view, mode);
   if (mode === 'road') return { ...none, edges: spots };
-  if (mode === 'ship') return { ...none, shipEdges: spots };
+  if (mode === 'ship') return { ...none, shipEdges: spots, seaChart: seaChart(g, spots) };
   return { ...none, vertices: spots };
 }
 
